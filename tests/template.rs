@@ -1,7 +1,11 @@
 use dwin;
 
 #[test]
-fn it_works() {
-    let result = dwin::add(2, 2);
-    assert_eq!(result, 4);
+fn ack_with_crc() {
+    let packet = [0x5A, 0xA5, 5, 0x82, 'O' as u8, 'K' as u8, 0xA5, 0xEF];
+    let result = dwin::parse(&packet);
+    match result.unwrap(){
+        dwin::ParseOk::Ack => (),
+        _ => assert!(false),
+    }
 }

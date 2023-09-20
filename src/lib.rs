@@ -41,6 +41,19 @@ pub struct Packet {
 
 //is Result wrap necessary? Should parser be another module?
 pub fn parse(received_bytes: &[u8]) -> Result<ParseOk, ParseErr> {
+    // Protocol: [HDR:2][LEN:1][CMD:1][ADDR:2][WLEN:1][DATA:N][CRC:2]
+    // HDR: Header frames
+    // LEN: Size of the packet starting from CMD, includes CRC
+    // CMD: Refer to DGUS DevGuide
+    // ADDR: Address of the DWIN variable
+    // CRC: is optional, uses CRC_16_MODBUS, little endian
+    // DATA: Max 246 bytes. Each DWIN address holds 2 bytes, big endian
+    // WLEN: byte, word or dword length based on command
+
+    // Exceptions: Write commands return ACK.
+    // ACK: [HDR:2][LEN:1][CMD:1]['O''K':2][CRC:2]
+
+    // Check if headers are correct
     if HDR0 != received_bytes[0] {
         return Err(ParseErr::BadHdr0);
     }
@@ -49,10 +62,13 @@ pub fn parse(received_bytes: &[u8]) -> Result<ParseOk, ParseErr> {
         return Err(ParseErr::BadHdr1);
     }
 
+    // Get the packet length including as usize, rust limitation
     let len: usize = received_bytes[2].into();
 
+    // Slice between LEN and CRC
     let data_bytes = &received_bytes[3..len + 3 - CRC_ENABLED as usize * 2];
 
+    // Calculate CRC16 if enabled
     if CRC_ENABLED {
         let received_crc = u16::from_le_bytes([received_bytes[len + 2], received_bytes[len + 1]]);
         let calculated_crc = CRC.compute(&data_bytes);
@@ -61,6 +77,7 @@ pub fn parse(received_bytes: &[u8]) -> Result<ParseOk, ParseErr> {
         }
     }
 
+    // Is it ack?
     if len == 3 + CRC_ENABLED as usize * 2
         && data_bytes[0] == Cmd::VarWrite as u8
         && data_bytes[1] == 'O' as u8

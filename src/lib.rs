@@ -1,5 +1,7 @@
 #![no_std]
 
+use core::mem;
+
 //can it be optional?
 use crcxx::crc16::{catalog::CRC_16_MODBUS, *};
 const CRC: Crc<LookupTable256> = Crc::<LookupTable256>::new(&CRC_16_MODBUS);
@@ -7,18 +9,21 @@ const CRC: Crc<LookupTable256> = Crc::<LookupTable256>::new(&CRC_16_MODBUS);
 //ToDo: make this cfg
 const HDR0: u8 = 0x5A;
 const HDR1: u8 = 0xA5;
-const CRC_ENABLED: bool = false;
+const CRC_ENABLED: bool = true;
 const MAX_DATA: usize = 246;
 
 #[repr(u8)]
 pub enum Cmd {
-    RegWrite = 0x80,
-    RegRead,
-    VarWrite,
-    VarRead,
+    Write8 = 0x80,
+    Read8,
+    Write16,
+    Read16,
+    WriteCurve,
+    Undefined,
+    Write32,
+    Read32,
 }
 
-#[derive(Debug)]
 pub enum ParseErr {
     BadHdr0,
     BadHdr1,
@@ -26,17 +31,23 @@ pub enum ParseErr {
     BadCmd,
 }
 
-#[derive(Debug)]
 pub enum ParseOk {
     Ack,
-    Data(Packet),
-}
-
-#[derive(Debug)]
-pub struct Packet {
-    pub addr: u16,
-    pub wlen: usize,
-    pub data: [u16; MAX_DATA / 2],
+    Data8 {
+        addr: u16,
+        wlen: usize,
+        data: [u8; MAX_DATA / mem::size_of::<u8>()],
+    },
+    Data16 {
+        addr: u16,
+        wlen: usize,
+        data: [u16; MAX_DATA / mem::size_of::<u16>()],
+    },
+    Data32 {
+        addr: u16,
+        wlen: usize,
+        data: [u32; MAX_DATA / mem::size_of::<u32>()],
+    },
 }
 
 //is Result wrap necessary? Should parser be another module?
@@ -70,8 +81,8 @@ pub fn parse(received_bytes: &[u8]) -> Result<ParseOk, ParseErr> {
 
     // Calculate CRC16 if enabled
     if CRC_ENABLED {
-        let received_crc = u16::from_le_bytes([received_bytes[len + 2], received_bytes[len + 1]]);
-        let calculated_crc = CRC.compute(&data_bytes);
+        let received_crc = u16::from_le_bytes([received_bytes[len + 1], received_bytes[len + 2]]);
+        let calculated_crc = CRC.compute(data_bytes);
         if calculated_crc != received_crc {
             return Err(ParseErr::BadCrc);
         }
@@ -79,26 +90,40 @@ pub fn parse(received_bytes: &[u8]) -> Result<ParseOk, ParseErr> {
 
     // Is it ack?
     if len == 3 + CRC_ENABLED as usize * 2
-        && data_bytes[0] == Cmd::VarWrite as u8
-        && data_bytes[1] == 'O' as u8
-        && data_bytes[2] == 'K' as u8
+        && ((data_bytes[0] == Cmd::Write8 as u8)
+            || (data_bytes[0] == Cmd::Write16 as u8)
+            || (data_bytes[0] == Cmd::Write32 as u8))
+        && data_bytes[1] == b'O'
+        && data_bytes[2] == b'K'
     {
         return Ok(ParseOk::Ack);
     }
 
-    let cmd = data_bytes[0];
+    // Lazy conversion
+    let cmd: Cmd = unsafe { mem::transmute(data_bytes[0]) };
     let addr = u16::from_be_bytes([data_bytes[1], data_bytes[2]]);
     let wlen = data_bytes[3] as usize;
-    let mut data = [0u16; MAX_DATA / 2];
-
     let data_bytes = &data_bytes[4..];
-    if cmd == Cmd::VarRead as u8 {
-        // BigEndian u8:2 to native u16
-        for (i, bytes) in data_bytes.chunks(2).enumerate() {
-            data[i] = u16::from_be_bytes(bytes.try_into().unwrap());
-        }
-        return Ok(ParseOk::Data(Packet { addr, wlen, data }));
-    }
 
-    Err(ParseErr::BadCmd)
+    match cmd {
+        Cmd::Read8 => {
+            let data = data_bytes.try_into().unwrap();
+            Ok(ParseOk::Data8 { addr, wlen, data })
+        }
+        Cmd::Read16 => {
+            let mut data = [0u16; MAX_DATA / mem::size_of::<u16>()];
+            for (i, bytes) in data_bytes.chunks(2).enumerate() {
+                data[i] = u16::from_be_bytes(bytes.try_into().unwrap());
+            }
+            Ok(ParseOk::Data16 { addr, wlen, data })
+        }
+        Cmd::Read32 => {
+            let mut data = [0u32; MAX_DATA / mem::size_of::<u32>()];
+            for (i, bytes) in data_bytes.chunks(4).enumerate() {
+                data[i] = u32::from_be_bytes(bytes.try_into().unwrap());
+            }
+            Ok(ParseOk::Data32 { addr, wlen, data })
+        }
+        _ => Err(ParseErr::BadCmd),
+    }
 }

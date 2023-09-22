@@ -74,7 +74,7 @@ pub fn parse(received_bytes: &[u8]) -> Result<ParseOk, ParseErr> {
     }
 
     // Get the packet length including as usize, rust limitation
-    let len: usize = received_bytes[2].into();
+    let len = received_bytes[2] as usize;
 
     // Slice between LEN and CRC
     let data_bytes = &received_bytes[3..len + 3 - CRC_ENABLED as usize * 2];
@@ -82,8 +82,7 @@ pub fn parse(received_bytes: &[u8]) -> Result<ParseOk, ParseErr> {
     // Calculate CRC16 if enabled
     if CRC_ENABLED {
         let received_crc = u16::from_le_bytes([received_bytes[len + 1], received_bytes[len + 2]]);
-        let calculated_crc = CRC.compute(data_bytes);
-        if calculated_crc != received_crc {
+        if CRC.compute(data_bytes) == received_crc {
             return Err(ParseErr::BadCrc);
         }
     }
@@ -112,18 +111,88 @@ pub fn parse(received_bytes: &[u8]) -> Result<ParseOk, ParseErr> {
         }
         Cmd::Read16 => {
             let mut data = [0u16; MAX_DATA / mem::size_of::<u16>()];
-            for (i, bytes) in data_bytes.chunks(2).enumerate() {
+            for (i, bytes) in data_bytes.chunks(mem::size_of::<u16>()).enumerate() {
                 data[i] = u16::from_be_bytes(bytes.try_into().unwrap());
             }
             Ok(ParseOk::Data16 { addr, wlen, data })
         }
         Cmd::Read32 => {
             let mut data = [0u32; MAX_DATA / mem::size_of::<u32>()];
-            for (i, bytes) in data_bytes.chunks(4).enumerate() {
+            for (i, bytes) in data_bytes.chunks(mem::size_of::<u32>()).enumerate() {
                 data[i] = u32::from_be_bytes(bytes.try_into().unwrap());
             }
             Ok(ParseOk::Data32 { addr, wlen, data })
         }
         _ => Err(ParseErr::BadCmd),
+    }
+}
+
+// todo: move to separate file
+pub struct Packet {
+    data: [u8; MAX_DATA],
+}
+
+impl Packet {
+    //todo: only accept write cmds, return error otherwise
+    pub fn build(cmd: Cmd, addr: u16) -> Packet {
+        let mut packet = Packet {
+            data: [0; MAX_DATA],
+        };
+        packet.data[0] = HDR0;
+        packet.data[1] = HDR1;
+        // index 2 is skipped, it tracks len
+        packet.add(cmd as u8); //index 3
+        packet.add_u16(addr); //index 4 and 5
+        packet
+    }
+
+    // todo: test dwin response if len is oddnum?
+    // Note: Consumes the package, package invalid afterwards
+    pub fn consume(mut self) -> (usize, [u8; MAX_DATA]) {
+        if CRC_ENABLED {
+            // calculate crc from [CMD] to end.
+            let len = self.data[2] as usize + 3;
+            let data_bytes = &self.data[3..len];
+            let crc = CRC.compute(data_bytes).to_le_bytes();
+            // CRC should be little endian in payload, so can't use add_u16
+            self.add(crc[0]);
+            self.add(crc[1]);
+        }
+
+        // actual payload len is len + 3
+        // +2 header and +1 len itself
+        // todo: 3 scattered everywhere RN, consider making it const
+        let len = self.data[2] as usize + 3;
+        (len, self.data)
+    }
+
+    fn add(&mut self, data: u8) {
+        // 2nd index in payload represents length excluding header and itself
+        // we use this directly to track payload length
+        // skip first three index - header and itself
+        self.data[self.data[2] as usize + 3] = data;
+        self.data[2] += 1;
+    }
+
+    // todo: try generics?
+    pub fn add_u8(&mut self, data: u8) {
+        let bytes = data.to_be_bytes();
+        for byte in bytes {
+            self.add(byte);
+        }
+    }
+
+    pub fn add_u16(&mut self, data: u16) {
+        let bytes = data.to_be_bytes();
+        for byte in bytes {
+            self.add(byte);
+        }
+    }
+
+    pub fn add_u32(&mut self, data: u32) {
+        let bytes = data.to_be_bytes();
+        for byte in bytes {
+            self.add(byte);
+        }
     }
 }

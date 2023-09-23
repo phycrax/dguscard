@@ -195,4 +195,53 @@ impl Packet {
             self.add(byte);
         }
     }
+
+    pub fn add_u64(&mut self, data: u64) {
+        let bytes = data.to_be_bytes();
+        for byte in bytes {
+            self.add(byte);
+        }
+    }
+
+    pub fn add_i8(&mut self, data: i8) {
+        let bytes = data.to_be_bytes();
+        for byte in bytes {
+            self.add(byte);
+        }
+    }
+
+    pub fn add_i16(&mut self, data: i16) {
+        let bytes = data.to_be_bytes();
+        for byte in bytes {
+            self.add(byte);
+        }
+    }
+
+    pub fn add_i32(&mut self, data: i32) {
+        let bytes = data.to_be_bytes();
+        for byte in bytes {
+            self.add(byte);
+        }
+    }
+
+    pub fn add_i64(&mut self, data: i64) {
+        let bytes = data.to_be_bytes();
+        for byte in bytes {
+            self.add(byte);
+        }
+    }
+
+    pub fn add_f32(&mut self, data: f32) {
+        let bytes = data.to_be_bytes();
+        for byte in bytes {
+            self.add(byte);
+        }
+    }
+
+    pub fn add_f64(&mut self, data: f64) {
+        let bytes = data.to_be_bytes();
+        for byte in bytes {
+            self.add(byte);
+        }
+    }
 }

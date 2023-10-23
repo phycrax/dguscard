@@ -30,9 +30,9 @@ fn parse_one_u16() {
 
 #[test]
 fn set_background_icl_output() {
-    let mut packet = Packet::build(Cmd::Write16, 0x00DE);
-    packet.add_u16(0x5A00);
-    packet.add_u16(0x1234);
+    let mut packet = Packet::new(Cmd::Write16, 0x00DE);
+    packet.append(0x5A00_u16);
+    packet.append(0x1234_u16);
     let (len, data) = packet.consume();
 
     if len != 12 {

@@ -14,8 +14,8 @@ const MAX_DATA: usize = 246;
 
 #[repr(u8)]
 pub enum Cmd {
-    Write8 = 0x80,
-    Read8,
+    WriteRegister = 0x80,
+    ReadRegister,
     Write16,
     Read16,
     WriteCurve,
@@ -89,7 +89,7 @@ pub fn parse(received_bytes: &[u8]) -> Result<ParseOk, ParseErr> {
 
     // Is it ack?
     if len == 3 + CRC_ENABLED as usize * 2
-        && ((data_bytes[0] == Cmd::Write8 as u8)
+        && ((data_bytes[0] == Cmd::WriteRegister as u8)
             || (data_bytes[0] == Cmd::Write16 as u8)
             || (data_bytes[0] == Cmd::Write32 as u8))
         && data_bytes[1] == b'O'
@@ -105,7 +105,7 @@ pub fn parse(received_bytes: &[u8]) -> Result<ParseOk, ParseErr> {
     let data_bytes = &data_bytes[4..];
 
     match cmd {
-        Cmd::Read8 => {
+        Cmd::ReadRegister => {
             let data = data_bytes.try_into().unwrap();
             Ok(ParseOk::Data8 { addr, wlen, data })
         }
@@ -134,19 +134,20 @@ pub struct Packet {
 
 impl Packet {
     //todo: only accept write cmds, return error otherwise
-    pub fn build(cmd: Cmd, addr: u16) -> Packet {
+    pub fn new(cmd: Cmd, addr: u16) -> Packet {
         let mut packet = Packet {
             data: [0; MAX_DATA],
         };
         packet.data[0] = HDR0;
         packet.data[1] = HDR1;
         // index 2 is skipped, it tracks len
-        packet.add(cmd as u8); //index 3
-        packet.add_u16(addr); //index 4 and 5
+        packet.append(cmd as u8); //index 3
+        packet.append(addr); //index 4 and 5
         packet
     }
 
     // todo: test dwin response if len is oddnum?
+    // todo: how to ensure payload is aligned if there is an odd byte?
     // Note: Consumes the package, package invalid afterwards
     pub fn consume(mut self) -> (usize, [u8; MAX_DATA]) {
         if CRC_ENABLED {
@@ -155,8 +156,8 @@ impl Packet {
             let data_bytes = &self.data[3..len];
             let crc = CRC.compute(data_bytes).to_le_bytes();
             // CRC should be little endian in payload, so can't use add_u16
-            self.add(crc[0]);
-            self.add(crc[1]);
+            self.append(crc[0]);
+            self.append(crc[1]);
         }
 
         // actual payload len is len + 3
@@ -165,83 +166,68 @@ impl Packet {
         let len = self.data[2] as usize + 3;
         (len, self.data)
     }
-
-    fn add(&mut self, data: u8) {
-        // 2nd index in payload represents length excluding header and itself
-        // we use this directly to track payload length
-        // skip first three index - header and itself
-        self.data[self.data[2] as usize + 3] = data;
-        self.data[2] += 1;
-    }
-
-    // todo: try generics?
-    pub fn add_u8(&mut self, data: u8) {
-        let bytes = data.to_be_bytes();
-        for byte in bytes {
-            self.add(byte);
-        }
-    }
-
-    pub fn add_u16(&mut self, data: u16) {
-        let bytes = data.to_be_bytes();
-        for byte in bytes {
-            self.add(byte);
-        }
-    }
-
-    pub fn add_u32(&mut self, data: u32) {
-        let bytes = data.to_be_bytes();
-        for byte in bytes {
-            self.add(byte);
-        }
-    }
-
-    pub fn add_u64(&mut self, data: u64) {
-        let bytes = data.to_be_bytes();
-        for byte in bytes {
-            self.add(byte);
-        }
-    }
-
-    pub fn add_i8(&mut self, data: i8) {
-        let bytes = data.to_be_bytes();
-        for byte in bytes {
-            self.add(byte);
-        }
-    }
-
-    pub fn add_i16(&mut self, data: i16) {
-        let bytes = data.to_be_bytes();
-        for byte in bytes {
-            self.add(byte);
-        }
-    }
-
-    pub fn add_i32(&mut self, data: i32) {
-        let bytes = data.to_be_bytes();
-        for byte in bytes {
-            self.add(byte);
-        }
-    }
-
-    pub fn add_i64(&mut self, data: i64) {
-        let bytes = data.to_be_bytes();
-        for byte in bytes {
-            self.add(byte);
-        }
-    }
-
-    pub fn add_f32(&mut self, data: f32) {
-        let bytes = data.to_be_bytes();
-        for byte in bytes {
-            self.add(byte);
-        }
-    }
-
-    pub fn add_f64(&mut self, data: f64) {
-        let bytes = data.to_be_bytes();
-        for byte in bytes {
-            self.add(byte);
-        }
-    }
 }
+
+pub trait Append<T> {
+    fn append(&mut self, data: T);
+}
+
+// Macro for blanket implementation of appending primitive types to the payload
+macro_rules! impl_append {
+    ($($ty:ident)+) => ($(
+        impl Append<$ty> for Packet {
+            fn append(&mut self, data: $ty) {
+                let bytes = data.to_be_bytes();
+                for byte in bytes {
+                    self.data[self.data[2] as usize + 3] = byte;
+                    self.data[2] += 1;
+                }
+            }
+        }
+    )+)
+}
+
+impl_append! { u8 i8 u16 i16 u32 i32 u64 i64 f32 f64 }
+
+//device commands
+/*
+void DWIN_ReadVP(uint16_t vAdd, uint8_t vSize) {
+  DWIN_AddByte(DWIN_CMD_VAR_R);
+  DWIN_AddWord(vAdd);
+  DWIN_AddByte(vSize);
+  DWIN_SendPack();
+}
+
+void DWIN_SetPage(uint16_t pAdd) {
+  DWIN_AddByte(DWIN_CMD_VAR_W);
+  DWIN_AddWord(DWIN_VADD_PIC_SET);
+  DWIN_AddWord(0x5A01);
+  DWIN_AddWord(pAdd);
+  DWIN_SendPack();
+}
+
+void DWIN_SetBrightness(uint8_t level, uint16_t time) {
+  DWIN_AddByte(DWIN_CMD_VAR_W);
+  DWIN_AddWord(DWIN_VADD_LED_CFG);
+  DWIN_AddByte(level);
+  DWIN_AddByte(level / 2);
+  DWIN_AddWord(time);
+  DWIN_SendPack();
+
+  DWIN_AddByte(DWIN_CMD_VAR_W);
+  DWIN_AddWord(0x0512);
+  DWIN_AddByte(0x5A);
+  DWIN_AddByte(level);
+  DWIN_SendPack();
+}
+
+void DWIN_SetBackgroundIcl(uint16_t icl) {
+  DWIN_AddByte(DWIN_CMD_VAR_W);
+  DWIN_AddWord(DWIN_VADD_ICL_SET);
+  DWIN_AddWord(0x5A00);
+  DWIN_AddWord(icl);
+  DWIN_SendPack();
+}
+
+
+*/

@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use dwin::{self, *};
+use dwin::{packet::*, *};
 
 fn set_background_icl_output() {
     let mut packet = Packet::new(Cmd::Write16, 0x00DE);

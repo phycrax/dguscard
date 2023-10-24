@@ -1,5 +1,7 @@
 use super::*;
 use core::mem;
+
+#[derive(Debug)]
 pub enum ParseErr {
     BadHdr0,
     BadHdr1,
@@ -26,6 +28,23 @@ pub enum ParseOk {
     },
 }
 
+fn check_headers(frame: &[u8]) -> Result<(), ParseErr> {
+    if HDR0 != frame[0] {
+        return Err(ParseErr::BadHdr0);
+    }
+    if HDR1 != frame[1] {
+        return Err(ParseErr::BadHdr1);
+    }
+    Ok(())
+}
+
+fn check_crc16(recv_data: &[u8], recv_crc: u16) -> Result<(), ParseErr> {
+    if CRC.compute(recv_data) != recv_crc {
+        return Err(ParseErr::BadCrc);
+    }
+    Ok(())
+}
+
 // Protocol: [HDR:2][LEN:1][CMD:1][ADDR:2][WLEN:1][DATA:N][CRC:2]
 // HDR: Header frames
 // LEN: Size of the packet starting from CMD, includes CRC
@@ -38,15 +57,7 @@ pub enum ParseOk {
 // Exceptions: Write commands return ACK.
 // ACK: [HDR:2][LEN:1][CMD:1]['O''K':2][CRC:2]
 pub fn parse(received_bytes: &[u8]) -> Result<ParseOk, ParseErr> {
-    // Check if headers are correct
-    if HDR0 != received_bytes[0] {
-        return Err(ParseErr::BadHdr0);
-    }
-
-    if HDR1 != received_bytes[1] {
-        return Err(ParseErr::BadHdr1);
-    }
-
+    check_headers(&received_bytes[..2])?;
     // Get the packet length including as usize, rust limitation
     let len = received_bytes[2] as usize;
 
@@ -55,10 +66,8 @@ pub fn parse(received_bytes: &[u8]) -> Result<ParseOk, ParseErr> {
 
     // Calculate CRC16 if enabled
     if CRC_ENABLED {
-        let received_crc = u16::from_le_bytes([received_bytes[len + 1], received_bytes[len + 2]]);
-        if CRC.compute(data_bytes) == received_crc {
-            return Err(ParseErr::BadCrc);
-        }
+        let recv_crc = u16::from_le_bytes([received_bytes[len + 1], received_bytes[len + 2]]);
+        check_crc16(data_bytes, recv_crc)?;
     }
 
     // Is it ack?
@@ -108,28 +117,20 @@ mod tests {
     #[test]
     fn ack_with_crc() {
         let packet = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF];
-        match parse(&packet) {
-            Ok(ParseOk::Ack) => (),
-            _ => panic!("Bad parse!"),
-        }
+        parse(&packet).expect("Bad parse!");
     }
 
     #[test]
     fn parse_one_u16() {
         let packet = [0x5A, 0xA5, 8, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD, 0xE7, 0x8D];
+        let result = parse(&packet).expect("Expected ParseOk, received");
 
-        let result = match parse(&packet) {
-            Ok(result) => result,
-            _ => panic!("Expected ParseOk"),
-        };
-
-        let addr: u16 = match result {
-            ParseOk::Data16 { addr, .. } => addr,
-            _ => panic!("Expected Data16"),
-        };
-
-        if addr != 0xAABB {
-            panic!("Wrong adress")
+        if let ParseOk::Data16 { addr, .. } = result {
+            if addr != 0xAABB {
+                panic!("Wrong adress");
+            }
+        } else {
+            panic!("Expected Data16");
         }
     }
 }

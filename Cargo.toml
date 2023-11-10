@@ -8,9 +8,3 @@ edition = "2021"
 [dependencies]
 crcxx = "0.3.1"
 
-[dev-dependencies]
-criterion = "0.5.1"
-
-[[bench]]
-name = "benchmarks"
-harness = false

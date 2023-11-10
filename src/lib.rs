@@ -1,17 +1,18 @@
 #![no_std]
 
+pub mod config;
 pub mod packet;
 pub mod parser;
+pub mod widget;
 
-//can it be optional?
+use crate::config::Config;
+use arrayvec::ArrayVec;
 use crcxx::crc16::{catalog::CRC_16_MODBUS, *};
-const CRC: Crc<LookupTable256> = Crc::<LookupTable256>::new(&CRC_16_MODBUS);
 
-//ToDo: make this cfg
-const HDR0: u8 = 0x5A;
-const HDR1: u8 = 0xA5;
-const CRC_ENABLED: bool = true;
-const MAX_DATA: usize = 246;
+const CRC: Crc<LookupTable256> = Crc::<LookupTable256>::new(&CRC_16_MODBUS);
+const MAX_DATA: usize = 64;
+const MAX_WIDGET: usize = 10;
+const PACKET_MAX_SIZE: usize = 64;
 
 #[repr(u8)]
 pub enum Cmd {

@@ -1,13 +1,13 @@
 struct Device {
     config: Config,
-    widgets: ArrayVec<Widget, MAX_WIDGET>,
+    widgets: Vec<Widget, MAX_WIDGET>,
 }
 
 impl Device {
     pub fn new(config: Config) -> Device {
         Device {
             config,
-            widgets: ArrayVec::new(),
+            widgets: Vec::new(),
         }
     }
 

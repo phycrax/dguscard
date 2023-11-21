@@ -2,14 +2,14 @@ use super::*;
 
 pub struct Packet {
     config: Config,
-    data: ArrayVec<u8, PACKET_MAX_SIZE>,
+    data: Vec<u8, PACKET_MAX_SIZE>,
 }
 
 impl Packet {
     pub fn new(config: &Config, cmd: Cmd, addr: u16) -> Packet {
         let mut packet = Packet {
             config: config.clone(),
-            data: ArrayVec::new(),
+            data: Vec::new(),
         };
         packet.append(packet.config.header1);
         packet.append(packet.config.header2);
@@ -25,7 +25,7 @@ impl Packet {
     fn finalize(&mut self) {
         if self.config.crc_enabled {
             // calculate crc from [CMD] to end.
-            let crc = CRC.compute(&self.data[3..]).to_le_bytes();
+            let crc = CRC.checksum(&self.data[3..]).to_le_bytes();
             // CRC should be little endian in payload, so can't use add_u16
             self.append(crc[0]);
             self.append(crc[1]);

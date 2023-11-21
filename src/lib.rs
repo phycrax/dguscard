@@ -6,10 +6,10 @@ pub mod parser;
 pub mod widget;
 
 use crate::config::Config;
-use arrayvec::ArrayVec;
-use crcxx::crc16::{catalog::CRC_16_MODBUS, *};
+use crc::{Crc, CRC_16_MODBUS};
+use heapless::Vec;
 
-const CRC: Crc<LookupTable256> = Crc::<LookupTable256>::new(&CRC_16_MODBUS);
+const CRC: Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
 const MAX_DATA: usize = 64;
 const MAX_WIDGET: usize = 10;
 const PACKET_MAX_SIZE: usize = 64;

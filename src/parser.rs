@@ -117,7 +117,7 @@ fn check_headers(config: &Config, frame: &[u8]) -> Result<(), ParseErr> {
 }
 
 fn check_crc16(recv_data: &[u8], recv_crc: u16) -> Result<(), ParseErr> {
-    if CRC.compute(recv_data) != recv_crc {
+    if CRC.checksum(recv_data) != recv_crc {
         return Err(ParseErr::BadCrc);
     }
     Ok(())

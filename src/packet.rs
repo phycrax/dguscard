@@ -1,14 +1,14 @@
 use super::*;
 
 pub struct Packet {
-    config: Config,
+    config: &'static Config,
     data: Vec<u8, PACKET_MAX_SIZE>,
 }
 
 impl Packet {
-    pub fn new(config: &Config, cmd: Cmd, addr: u16) -> Packet {
+    pub fn new(config: &'static Config, cmd: Cmd, addr: u16) -> Packet {
         let mut packet = Packet {
-            config: config.clone(),
+            config,
             data: Vec::new(),
         };
         packet.append(packet.config.header1);

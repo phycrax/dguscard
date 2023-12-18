@@ -5,6 +5,7 @@ use core::mem;
 pub enum ParseErr {
     BadHdr0,
     BadHdr1,
+    BadLen,
     BadCrc,
     BadCmd,
 }
@@ -30,15 +31,72 @@ pub enum ParseOk {
     },
 }
 
+enum ParserState {
+    Initial,
+    FirstHeader,
+    SecondHeader,
+    Data,
+}
+
 pub struct Parser {
-    config: Config,
+    config: &'static Config,
+    state: ParserState,
+    remaining: u8,
+    data: Vec<u8, PACKET_MAX_SIZE>,
 }
 
 impl Parser {
-    pub fn new(config: &Config) -> Parser {
+    pub fn new(config: &'static Config) -> Parser {
         Parser {
-            config: config.clone(),
+            config,
+            state: ParserState::Initial,
+            data: Vec::new(),
+            remaining: 0,
         }
+    }
+
+    pub fn decode(&mut self, byte_in: u8) -> Option<Result<ParseOk, ParseErr>> {
+        use ParserState::*;
+        match self.state {
+            Initial => {
+                self.data.clear();
+                if byte_in == self.config.header1 {
+                    self.state = FirstHeader;
+                } else {
+                    self.state = Initial;
+                    return Some(Err(ParseErr::BadHdr0));
+                }
+            }
+            FirstHeader => {
+                if byte_in == self.config.header2 {
+                    self.state = SecondHeader;
+                } else {
+                    //error handling
+                    self.state = Initial;
+                    return Some(Err(ParseErr::BadHdr1));
+                }
+            }
+            SecondHeader => {
+                if byte_in < PACKET_MAX_SIZE as u8 {
+                    //todo set const literal
+                    self.state = Data;
+                    self.remaining = byte_in;
+                } else {
+                    //error handling
+                    self.state = Initial;
+                    return Some(Err(ParseErr::BadLen));
+                }
+            }
+            Data => {
+                self.remaining -= 1;
+                self.data.push(byte_in);
+                if self.remaining == 0 {
+                    return Some(self.parse(&self.data));
+                }
+            }
+            _ => panic!(),
+        }
+        None
     }
 
     // Protocol: [HDR:2][LEN:1][CMD:1][ADDR:2][WLEN:1][DATA:N][CRC:2]
@@ -52,12 +110,10 @@ impl Parser {
     // Exceptions: Write commands return ACK.
     // ACK: [HDR:2][LEN:1][CMD:1]['O''K':2][CRC:2]
     pub fn parse(&self, received_bytes: &[u8]) -> Result<ParseOk, ParseErr> {
-        check_headers(&self.config, &received_bytes[..2])?;
-        // Get the packet length including as usize, rust limitation
-        let len = received_bytes[2] as usize;
+        let len = received_bytes.len();
 
         // Slice between LEN and CRC
-        let data_bytes = &received_bytes[3..len + 3 - self.config.crc_enabled as usize * 2];
+        let data_bytes = &received_bytes[len - self.config.crc_enabled as usize * 2];
 
         // Calculate CRC16 if enabled
         if self.config.crc_enabled {
@@ -140,6 +196,7 @@ mod tests {
 
     #[test]
     fn parse_one_u16() {
+        let a = 15u8;
         let parser = Parser::new(&Config {
             header1: 0x5A,
             header2: 0xA5,

@@ -1,10 +1,10 @@
 struct Device {
-    config: Config,
+    config: &'static Config,
     widgets: Vec<Widget, MAX_WIDGET>,
 }
 
 impl Device {
-    pub fn new(config: Config) -> Device {
+    pub fn new(config: &'static Config) -> Device {
         Device {
             config,
             widgets: Vec::new(),

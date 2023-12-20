@@ -1,11 +1,9 @@
 #![no_std]
 
-pub mod config;
 pub mod packet;
 pub mod parser;
 pub mod widget;
 
-use crate::config::Config;
 use crc::{Crc, CRC_16_MODBUS};
 use heapless::Vec;
 

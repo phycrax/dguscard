@@ -39,19 +39,36 @@ enum ParserState {
     Data { remaining: u8 },
 }
 
-pub struct Parser {
-    config: &'static Config,
+pub struct Parser<const H: u16, const N: usize, const C: bool> {
     state: ParserState,
-    data: Vec<u8, PACKET_MAX_SIZE>,
+    data: Vec<u8, N>,
 }
 
-impl Parser {
-    pub fn new(config: &'static Config) -> Parser {
-        Parser {
-            config,
+impl<const H: u16, const N: usize, const C: bool> Default for Parser<H, N, C> {
+    fn default() -> Self {
+        assert!(N < 246 as usize, "<N> should be 200 or less");
+        Self {
             state: ParserState::Initial,
             data: Vec::new(),
         }
+    }
+}
+
+impl<const H: u16, const N: usize, const C: bool> Parser<H, N, C> {
+    const fn check_header_first_byte(byte_in: u8) -> bool {
+        byte_in == (H.to_be_bytes()[0])
+    }
+
+    const fn check_header_second_byte(byte_in: u8) -> bool {
+        byte_in == (H.to_be_bytes()[1])
+    }
+
+    const fn check_length(byte_in: u8) -> bool {
+        byte_in < N as u8
+    }
+
+    pub fn new() -> Self {
+        Default::default()
     }
 
     pub fn decode(&mut self, byte_in: u8) -> Option<Result<ParseOk, ParseErr>> {
@@ -59,7 +76,7 @@ impl Parser {
         match self.state {
             Initial => {
                 self.data.clear();
-                if byte_in == self.config.header1 {
+                if Self::check_header_first_byte(byte_in) {
                     self.state = FirstHeader;
                 } else {
                     self.state = Initial;
@@ -67,7 +84,7 @@ impl Parser {
                 }
             }
             FirstHeader => {
-                if byte_in == self.config.header2 {
+                if Self::check_header_second_byte(byte_in) {
                     self.state = SecondHeader;
                 } else {
                     //error handling
@@ -76,7 +93,7 @@ impl Parser {
                 }
             }
             SecondHeader => {
-                if byte_in < PACKET_MAX_SIZE as u8 {
+                if Self::check_length(byte_in) {
                     //todo set const literal
                     self.state = Data { remaining: byte_in };
                 } else {
@@ -113,18 +130,17 @@ impl Parser {
         let len = bytes.len();
 
         // Calculate CRC16 if enabled
-        if self.config.crc_enabled {
+        if C {
             // Last 2 bytes are incoming CRC
             let recv_crc = u16::from_le_bytes([bytes[len - 2], bytes[len - 1]]);
             // Pass the slice without CRC
             check_crc16(&bytes[..(len - 2)], recv_crc)?;
         }
 
-        // Slice into data bytes, excluding CRC if enabled
-        let data_bytes = &bytes[..(len - self.config.crc_enabled as usize * 2)];
+        let data_bytes = &bytes[..(len - (C as usize * 2))];
 
         // Is it ack?
-        if len == 3 + self.config.crc_enabled as usize * 2
+        if len == 3 + (N as usize * 2)
             && ((data_bytes[0] == Cmd::WriteRegister as u8)
                 || (data_bytes[0] == Cmd::Write16 as u8)
                 || (data_bytes[0] == Cmd::Write32 as u8))
@@ -164,16 +180,6 @@ impl Parser {
     }
 }
 
-fn check_headers(config: &Config, frame: &[u8]) -> Result<(), ParseErr> {
-    if config.header1 != frame[0] {
-        return Err(ParseErr::BadHdr0);
-    }
-    if config.header2 != frame[1] {
-        return Err(ParseErr::BadHdr1);
-    }
-    Ok(())
-}
-
 fn check_crc16(recv_data: &[u8], recv_crc: u16) -> Result<(), ParseErr> {
     if CRC.checksum(recv_data) != recv_crc {
         return Err(ParseErr::BadCrc);
@@ -187,11 +193,7 @@ mod tests {
 
     #[test]
     fn ack_with_crc() {
-        let parser = Parser::new(&Config {
-            header1: 0x5A,
-            header2: 0xA5,
-            crc_enabled: true,
-        });
+        let parser = Parser::<0x5AA5, 240, true>::new();
         let packet = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF];
         parser.parse(&packet).expect("Bad parse!");
     }
@@ -199,11 +201,7 @@ mod tests {
     #[test]
     fn parse_one_u16() {
         let a = 15u8;
-        let mut parser = Parser::new(&Config {
-            header1: 0x5A,
-            header2: 0xA5,
-            crc_enabled: true,
-        });
+        let mut parser = Parser::<0x5AA5, 240, true>::new();
         let packet = [0x5A, 0xA5, 8, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD, 0xE7, 0x8D];
         for i in packet {
             if let Some(result) = parser.decode(i) {

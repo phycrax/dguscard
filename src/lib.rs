@@ -4,15 +4,12 @@ pub mod packet;
 pub mod parser;
 pub mod widget;
 
+const CRC: Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
 use crc::{Crc, CRC_16_MODBUS};
 use heapless::Vec;
 
-const CRC: Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
-const MAX_DATA: usize = 64;
-const MAX_WIDGET: usize = 10;
-const PACKET_MAX_SIZE: usize = 64;
-
 #[repr(u8)]
+#[derive(PartialEq)]
 pub enum Cmd {
     WriteRegister = 0x80,
     ReadRegister,
@@ -22,6 +19,22 @@ pub enum Cmd {
     Undefined,
     Write32,
     Read32,
+}
+
+impl From<u8> for Cmd {
+    fn from(value: u8) -> Self {
+        use Cmd::*;
+        match value {
+            0x80 => WriteRegister,
+            0x81 => ReadRegister,
+            0x82 => Write16,
+            0x83 => Read16,
+            0x84 => WriteCurve,
+            0x86 => Write32,
+            0x87 => Read32,
+            _ => Undefined,
+        }
+    }
 }
 
 //device commands

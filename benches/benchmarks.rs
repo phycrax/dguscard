@@ -1,21 +1,17 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use dwin::{
-    packet::*,
-    parser::{ParseOk, Parser},
-    *,
-};
+use dwin::parser::*;
 
 fn parse_one_u16() {
-    let mut parser = Parser::<0x5AA5, 240, true>::new();
+    let mut parser = Parser::<0x5AA5, 64, false>::new();
     let packet = [0x5A, 0xA5, 8, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD, 0xE7, 0x8D];
     for i in packet {
-        if let Some(result) = parser.decode(i) {
-            if let ParseOk::Data16 { addr, .. } = result.unwrap() {
+        if let Some(result) = parser.consume(i) {
+            if let ParseResult::Data { addr, .. } = result {
                 if addr != 0xAABB {
                     panic!("Wrong adress");
                 }
             } else {
-                panic!("Expected Data16");
+                panic!("Expected Data");
             }
         }
     }

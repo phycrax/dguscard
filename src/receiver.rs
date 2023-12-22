@@ -2,38 +2,35 @@ use super::*;
 
 #[derive(Debug)]
 pub enum ReceiveError {
-    BadHdr0,
-    BadHdr1,
-    BadLen,
-    Overrun,
-    BadCrc,
-    BadCmd,
-}
-
-pub enum ReceiveSuccess {
-    Ack,
-    Data { cmd: Cmd, addr: u16, wlen: u8 },
+    HeaderHigh,
+    HeaderLow,
+    PayloadLength,
+    BufferOverrun,
+    BadChecksum,
 }
 
 enum ReceiverState {
-    WaitingHeader,
-    ReceivingHeader,
-    WaitingLength,
-    ReceivingData { remaining: u8 },
+    HeaderHigh,
+    HeaderLow,
+    PayloadLength,
+    DataStream { remaining: u8 },
 }
 
-pub struct Receiver<const H: u16, const N: usize, const C: bool> {
+pub struct Receiver<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool> {
     state: ReceiverState,
-    buffer: Vec<u8, N>,
+    buffer: Vec<u8, BUFFER_SIZE>,
 }
 
 impl<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool> Default
     for Receiver<HEADER, BUFFER_SIZE, CRC_ENABLED>
 {
     fn default() -> Self {
-        assert!(BUFFER_SIZE < 246, "<N> should be 200 or less");
+        assert!(
+            BUFFER_SIZE >= 10 && BUFFER_SIZE <= 250,
+            "<N> should be 200 or less"
+        );
         Self {
-            state: ReceiverState::WaitingHeader,
+            state: ReceiverState::HeaderHigh,
             buffer: Vec::new(),
         }
     }
@@ -50,7 +47,7 @@ impl<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool>
         if byte_in == HEADER.to_be_bytes()[0] {
             Ok(())
         } else {
-            Err(ReceiveError::BadHdr0)
+            Err(ReceiveError::HeaderHigh)
         }
     }
 
@@ -58,7 +55,7 @@ impl<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool>
         if byte_in == HEADER.to_be_bytes()[1] {
             Ok(())
         } else {
-            Err(ReceiveError::BadHdr1)
+            Err(ReceiveError::HeaderLow)
         }
     }
 
@@ -68,7 +65,7 @@ impl<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool>
         if byte_in >= min_len && byte_in <= max_len {
             Ok(())
         } else {
-            Err(ReceiveError::BadLen)
+            Err(ReceiveError::PayloadLength)
         }
     }
 
@@ -78,7 +75,7 @@ impl<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool>
         if recv_crc == CRC.checksum(&bytes[..len - 2]) {
             Ok(())
         } else {
-            Err(ReceiveError::BadCrc)
+            Err(ReceiveError::BadChecksum)
         }
     }
 
@@ -108,26 +105,27 @@ impl<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool>
 
     // Async fn possible?
     pub fn consume(&mut self, byte: u8) -> Result<Option<()>, ReceiveError> {
-        use ReceiveError::*;
         use ReceiverState::*;
         match self.state {
-            WaitingHeader => {
+            HeaderHigh => {
                 unsafe {
                     self.buffer.set_len(0);
                 }
                 Self::check_header_first_byte(byte)?;
-                self.state = ReceivingHeader;
+                self.state = HeaderLow;
             }
-            ReceivingHeader => {
+            HeaderLow => {
                 Self::check_header_second_byte(byte)?;
-                self.state = WaitingLength;
+                self.state = PayloadLength;
             }
-            WaitingLength => {
+            PayloadLength => {
                 Self::check_length(byte)?;
-                self.state = ReceivingData { remaining: byte };
+                self.state = DataStream { remaining: byte };
             }
-            ReceivingData { ref mut remaining } => {
-                self.buffer.push(byte).map_err(|_| Overrun)?;
+            DataStream { ref mut remaining } => {
+                self.buffer
+                    .push(byte)
+                    .map_err(|_| ReceiveError::BufferOverrun)?;
                 *remaining -= 1;
                 if *remaining == 0 {
                     if CRC_ENABLED {
@@ -153,7 +151,7 @@ mod tests {
     // }
     #[test]
     fn receive_some_data() {
-        let mut receiver = Receiver::<0x5AA5, 64, true>::new();
+        let mut receiver = Receiver::<0x5AA5, 6, true>::new();
         let packet = [0x5A, 0xA5, 8, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD, 0xE7, 0x8D];
         for i in packet {
             if receiver.consume(i).unwrap().is_some() {

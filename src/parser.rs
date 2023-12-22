@@ -1,13 +1,7 @@
 use super::*;
 
-pub enum ParseResult<'a> {
-    Ack,
-    Data {
-        data: &'a [u8],
-        addr: u16,
-        cmd: Cmd,
-        wlen: u8,
-    },
+#[derive(Debug)]
+pub enum ParseError {
     BadHdr0,
     BadHdr1,
     BadLen,
@@ -16,10 +10,15 @@ pub enum ParseResult<'a> {
     BadCmd,
 }
 
+pub enum ParseResult {
+    Ack,
+    Data { cmd: Cmd, addr: u16, wlen: u8 },
+}
+
 enum ParserState {
-    ReceivedFirstHeaderByte,
-    ReceivedSecondHeaderByte,
-    ReceivedLength,
+    WaitingHeader,
+    ReceivingHeader,
+    WaitingLength,
     ReceivingData { remaining: u8 },
 }
 
@@ -34,7 +33,7 @@ impl<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool> Defau
     fn default() -> Self {
         assert!(BUFFER_SIZE < 246, "<N> should be 200 or less");
         Self {
-            state: ParserState::ReceivedFirstHeaderByte,
+            state: ParserState::WaitingHeader,
             buffer: Vec::new(),
         }
     }
@@ -47,107 +46,100 @@ impl<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool>
         Default::default()
     }
 
-    const fn check_header_first_byte(byte_in: u8) -> bool {
-        byte_in == (HEADER.to_be_bytes()[0])
+    const fn check_header_first_byte(byte_in: u8) -> Result<(), ParseError> {
+        if byte_in == HEADER.to_be_bytes()[0] {
+            Ok(())
+        } else {
+            Err(ParseError::BadHdr0)
+        }
     }
 
-    const fn check_header_second_byte(byte_in: u8) -> bool {
-        byte_in == (HEADER.to_be_bytes()[1])
+    const fn check_header_second_byte(byte_in: u8) -> Result<(), ParseError> {
+        if byte_in == HEADER.to_be_bytes()[1] {
+            Ok(())
+        } else {
+            Err(ParseError::BadHdr1)
+        }
     }
 
-    const fn check_length(byte_in: u8) -> bool {
+    const fn check_length(byte_in: u8) -> Result<(), ParseError> {
+        let min_len = if CRC_ENABLED { 5 } else { 3 };
         let max_len = BUFFER_SIZE as u8;
-        byte_in > 2 && byte_in < max_len
+        if byte_in >= min_len && byte_in <= max_len {
+            Ok(())
+        } else {
+            Err(ParseError::BadLen)
+        }
     }
 
-    fn check_crc16(bytes: &[u8]) -> bool {
+    fn check_crc16(bytes: &[u8]) -> Result<(), ParseError> {
         let len = bytes.len();
         let recv_crc = u16::from_le_bytes([bytes[len - 2], bytes[len - 1]]);
-        recv_crc != CRC.checksum(&bytes[..len - 2])
-    }
-
-    const fn check_ack(bytes: &[u8]) -> bool {
-        let is_addr_ok = bytes[1] == b'O' && bytes[2] == b'K';
-        if CRC_ENABLED {
-            is_addr_ok && bytes.len() == 5
+        if recv_crc == CRC.checksum(&bytes[..len - 2]) {
+            Ok(())
         } else {
-            is_addr_ok && bytes.len() == 3
+            Err(ParseError::BadCrc)
         }
     }
 
-    fn parse(bytes: &[u8]) -> ParseResult {
-        use ParseResult::*;
+    const fn is_ack(len: usize, addr: u16) -> bool {
+        let is_ack_len = if CRC_ENABLED { len == 5 } else { len == 3 };
+        is_ack_len && addr == u16::from_le_bytes([b'O', b'K'])
+    }
+
+    fn parse(bytes: &[u8]) -> Result<Option<ParseResult>, ParseError> {
         let cmd: Cmd = bytes[0].into();
         if cmd == Cmd::Undefined {
-            BadCmd
+            return Err(ParseError::BadCmd);
         }
-        // Is it ack?
-        else if Self::check_ack(bytes) {
-            Ack
-        } else {
-            Data {
-                data: &bytes[4..],
-                wlen: bytes[3],
-                addr: u16::from_be_bytes([bytes[1], bytes[2]]),
-                cmd,
-            }
+
+        let addr = u16::from_be_bytes([bytes[1], bytes[2]]);
+
+        if Self::is_ack(bytes.len(), addr) {
+            return Ok(Some(ParseResult::Ack));
         }
+
+        Ok(Some(ParseResult::Data {
+            wlen: bytes[3],
+            addr,
+            cmd,
+        }))
     }
 
     // Async fn possible?
-    pub fn consume(&mut self, byte: u8) -> Option<ParseResult> {
-        use ParseResult::*;
+    pub fn consume(&mut self, byte: u8) -> Result<Option<ParseResult>, ParseError> {
+        use ParseError::*;
         use ParserState::*;
         match self.state {
-            ReceivedFirstHeaderByte => {
+            WaitingHeader => {
                 unsafe {
                     self.buffer.set_len(0);
                 }
-                if Self::check_header_first_byte(byte) {
-                    self.state = ReceivedSecondHeaderByte;
-                    None
-                } else {
-                    self.state = ReceivedFirstHeaderByte;
-                    Some(BadHdr0)
-                }
+                Self::check_header_first_byte(byte)?;
+                self.state = ReceivingHeader;
             }
-            ReceivedSecondHeaderByte => {
-                if Self::check_header_second_byte(byte) {
-                    self.state = ReceivedLength;
-                    None
-                } else {
-                    self.state = ReceivedFirstHeaderByte;
-                    Some(BadHdr1)
-                }
+            ReceivingHeader => {
+                Self::check_header_second_byte(byte)?;
+                self.state = WaitingLength;
             }
-            ReceivedLength => {
-                if Self::check_length(byte) {
-                    self.state = ReceivingData { remaining: byte };
-                    None
-                } else {
-                    self.state = ReceivedFirstHeaderByte;
-                    Some(BadLen)
-                }
+            WaitingLength => {
+                Self::check_length(byte)?;
+                self.state = ReceivingData { remaining: byte };
             }
-            ReceivingData { mut remaining } => {
-                remaining -= 1;
-                if self.buffer.push(byte).is_err() {
-                    Some(Overrun)
-                } else if remaining == 0 {
+            ReceivingData { ref mut remaining } => {
+                self.buffer.push(byte).map_err(|_| Overrun)?;
+                *remaining -= 1;
+                if *remaining == 0 {
                     if CRC_ENABLED {
-                        if Self::check_crc16(&self.buffer) {
-                            Some(Self::parse(&self.buffer[..self.buffer.len() - 2]))
-                        } else {
-                            Some(BadCrc)
-                        }
+                        Self::check_crc16(&self.buffer)?;
+                        return Self::parse(&self.buffer[..self.buffer.len() - 2]);
                     } else {
-                        Some(Self::parse(&self.buffer))
+                        return Self::parse(&self.buffer);
                     }
-                } else {
-                    None
                 }
             }
         }
+        Ok(None)
     }
 }
 
@@ -163,18 +155,21 @@ mod tests {
     // }
     #[test]
     fn parse_one_u16() {
-        let mut parser = Parser::<0x5AA5, 240, true>::new();
+        let mut parser = Parser::<0x5AA5, 64, true>::new();
         let packet = [0x5A, 0xA5, 8, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD, 0xE7, 0x8D];
         for i in packet {
-            if let Some(result) = parser.consume(i) {
+            if let Some(result) = parser.consume(i).unwrap() {
                 if let ParseResult::Data { addr, .. } = result {
-                    if addr != 0xAABB {
-                        panic!("Wrong adress");
+                    if addr == 0xAABB {
+                        // success
+                        return;
                     }
                 } else {
                     panic!("Expected Data");
                 }
             }
         }
+        // Shouldn't reach here
+        panic!("Wrong adress");
     }
 }

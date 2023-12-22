@@ -10,38 +10,33 @@ pub enum ReceiveError {
     BadCmd,
 }
 
-pub enum ReceiveSuccess {
-    Ack,
-    Data { cmd: Cmd, addr: u16, wlen: u8 },
-}
-
 enum ReceiverState {
     WaitingHeader,
     ReceivingHeader,
     WaitingLength,
-    ReceivingData { remaining: u8 },
+    WaitingCommand,
+    WaitingAddress { firstByte: u8 },
+    ReceivingAddress,
+    WaitingWordLength,
+    ReceivingData { received: u8 },
+    WaitingChecksum { firstByte: u8 },
+    ReceivingChecksum,
+    Done,
 }
 
-pub struct Receiver<const H: u16, const N: usize, const C: bool> {
+pub struct Receiver<const HEADER: u16, const CRC_ENABLED: bool> {
     state: ReceiverState,
-    buffer: Vec<u8, N>,
 }
 
-impl<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool> Default
-    for Receiver<HEADER, BUFFER_SIZE, CRC_ENABLED>
-{
+impl<const HEADER: u16, const CRC_ENABLED: bool> Default for Receiver<HEADER, CRC_ENABLED> {
     fn default() -> Self {
-        assert!(BUFFER_SIZE < 246, "<N> should be 200 or less");
         Self {
             state: ReceiverState::WaitingHeader,
-            buffer: Vec::new(),
         }
     }
 }
 
-impl<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool>
-    Receiver<HEADER, BUFFER_SIZE, CRC_ENABLED>
-{
+impl<const HEADER: u16, const CRC_ENABLED: bool> Receiver<HEADER, CRC_ENABLED> {
     pub fn new() -> Self {
         Default::default()
     }
@@ -64,7 +59,7 @@ impl<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool>
 
     const fn check_length(byte_in: u8) -> Result<(), ReceiveError> {
         let min_len = if CRC_ENABLED { 5 } else { 3 };
-        let max_len = BUFFER_SIZE as u8;
+        let max_len = 246;
         if byte_in >= min_len && byte_in <= max_len {
             Ok(())
         } else {
@@ -82,39 +77,11 @@ impl<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool>
         }
     }
 
-    // const fn is_ack(len: usize, addr: u16) -> bool {
-    //     let is_ack_len = if CRC_ENABLED { len == 5 } else { len == 3 };
-    //     is_ack_len && addr == u16::from_le_bytes([b'O', b'K'])
-    // }
-
-    // fn parse(bytes: &[u8]) -> Result<Option<ReceiveSuccess>, ReceiveError> {
-    //     let cmd: Cmd = bytes[0].into();
-    //     if cmd == Cmd::Undefined {
-    //         return Err(ReceiveError::BadCmd);
-    //     }
-
-    //     let addr = u16::from_be_bytes([bytes[1], bytes[2]]);
-
-    //     if Self::is_ack(bytes.len(), addr) {
-    //         return Ok(Some(ReceiveSuccess::Ack));
-    //     }
-
-    //     Ok(Some(ReceiveSuccess::Data {
-    //         wlen: bytes[3],
-    //         addr,
-    //         cmd,
-    //     }))
-    // }
-
     // Async fn possible?
-    pub fn consume(&mut self, byte: u8) -> Result<Option<()>, ReceiveError> {
-        use ReceiveError::*;
+    pub fn consume(&mut self, packet: &mut Packet, byte: u8) -> Result<Option<()>, ReceiveError> {
         use ReceiverState::*;
         match self.state {
             WaitingHeader => {
-                unsafe {
-                    self.buffer.set_len(0);
-                }
                 Self::check_header_first_byte(byte)?;
                 self.state = ReceivingHeader;
             }
@@ -124,14 +91,18 @@ impl<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool>
             }
             WaitingLength => {
                 Self::check_length(byte)?;
-                self.state = ReceivingData { remaining: byte };
+                self.state = ReceivingData {
+                    length: byte as usize,
+                    received: 0,
+                };
             }
-            ReceivingData { ref mut remaining } => {
-                self.buffer.push(byte).map_err(|_| Overrun)?;
-                *remaining -= 1;
-                if *remaining == 0 {
+            ReceivingData { ref mut received } => {
+                let index = buffer.get_mut(*received).ok_or(ReceiveError::Overrun)?;
+                *index = byte;
+                *received += 1;
+                if *received == length {
                     if CRC_ENABLED {
-                        Self::check_crc16(&self.buffer)?;
+                        Self::check_crc16(&buffer[..length])?;
                     }
                     return Ok(Some(()));
                 }
@@ -153,10 +124,13 @@ mod tests {
     // }
     #[test]
     fn receive_some_data() {
-        let mut receiver = Receiver::<0x5AA5, 64, true>::new();
-        let packet = [0x5A, 0xA5, 8, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD, 0xE7, 0x8D];
-        for i in packet {
-            if receiver.consume(i).unwrap().is_some() {
+        let mut receiver = Receiver::<0x5AA5, true>::new();
+        let packet: [u8; 11] = [0x5A, 0xA5, 8, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD, 0xE7, 0x8D];
+        let expected_buffer_content: [u8; 6] = [0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD];
+        let mut buffer: [u8; 6] = [0; 6];
+        for byte in packet {
+            if receiver.consume(&mut buffer, byte).unwrap().is_some() {
+                assert_eq!(buffer, expected_buffer_content);
                 return;
             }
         }

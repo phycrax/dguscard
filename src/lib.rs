@@ -9,7 +9,7 @@ use crc::{Crc, CRC_16_MODBUS};
 use heapless::Vec;
 
 #[repr(u8)]
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum Cmd {
     WriteRegister = 0x80,
     ReadRegister,

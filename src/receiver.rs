@@ -7,13 +7,17 @@ pub enum ReceiveError {
     PayloadLength,
     BufferOverrun,
     BadChecksum,
+    BadCommand,
 }
 
 enum ReceiverState {
+    Initial,
     HeaderHigh,
     HeaderLow,
-    PayloadLength,
-    DataStream { remaining: u8 },
+    Length { length: u8 },
+    DataStream { length: u8 },
+    ChecksumLow,
+    ChecksumHigh { checksum: u8 },
 }
 
 pub struct Receiver<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool> {
@@ -21,16 +25,24 @@ pub struct Receiver<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABL
     buffer: Vec<u8, BUFFER_SIZE>,
 }
 
+pub enum ReceiveOk<const BUFFER_SIZE: usize> {
+    Ack,
+    Packet {
+        cmd: Cmd,
+        addr: u16,
+        wlen: u8,
+        data: Vec<u8, BUFFER_SIZE>,
+    },
+}
+
 impl<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool> Default
     for Receiver<HEADER, BUFFER_SIZE, CRC_ENABLED>
 {
     fn default() -> Self {
-        assert!(
-            BUFFER_SIZE >= 10 && BUFFER_SIZE <= 250,
-            "<N> should be 200 or less"
-        );
+        assert!(BUFFER_SIZE >= 6, "<BUFFER_SIZE> should be 6 or more");
+        assert!(BUFFER_SIZE <= 250, "<BUFFER_SIZE> should be 250 or less");
         Self {
-            state: ReceiverState::HeaderHigh,
+            state: ReceiverState::Initial,
             buffer: Vec::new(),
         }
     }
@@ -69,72 +81,87 @@ impl<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool>
         }
     }
 
-    fn check_crc16(bytes: &[u8]) -> Result<(), ReceiveError> {
-        let len = bytes.len();
-        let recv_crc = u16::from_le_bytes([bytes[len - 2], bytes[len - 1]]);
-        if recv_crc == CRC.checksum(&bytes[..len - 2]) {
+    fn check_command(byte_in: u8) -> Result<(), ReceiveError> {
+        let cmd: Cmd = byte_in.into();
+        if cmd != Cmd::Undefined {
+            Ok(())
+        } else {
+            Err(ReceiveError::BadCommand)
+        }
+    }
+
+    const fn check_crc16(bytes: &[u8], checksum: u16) -> Result<(), ReceiveError> {
+        if checksum == CRC.checksum(bytes) {
             Ok(())
         } else {
             Err(ReceiveError::BadChecksum)
         }
     }
 
-    // const fn is_ack(len: usize, addr: u16) -> bool {
-    //     let is_ack_len = if CRC_ENABLED { len == 5 } else { len == 3 };
-    //     is_ack_len && addr == u16::from_le_bytes([b'O', b'K'])
-    // }
+    fn parse(&self) -> ReceiveOk<BUFFER_SIZE> {
+        let cmd: Cmd = self.buffer[0].into();
+        let addr = u16::from_be_bytes([self.buffer[1], self.buffer[2]]);
 
-    // fn parse(bytes: &[u8]) -> Result<Option<ReceiveSuccess>, ReceiveError> {
-    //     let cmd: Cmd = bytes[0].into();
-    //     if cmd == Cmd::Undefined {
-    //         return Err(ReceiveError::BadCmd);
-    //     }
-
-    //     let addr = u16::from_be_bytes([bytes[1], bytes[2]]);
-
-    //     if Self::is_ack(bytes.len(), addr) {
-    //         return Ok(Some(ReceiveSuccess::Ack));
-    //     }
-
-    //     Ok(Some(ReceiveSuccess::Data {
-    //         wlen: bytes[3],
-    //         addr,
-    //         cmd,
-    //     }))
-    // }
+        if self.buffer.len() == 3 && addr == u16::from_be_bytes([b'O', b'K']) {
+            ReceiveOk::Ack
+        } else {
+            ReceiveOk::Packet {
+                cmd,
+                addr,
+                wlen: self.buffer[3],
+                data: Vec::from_slice(&self.buffer[4..]).unwrap(),
+            }
+        }
+    }
 
     // Async fn possible?
     pub fn consume(&mut self, byte: u8) -> Result<Option<()>, ReceiveError> {
         use ReceiverState::*;
-        match self.state {
-            HeaderHigh => {
-                unsafe {
-                    self.buffer.set_len(0);
-                }
+        self.state = match self.state {
+            Initial => {
                 Self::check_header_first_byte(byte)?;
-                self.state = HeaderLow;
+                HeaderHigh
             }
-            HeaderLow => {
+
+            HeaderHigh => {
                 Self::check_header_second_byte(byte)?;
-                self.state = PayloadLength;
+                HeaderLow
             }
-            PayloadLength => {
+
+            HeaderLow => {
                 Self::check_length(byte)?;
-                self.state = DataStream { remaining: byte };
+                Length { length: byte }
             }
-            DataStream { ref mut remaining } => {
+
+            Length { length } => {
+                Self::check_command(byte)?;
                 self.buffer
                     .push(byte)
                     .map_err(|_| ReceiveError::BufferOverrun)?;
-                *remaining -= 1;
-                if *remaining == 0 {
-                    if CRC_ENABLED {
-                        Self::check_crc16(&self.buffer)?;
-                    }
+                DataStream { length }
+            }
+
+            DataStream { length } => {
+                self.buffer
+                    .push(byte)
+                    .map_err(|_| ReceiveError::BufferOverrun)?;
+                if CRC_ENABLED && self.buffer.len() == (length - 2) as usize {
+                    ChecksumLow
+                } else if self.buffer.len() == length as usize {
                     return Ok(Some(()));
+                } else {
+                    DataStream { length }
                 }
             }
-        }
+
+            ChecksumLow => ChecksumHigh { checksum: byte },
+
+            ChecksumHigh { checksum } => {
+                let checksum = u16::from_le_bytes([checksum, byte]);
+                Self::check_crc16(&self.buffer, checksum)?;
+                return Ok(Some(()));
+            }
+        };
         Ok(None)
     }
 }
@@ -143,22 +170,105 @@ impl<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool>
 mod tests {
     use super::*;
 
-    //#[test]
-    // fn ack_with_crc() {
-    //     let parser = Parser::<0x5AA5, 240, true>::new();
-    //     let packet = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF];
-    //     parser.parse(&packet).expect("Bad parse!");
-    // }
     #[test]
-    fn receive_some_data() {
-        let mut receiver = Receiver::<0x5AA5, 6, true>::new();
-        let packet = [0x5A, 0xA5, 8, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD, 0xE7, 0x8D];
-        for i in packet {
-            if receiver.consume(i).unwrap().is_some() {
-                return;
+    fn ack() {
+        let mut receiver = Receiver::<0x5AA5, 8, true>::new();
+        let packet = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF];
+        for i in packet
+            .into_iter()
+            .map(|byte| receiver.consume(byte))
+            .filter_map(|r| r.transpose())
+        {
+            // Received something
+            if i.is_ok() {
+                break;
             }
         }
-        // Shouldn't reach here
-        panic!("Wrong adress");
+        if let ReceiveOk::Ack = receiver.parse() {
+        } else {
+            panic!("Shouldn't reach here");
+        }
+    }
+
+    #[test]
+    fn ack_nocrc() {
+        let mut receiver = Receiver::<0x5AA5, 8, false>::new();
+        let packet = [0x5A, 0xA5, 5, 0x82, b'O', b'K'];
+        for i in packet
+            .into_iter()
+            .map(|byte| receiver.consume(byte))
+            .filter_map(|r| r.transpose())
+        {
+            // Received something
+            if i.is_ok() {
+                break;
+            }
+        }
+        if let ReceiveOk::Ack = receiver.parse() {
+        } else {
+            panic!("Shouldn't reach here");
+        }
+    }
+
+    #[test]
+    fn receive_packet() {
+        let mut receiver = Receiver::<0x5AA5, 8, true>::new();
+        let packet = [0x5A, 0xA5, 8, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD, 0xE7, 0x8D];
+
+        for i in packet
+            .into_iter()
+            .map(|byte| receiver.consume(byte))
+            .filter_map(|r| r.transpose())
+        {
+            // Received something
+            if i.is_ok() {
+                break;
+            }
+        }
+        if let ReceiveOk::Packet {
+            cmd,
+            addr,
+            wlen,
+            data,
+        } = receiver.parse()
+        {
+            assert_eq!(cmd, Cmd::Read16);
+            assert_eq!(addr, 0xAABB);
+            assert_eq!(wlen, 1);
+            assert_eq!(&data, &[0xCC, 0xDD]);
+        } else {
+            panic!("Shouldn't reach here");
+        };
+    }
+
+    #[test]
+    fn receive_packet_nocrc() {
+        let mut receiver = Receiver::<0x5AA5, 8, false>::new();
+        let packet = [0x5A, 0xA5, 8, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD];
+
+        for i in packet
+            .into_iter()
+            .map(|byte| receiver.consume(byte))
+            .filter_map(|r| r.transpose())
+        {
+            // Received something
+            if i.is_ok() {
+                break;
+            }
+        }
+        if let ReceiveOk::Packet {
+            cmd,
+            addr,
+            wlen,
+            data,
+        } = receiver.parse()
+        {
+            assert_eq!(cmd, Cmd::Read16);
+            assert_eq!(addr, 0xAABB);
+            assert_eq!(wlen, 1);
+            assert_eq!(&data, &[0xCC, 0xDD]);
+        } else {
+            panic!("Shouldn't reach here");
+        };
     }
 }

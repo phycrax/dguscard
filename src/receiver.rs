@@ -14,7 +14,7 @@ pub enum ReceiveError {
 }
 
 pub struct Receiver<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool> {
-    state: ReceiverState<CRC_ENABLED>,
+    state: ReceiverState,
     buffer: Vec<u8, BUFFER_SIZE>,
 }
 
@@ -139,18 +139,20 @@ impl<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool>
                     .push(byte)
                     .map_err(|_| ReceiveError::BufferOverrun)?;
                 if length == 0 {
-                    return Ok(Some(()));
+                    if CRC_ENABLED {
+                        let checksum = u16::from_be_bytes([
+                            self.buffer.pop().unwrap(),
+                            self.buffer.pop().unwrap(),
+                        ]);
+                        Self::check_crc16(&self.buffer, checksum)?;
+                        return Ok(Some(()));
+                    } else {
+                        return Ok(Some(()));
+                    }
                 }
             }
-
-            ChecksumHigh { checksum } => {
-                let checksum = u16::from_le_bytes([checksum, byte]);
-                Self::check_crc16(&self.buffer, checksum)?;
-                return Ok(Some(()));
-            }
-
-            _ => (),
-        };
+            _ => panic!(),
+        }
         Ok(None)
     }
 
@@ -161,7 +163,7 @@ impl<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool>
         // Parse the incoming byte with this state. Return early if there's nothing yet.
         // If there's a result, map it with the error or parse result.
         let result = self.parse_byte(byte).transpose()?.map(|()| self.parse());
-        // At this point, we either have a parsed result or error.
+        // At this point, we either have a parsed result or an error.
         // Reset the receiver.
         self.reset();
         // Return the result

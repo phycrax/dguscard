@@ -5,9 +5,9 @@ fn receive_packet() {
     let mut receiver = Receiver::<0x5AA5, 8, true>::new();
     let packet = [0x5A, 0xA5, 8, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD, 0xE7, 0x8D];
 
-    packet
+    let result = packet
         .into_iter()
-        .map(|byte| receiver.consume(byte).transpose())
+        .map(|byte| receiver.consume(byte))
         .find(|f| f.is_some())
         .unwrap()
         .unwrap()
@@ -18,7 +18,7 @@ fn receive_packet() {
         addr,
         wlen,
         data,
-    } = receiver.parse()
+    } = result
     {
         assert_eq!(cmd, Cmd::Read16);
         assert_eq!(addr, 0xAABB);

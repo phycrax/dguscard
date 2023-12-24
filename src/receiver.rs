@@ -1,3 +1,6 @@
+pub mod receiver_state;
+
+use self::receiver_state::ReceiverState;
 use super::*;
 
 #[derive(Debug)]
@@ -10,18 +13,8 @@ pub enum ReceiveError {
     BadCommand,
 }
 
-enum ReceiverState {
-    Initial,
-    HeaderHigh,
-    HeaderLow,
-    Length { length: u8 },
-    DataStream { length: u8 },
-    ChecksumLow,
-    ChecksumHigh { checksum: u8 },
-}
-
 pub struct Receiver<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool> {
-    state: ReceiverState,
+    state: ReceiverState<CRC_ENABLED>,
     buffer: Vec<u8, BUFFER_SIZE>,
 }
 
@@ -114,55 +107,65 @@ impl<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool>
         }
     }
 
-    // Async fn possible?
-    pub fn consume(&mut self, byte: u8) -> Result<Option<()>, ReceiveError> {
-        use ReceiverState::*;
-        self.state = match self.state {
-            Initial => {
-                Self::check_header_first_byte(byte)?;
-                HeaderHigh
-            }
+    pub fn reset(&mut self) {
+        self.buffer.clear();
+        self.state = ReceiverState::Initial;
+    }
 
+    pub fn parse_byte(&mut self, byte: u8) -> Result<Option<()>, ReceiveError> {
+        use ReceiverState::*;
+        match self.state {
             HeaderHigh => {
-                Self::check_header_second_byte(byte)?;
-                HeaderLow
+                Self::check_header_first_byte(byte)?;
             }
 
             HeaderLow => {
-                Self::check_length(byte)?;
-                Length { length: byte }
+                Self::check_header_second_byte(byte)?;
             }
 
-            Length { length } => {
+            Length { .. } => {
+                Self::check_length(byte)?;
+            }
+
+            Command { .. } => {
                 Self::check_command(byte)?;
                 self.buffer
                     .push(byte)
                     .map_err(|_| ReceiveError::BufferOverrun)?;
-                DataStream { length }
             }
 
             DataStream { length } => {
                 self.buffer
                     .push(byte)
                     .map_err(|_| ReceiveError::BufferOverrun)?;
-                if CRC_ENABLED && self.buffer.len() == (length - 2) as usize {
-                    ChecksumLow
-                } else if self.buffer.len() == length as usize {
+                if length == 0 {
                     return Ok(Some(()));
-                } else {
-                    DataStream { length }
                 }
             }
-
-            ChecksumLow => ChecksumHigh { checksum: byte },
 
             ChecksumHigh { checksum } => {
                 let checksum = u16::from_le_bytes([checksum, byte]);
                 Self::check_crc16(&self.buffer, checksum)?;
                 return Ok(Some(()));
             }
+
+            _ => (),
         };
         Ok(None)
+    }
+
+    // Async fn possible?
+    pub fn consume(&mut self, byte: u8) -> Option<Result<ReceiveOk<BUFFER_SIZE>, ReceiveError>> {
+        // A byte received, move to the next state.
+        self.state = self.state.next(byte);
+        // Parse the incoming byte with this state. Return early if there's nothing yet.
+        // If there's a result, map it with the error or parse result.
+        let result = self.parse_byte(byte).transpose()?.map(|()| self.parse());
+        // At this point, we either have a parsed result or error.
+        // Reset the receiver.
+        self.reset();
+        // Return the result
+        Some(result)
     }
 }
 
@@ -175,15 +178,15 @@ mod tests {
         let mut receiver = Receiver::<0x5AA5, 8, true>::new();
         let packet = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF];
 
-        packet
+        let result = packet
             .into_iter()
-            .map(|byte| receiver.consume(byte).transpose())
+            .map(|byte| receiver.consume(byte))
             .find(|f| f.is_some())
             .unwrap()
             .unwrap()
             .unwrap();
 
-        if let ReceiveOk::Ack = receiver.parse() {
+        if let ReceiveOk::Ack = result {
         } else {
             panic!("Shouldn't reach here");
         }
@@ -194,15 +197,15 @@ mod tests {
         let mut receiver = Receiver::<0x5AA5, 8, false>::new();
         let packet = [0x5A, 0xA5, 3, 0x82, b'O', b'K'];
 
-        packet
+        let result = packet
             .into_iter()
-            .map(|byte| receiver.consume(byte).transpose())
+            .map(|byte| receiver.consume(byte))
             .find(|f| f.is_some())
             .unwrap()
             .unwrap()
             .unwrap();
 
-        if let ReceiveOk::Ack = receiver.parse() {
+        if let ReceiveOk::Ack = result {
         } else {
             panic!("Shouldn't reach here");
         }
@@ -213,9 +216,9 @@ mod tests {
         let mut receiver = Receiver::<0x5AA5, 8, true>::new();
         let packet = [0x5A, 0xA5, 8, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD, 0xE7, 0x8D];
 
-        packet
+        let result = packet
             .into_iter()
-            .map(|byte| receiver.consume(byte).transpose())
+            .map(|byte| receiver.consume(byte))
             .find(|f| f.is_some())
             .unwrap()
             .unwrap()
@@ -226,7 +229,7 @@ mod tests {
             addr,
             wlen,
             data,
-        } = receiver.parse()
+        } = result
         {
             assert_eq!(cmd, Cmd::Read16);
             assert_eq!(addr, 0xAABB);
@@ -242,9 +245,9 @@ mod tests {
         let mut receiver = Receiver::<0x5AA5, 8, false>::new();
         let packet = [0x5A, 0xA5, 6, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD];
 
-        packet
+        let result = packet
             .into_iter()
-            .map(|byte| receiver.consume(byte).transpose())
+            .map(|byte| receiver.consume(byte))
             .find(|f| f.is_some())
             .unwrap()
             .unwrap()
@@ -255,7 +258,7 @@ mod tests {
             addr,
             wlen,
             data,
-        } = receiver.parse()
+        } = result
         {
             assert_eq!(cmd, Cmd::Read16);
             assert_eq!(addr, 0xAABB);

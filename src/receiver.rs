@@ -98,7 +98,7 @@ impl<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool>
         }
     }
 
-    fn parse(&self) -> ReceiveOk<BUFFER_SIZE> {
+    pub fn parse(&self) -> ReceiveOk<BUFFER_SIZE> {
         let cmd: Cmd = self.buffer[0].into();
         let addr = u16::from_be_bytes([self.buffer[1], self.buffer[2]]);
 
@@ -174,16 +174,15 @@ mod tests {
     fn ack() {
         let mut receiver = Receiver::<0x5AA5, 8, true>::new();
         let packet = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF];
-        for i in packet
+
+        packet
             .into_iter()
-            .map(|byte| receiver.consume(byte))
-            .filter_map(|r| r.transpose())
-        {
-            // Received something
-            if i.is_ok() {
-                break;
-            }
-        }
+            .map(|byte| receiver.consume(byte).transpose())
+            .find(|f| f.is_some())
+            .unwrap()
+            .unwrap()
+            .unwrap();
+
         if let ReceiveOk::Ack = receiver.parse() {
         } else {
             panic!("Shouldn't reach here");
@@ -193,17 +192,16 @@ mod tests {
     #[test]
     fn ack_nocrc() {
         let mut receiver = Receiver::<0x5AA5, 8, false>::new();
-        let packet = [0x5A, 0xA5, 5, 0x82, b'O', b'K'];
-        for i in packet
+        let packet = [0x5A, 0xA5, 3, 0x82, b'O', b'K'];
+
+        packet
             .into_iter()
-            .map(|byte| receiver.consume(byte))
-            .filter_map(|r| r.transpose())
-        {
-            // Received something
-            if i.is_ok() {
-                break;
-            }
-        }
+            .map(|byte| receiver.consume(byte).transpose())
+            .find(|f| f.is_some())
+            .unwrap()
+            .unwrap()
+            .unwrap();
+
         if let ReceiveOk::Ack = receiver.parse() {
         } else {
             panic!("Shouldn't reach here");
@@ -215,16 +213,14 @@ mod tests {
         let mut receiver = Receiver::<0x5AA5, 8, true>::new();
         let packet = [0x5A, 0xA5, 8, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD, 0xE7, 0x8D];
 
-        for i in packet
+        packet
             .into_iter()
-            .map(|byte| receiver.consume(byte))
-            .filter_map(|r| r.transpose())
-        {
-            // Received something
-            if i.is_ok() {
-                break;
-            }
-        }
+            .map(|byte| receiver.consume(byte).transpose())
+            .find(|f| f.is_some())
+            .unwrap()
+            .unwrap()
+            .unwrap();
+
         if let ReceiveOk::Packet {
             cmd,
             addr,
@@ -244,18 +240,16 @@ mod tests {
     #[test]
     fn receive_packet_nocrc() {
         let mut receiver = Receiver::<0x5AA5, 8, false>::new();
-        let packet = [0x5A, 0xA5, 8, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD];
+        let packet = [0x5A, 0xA5, 6, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD];
 
-        for i in packet
+        packet
             .into_iter()
-            .map(|byte| receiver.consume(byte))
-            .filter_map(|r| r.transpose())
-        {
-            // Received something
-            if i.is_ok() {
-                break;
-            }
-        }
+            .map(|byte| receiver.consume(byte).transpose())
+            .find(|f| f.is_some())
+            .unwrap()
+            .unwrap()
+            .unwrap();
+
         if let ReceiveOk::Packet {
             cmd,
             addr,

@@ -2,7 +2,6 @@
 
 pub mod packet;
 pub mod receiver;
-pub mod widget;
 
 const CRC: Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
 use crc::{Crc, CRC_16_MODBUS};

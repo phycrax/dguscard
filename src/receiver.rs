@@ -1,5 +1,7 @@
 pub mod receiver_state;
 
+use core::num::Wrapping;
+
 use self::receiver_state::ReceiverState;
 use super::*;
 
@@ -16,15 +18,16 @@ pub enum ReceiveError {
 pub struct Receiver<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool> {
     state: ReceiverState,
     buffer: Vec<u8, BUFFER_SIZE>,
+    ack_counter: Wrapping<u8>,
 }
 
-pub enum ReceiveOk<const BUFFER_SIZE: usize> {
+pub enum ReceiveOk<'a, const BUFFER_SIZE: usize> {
     Ack,
     Packet {
         cmd: Cmd,
         addr: u16,
         wlen: u8,
-        data: Vec<u8, BUFFER_SIZE>,
+        data: &'a [u8],
     },
 }
 
@@ -37,6 +40,7 @@ impl<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool> Defau
         Self {
             state: ReceiverState::Initial,
             buffer: Vec::new(),
+            ack_counter: Wrapping::default(),
         }
     }
 }
@@ -91,18 +95,18 @@ impl<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool>
         }
     }
 
-    pub fn parse(&self) -> ReceiveOk<BUFFER_SIZE> {
-        let cmd: Cmd = self.buffer[0].into();
-        let addr = u16::from_be_bytes([self.buffer[1], self.buffer[2]]);
+    pub fn parse(buffer: &[u8]) -> ReceiveOk<BUFFER_SIZE> {
+        let cmd: Cmd = buffer[0].into();
+        let addr = u16::from_be_bytes([buffer[1], buffer[2]]);
 
-        if self.buffer.len() == 3 && addr == u16::from_be_bytes([b'O', b'K']) {
+        if buffer.len() == 3 && addr == u16::from_be_bytes([b'O', b'K']) {
             ReceiveOk::Ack
         } else {
             ReceiveOk::Packet {
                 cmd,
                 addr,
-                wlen: self.buffer[3],
-                data: Vec::from_slice(&self.buffer[4..]).unwrap(),
+                wlen: buffer[3],
+                data: &buffer[4..],
             }
         }
     }
@@ -157,15 +161,40 @@ impl<const HEADER: u16, const BUFFER_SIZE: usize, const CRC_ENABLED: bool>
     }
 
     // Async fn possible?
-    pub fn consume(&mut self, byte: u8) -> Option<Result<ReceiveOk<BUFFER_SIZE>, ReceiveError>> {
+    pub fn consume(&mut self, byte: u8) -> Option<Result<(), ReceiveError>> {
+        // TODO: start a watchdog timer for timeout detection here
+        //
+        // self.watchdog.start();
+        // self.watchdog.reset();
+
         // A byte received, move to the next state.
         self.state = self.state.next(byte);
         // Parse the incoming byte with this state. Return early if there's nothing yet.
         // If there's a result, map it with the error or parse result.
-        let result = self.parse_byte(byte).transpose()?.map(|()| self.parse());
+        let result = self
+            .parse_byte(byte)
+            .transpose()?
+            .map(|()| Self::parse(&self.buffer));
         // At this point, we either have a parsed result or an error.
+
+        match result {
+            Ok(ReceiveOk::Ack) => self.ack_counter += 1,
+
+            Ok(ReceiveOk::Packet {
+                cmd,
+                addr,
+                wlen,
+                data,
+            }) => (),
+
+            _ => (),
+        }
+
         // Reset the receiver.
         self.reset();
+        // TODO: stop the timer.
+        // self.watchdog.stop();
+
         // Return the result
         Some(result)
     }

@@ -10,7 +10,7 @@ pub enum ParsedFrame<'a> {
         command: Cmd,
         address: u16,
         word_length: u8,
-        data: &'a [u8],
+        data_bytes: &'a [u8],
     },
 }
 
@@ -23,12 +23,6 @@ pub enum ParseErr {
     Address,
     Unknown,
     WordLength,
-}
-
-impl Default for Parser<0x5AA5, true> {
-    fn default() -> Self {
-        Self
-    }
 }
 
 impl<const H: u16, const C: bool> Parser<H, C> {
@@ -88,7 +82,7 @@ impl<const H: u16, const C: bool> Parser<H, C> {
         }
 
         // Strip word length
-        let (word_length, bytes) = bytes.split_first().ok_or(ParseErr::WordLength)?;
+        let (word_length, data_bytes) = bytes.split_first().ok_or(ParseErr::WordLength)?;
         let word_length = *word_length;
 
         // Remanining bytes are data
@@ -96,7 +90,7 @@ impl<const H: u16, const C: bool> Parser<H, C> {
             command,
             address,
             word_length,
-            data: bytes,
+            data_bytes,
         })
     }
 }
@@ -107,14 +101,17 @@ mod tests {
 
     #[test]
     fn ack() {
-        let parser = Parser::default();
+        let parser = Parser::<0x5AA5, true>;
         let packet = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF];
         let result = parser.parse(&packet);
+        let Ok(ParsedFrame::Ack) = result else {
+            panic!("Shouldn't reach here");
+        };
     }
 
     #[test]
     fn bad_header() {
-        let parser = Parser::default();
+        let parser = Parser::<0x5AA5, true>;
         let packet = [0xAA, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF];
         let result = parser.parse(&packet);
         let Err(ParseErr::Header) = result else {
@@ -124,7 +121,7 @@ mod tests {
 
     #[test]
     fn bad_checksum() {
-        let parser = Parser::default();
+        let parser = Parser::<0x5AA5, true>;
         let packet = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xAA, 0xEF];
         let result = parser.parse(&packet);
         let Err(ParseErr::Checksum) = result else {
@@ -134,7 +131,7 @@ mod tests {
 
     #[test]
     fn bad_command() {
-        let parser = Parser::default();
+        let parser = Parser::<0x5AA5, true>;
         let packet = [0x5A, 0xA5, 5, 0xAA, b'O', b'K', 0x25, 0xE7];
         let result = parser.parse(&packet);
         let Err(ParseErr::Command) = result else {
@@ -144,7 +141,7 @@ mod tests {
 
     #[test]
     fn receive_packet() {
-        let parser = Parser::default();
+        let parser = Parser::<0x5AA5, true>;
         let packet = [0x5A, 0xA5, 8, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD, 0xE7, 0x8D];
 
         let result = parser.parse(&packet).unwrap();
@@ -153,13 +150,13 @@ mod tests {
             command,
             address,
             word_length,
-            data,
+            data_bytes,
         } = result
         {
             assert_eq!(command, Cmd::Read16);
             assert_eq!(address, 0xAABB);
             assert_eq!(word_length, 1);
-            assert_eq!(&data, &[0xCC, 0xDD]);
+            assert_eq!(&data_bytes, &[0xCC, 0xDD]);
         } else {
             panic!("Shouldn't reach here");
         };

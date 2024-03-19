@@ -1,14 +1,14 @@
 #![no_std]
 
 pub mod packet;
-pub mod receiver;
+pub mod parser;
 
 const CRC: Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
 use crc::{Crc, CRC_16_MODBUS};
 use heapless::Vec;
 
 #[repr(u8)]
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum Cmd {
     WriteRegister = 0x80,
     ReadRegister,

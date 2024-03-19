@@ -1,28 +1,22 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use dwin::{receiver::*, Cmd};
+use dwin::{parser::*, Cmd};
 
 fn receive_packet() {
-    let mut receiver = Receiver::<0x5AA5, 8, true>::new();
+    let parser = Parser::default();
     let packet = [0x5A, 0xA5, 8, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD, 0xE7, 0x8D];
 
-    let result = packet
-        .into_iter()
-        .map(|byte| receiver.consume(byte))
-        .find(|f| f.is_some())
-        .unwrap()
-        .unwrap()
-        .unwrap();
+    let result = parser.parse(&packet).unwrap();
 
-    if let ReceiveOk::Packet {
-        cmd,
-        addr,
-        wlen,
+    if let ParsedFrame::Packet {
+        command,
+        address,
+        word_length,
         data,
     } = result
     {
-        assert_eq!(cmd, Cmd::Read16);
-        assert_eq!(addr, 0xAABB);
-        assert_eq!(wlen, 1);
+        assert_eq!(command, Cmd::Read16);
+        assert_eq!(address, 0xAABB);
+        assert_eq!(word_length, 1);
         assert_eq!(&data, &[0xCC, 0xDD]);
     } else {
         panic!("Shouldn't reach here");

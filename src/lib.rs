@@ -5,7 +5,6 @@ pub mod parser;
 
 const CRC: Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
 use crc::{Crc, CRC_16_MODBUS};
-use heapless::Vec;
 
 #[repr(u8)]
 #[derive(PartialEq, Debug, Clone, Copy)]

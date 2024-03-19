@@ -106,16 +106,62 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test1() {
+    fn ack() {
         let parser = Parser::default();
         let packet = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF];
         let result = parser.parse(&packet);
     }
 
     #[test]
-    fn test2() {
+    fn bad_header() {
+        let parser = Parser::default();
+        let packet = [0xAA, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF];
+        let result = parser.parse(&packet);
+        let Err(ParseErr::Header) = result else {
+            panic!("Shouldn't reach here");
+        };
+    }
+
+    #[test]
+    fn bad_checksum() {
+        let parser = Parser::default();
+        let packet = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xAA, 0xEF];
+        let result = parser.parse(&packet);
+        let Err(ParseErr::Checksum) = result else {
+            panic!("Shouldn't reach here");
+        };
+    }
+
+    #[test]
+    fn bad_command() {
+        let parser = Parser::default();
+        let packet = [0x5A, 0xA5, 5, 0xAA, b'O', b'K', 0x25, 0xE7];
+        let result = parser.parse(&packet);
+        let Err(ParseErr::Command) = result else {
+            panic!("Shouldn't reach here");
+        };
+    }
+
+    #[test]
+    fn receive_packet() {
         let parser = Parser::default();
         let packet = [0x5A, 0xA5, 8, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD, 0xE7, 0x8D];
-        let result = parser.parse(&packet);
+
+        let result = parser.parse(&packet).unwrap();
+
+        if let ParsedFrame::Packet {
+            command,
+            address,
+            word_length,
+            data,
+        } = result
+        {
+            assert_eq!(command, Cmd::Read16);
+            assert_eq!(address, 0xAABB);
+            assert_eq!(word_length, 1);
+            assert_eq!(&data, &[0xCC, 0xDD]);
+        } else {
+            panic!("Shouldn't reach here");
+        };
     }
 }

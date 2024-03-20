@@ -1,12 +1,10 @@
-use crate::CRC;
-
-use super::Cmd;
+use crate::{Cmd, Crc16Modbus};
 
 pub struct Parser<const H: u16, const C: bool>;
 
 pub enum ParsedFrame<'a> {
     Ack,
-    Packet {
+    Data {
         command: Cmd,
         address: u16,
         word_length: u8,
@@ -25,17 +23,17 @@ pub enum ParseErr {
     WordLength,
 }
 
-impl<const H: u16, const C: bool> Parser<H, C> {
+impl<const HEADER: u16, const CRC_ENABLED: bool> Parser<HEADER, CRC_ENABLED> {
     pub fn parse(self, bytes: &[u8]) -> Result<ParsedFrame, ParseErr> {
         // Slice too short?
-        let min_len = if C { 8 } else { 5 };
+        let min_len = if CRC_ENABLED { 8 } else { 5 };
         if bytes.len() < min_len {
             return Err(ParseErr::Length);
         }
 
         // Strip header
         let bytes = bytes
-            .strip_prefix(&u16::to_be_bytes(H))
+            .strip_prefix(&u16::to_be_bytes(HEADER))
             .ok_or(ParseErr::Header)?;
 
         // Strip length
@@ -45,16 +43,12 @@ impl<const H: u16, const C: bool> Parser<H, C> {
         }
 
         // Strip CRC
-        let bytes = if C {
+        let bytes = if CRC_ENABLED {
             let (crc_h, bytes) = bytes.split_last().ok_or(ParseErr::Checksum)?;
             let (crc_l, bytes) = bytes.split_last().ok_or(ParseErr::Checksum)?;
-            let crc = u16::from_be_bytes([*crc_h, *crc_l]);
-
-            // todo crc dependency injection to leverage crc hardware?
-            if crc != CRC.checksum(bytes) {
+            if u16::from_be_bytes([*crc_h, *crc_l]) != Self::checksum(bytes) {
                 return Err(ParseErr::Checksum);
             }
-
             bytes
         } else {
             bytes
@@ -86,12 +80,21 @@ impl<const H: u16, const C: bool> Parser<H, C> {
         let word_length = *word_length;
 
         // Remanining bytes are data
-        Ok(ParsedFrame::Packet {
+        Ok(ParsedFrame::Data {
             command,
             address,
             word_length,
             data_bytes,
         })
+    }
+}
+
+#[cfg(feature = "crc")]
+impl<const H: u16, const C: bool> Crc16Modbus for Parser<H, C> {
+    fn checksum(bytes: &[u8]) -> u16 {
+        use crc::{Crc, CRC_16_MODBUS};
+        const CRC: crc::Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
+        CRC.checksum(bytes)
     }
 }
 
@@ -146,7 +149,7 @@ mod tests {
 
         let result = parser.parse(&packet).unwrap();
 
-        if let ParsedFrame::Packet {
+        if let ParsedFrame::Data {
             command,
             address,
             word_length,

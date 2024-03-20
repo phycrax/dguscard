@@ -3,9 +3,6 @@
 pub mod packet;
 pub mod parser;
 
-const CRC: Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
-use crc::{Crc, CRC_16_MODBUS};
-
 #[repr(u8)]
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum Cmd {
@@ -33,6 +30,10 @@ impl From<u8> for Cmd {
             _ => Undefined,
         }
     }
+}
+
+pub trait Crc16Modbus {
+    fn checksum(bytes: &[u8]) -> u16;
 }
 
 //device commands

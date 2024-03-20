@@ -7,7 +7,7 @@ fn receive_packet() {
 
     let result = parser.parse(&packet).unwrap();
 
-    if let ParsedFrame::Packet {
+    if let ParsedFrame::Data {
         command,
         address,
         word_length,

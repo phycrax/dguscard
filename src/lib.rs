@@ -33,7 +33,11 @@ impl From<u8> for Cmd {
 }
 
 pub trait Crc16Modbus {
-    fn checksum(bytes: &[u8]) -> u16;
+    fn checksum(bytes: &[u8]) -> u16 {
+        use crc::{Crc, CRC_16_MODBUS};
+        const CRC: crc::Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
+        CRC.checksum(bytes)
+    }
 }
 
 //device commands

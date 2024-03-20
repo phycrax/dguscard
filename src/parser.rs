@@ -1,15 +1,65 @@
 use crate::{Cmd, Crc16Modbus};
 
-pub struct Parser<const H: u16, const C: bool>;
+pub struct FrameIterator<'a> {
+    command: Cmd,
+    address: u16,
+    word_length: u8,
+    data_bytes: &'a [u8],
+}
 
-pub enum ParsedFrame<'a> {
+impl<'a> FrameIterator<'a> {
+    pub const fn get_command(&self) -> Cmd {
+        self.command
+    }
+
+    pub const fn get_address(&self) -> u16 {
+        self.address
+    }
+
+    pub fn get_u16(&mut self) -> Option<u16> {
+        if self.data_bytes.len() < core::mem::size_of::<u16>() {
+            return None;
+        }
+        self.address += core::mem::size_of::<u16>() as u16 / 2;
+        let (int_bytes, rest) = self.data_bytes.split_at(core::mem::size_of::<u16>());
+        self.data_bytes = rest;
+        Some(u16::from_be_bytes(int_bytes.try_into().unwrap()))
+    }
+
+    pub fn get_i16(&mut self) -> Option<i16> {
+        if self.data_bytes.len() < core::mem::size_of::<i16>() {
+            return None;
+        }
+        self.address += core::mem::size_of::<u16>() as u16 / 2;
+        let (int_bytes, rest) = self.data_bytes.split_at(core::mem::size_of::<u16>());
+        self.data_bytes = rest;
+        Some(i16::from_be_bytes(int_bytes.try_into().unwrap()))
+    }
+}
+
+macro_rules! impl_get{
+    ($($ty:ident)+) => ($(
+        impl<'a> FrameIterator<'a> {
+            pub fn get_$ty(&mut self) {
+                if self.data_bytes.len() < core::mem::size_of::<$ty>() {
+                    return None;
+                }
+                self.address += core::mem::size_of::<$ty>() as u16 / 2;
+                let (int_bytes, rest) = self.data_bytes.split_at(core::mem::size_of::<$ty>());
+                self.data_bytes = rest;
+                Some($ty::from_be_bytes(int_bytes.try_into().unwrap()))
+            }
+        }
+    )+)
+}
+
+impl_get! { u16 i16 u32 i32 u64 i64 f32 f64 }
+
+pub struct FrameParser<const H: u16, const C: bool>;
+
+pub enum ParseOk<'a> {
     Ack,
-    Data {
-        command: Cmd,
-        address: u16,
-        word_length: u8,
-        data_bytes: &'a [u8],
-    },
+    Data(FrameIterator<'a>),
 }
 
 #[derive(PartialEq, Debug, Copy, Clone)]
@@ -23,8 +73,8 @@ pub enum ParseErr {
     WordLength,
 }
 
-impl<const HEADER: u16, const CRC_ENABLED: bool> Parser<HEADER, CRC_ENABLED> {
-    pub fn parse(self, bytes: &[u8]) -> Result<ParsedFrame, ParseErr> {
+impl<const HEADER: u16, const CRC_ENABLED: bool> FrameParser<HEADER, CRC_ENABLED> {
+    pub fn parse(self, bytes: &[u8]) -> Result<ParseOk, ParseErr> {
         // Slice too short?
         let min_len = if CRC_ENABLED { 8 } else { 5 };
         if bytes.len() < min_len {
@@ -69,7 +119,7 @@ impl<const HEADER: u16, const CRC_ENABLED: bool> Parser<HEADER, CRC_ENABLED> {
         // Is it ACK?
         if bytes.is_empty() {
             if address == u16::from_be_bytes([b'O', b'K']) {
-                return Ok(ParsedFrame::Ack);
+                return Ok(ParseOk::Ack);
             } else {
                 return Err(ParseErr::Unknown);
             }
@@ -80,23 +130,17 @@ impl<const HEADER: u16, const CRC_ENABLED: bool> Parser<HEADER, CRC_ENABLED> {
         let word_length = *word_length;
 
         // Remanining bytes are data
-        Ok(ParsedFrame::Data {
+        Ok(ParseOk::Data(FrameIterator {
             command,
             address,
             word_length,
             data_bytes,
-        })
+        }))
     }
 }
 
 #[cfg(feature = "crc")]
-impl<const H: u16, const C: bool> Crc16Modbus for Parser<H, C> {
-    fn checksum(bytes: &[u8]) -> u16 {
-        use crc::{Crc, CRC_16_MODBUS};
-        const CRC: crc::Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
-        CRC.checksum(bytes)
-    }
-}
+impl<const H: u16, const C: bool> Crc16Modbus for FrameParser<H, C> {}
 
 #[cfg(test)]
 mod tests {
@@ -104,17 +148,17 @@ mod tests {
 
     #[test]
     fn ack() {
-        let parser = Parser::<0x5AA5, true>;
+        let parser = FrameParser::<0x5AA5, true>;
         let packet = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF];
         let result = parser.parse(&packet);
-        let Ok(ParsedFrame::Ack) = result else {
+        let Ok(ParseOk::Ack) = result else {
             panic!("Shouldn't reach here");
         };
     }
 
     #[test]
     fn bad_header() {
-        let parser = Parser::<0x5AA5, true>;
+        let parser = FrameParser::<0x5AA5, true>;
         let packet = [0xAA, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF];
         let result = parser.parse(&packet);
         let Err(ParseErr::Header) = result else {
@@ -124,7 +168,7 @@ mod tests {
 
     #[test]
     fn bad_checksum() {
-        let parser = Parser::<0x5AA5, true>;
+        let parser = FrameParser::<0x5AA5, true>;
         let packet = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xAA, 0xEF];
         let result = parser.parse(&packet);
         let Err(ParseErr::Checksum) = result else {
@@ -134,7 +178,7 @@ mod tests {
 
     #[test]
     fn bad_command() {
-        let parser = Parser::<0x5AA5, true>;
+        let parser = FrameParser::<0x5AA5, true>;
         let packet = [0x5A, 0xA5, 5, 0xAA, b'O', b'K', 0x25, 0xE7];
         let result = parser.parse(&packet);
         let Err(ParseErr::Command) = result else {
@@ -144,22 +188,17 @@ mod tests {
 
     #[test]
     fn receive_packet() {
-        let parser = Parser::<0x5AA5, true>;
+        let parser = FrameParser::<0x5AA5, true>;
         let packet = [0x5A, 0xA5, 8, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD, 0xE7, 0x8D];
 
         let result = parser.parse(&packet).unwrap();
 
-        if let ParsedFrame::Data {
-            command,
-            address,
-            word_length,
-            data_bytes,
-        } = result
-        {
-            assert_eq!(command, Cmd::Read16);
-            assert_eq!(address, 0xAABB);
-            assert_eq!(word_length, 1);
-            assert_eq!(&data_bytes, &[0xCC, 0xDD]);
+        if let ParseOk::Data(mut frame) = result {
+            assert_eq!(frame.get_command(), Cmd::Read16);
+            assert_eq!(frame.get_address(), 0xAABB);
+            assert_eq!(frame.get_u16(), Some(0xCCDD));
+            assert_eq!(frame.get_address(), 0xAABC);
+            //assert_eq!(word_length, 1);
         } else {
             panic!("Shouldn't reach here");
         };

@@ -17,43 +17,52 @@ impl<'a> FrameIterator<'a> {
     }
 
     pub fn get_u16(&mut self) -> Option<u16> {
-        if self.data_bytes.len() < core::mem::size_of::<u16>() {
-            return None;
-        }
-        self.address += core::mem::size_of::<u16>() as u16 / 2;
-        let (int_bytes, rest) = self.data_bytes.split_at(core::mem::size_of::<u16>());
-        self.data_bytes = rest;
-        Some(u16::from_be_bytes(int_bytes.try_into().unwrap()))
+        self.get_primitive()
     }
-
+    pub fn get_u32(&mut self) -> Option<u32> {
+        self.get_primitive()
+    }
+    pub fn get_u64(&mut self) -> Option<u64> {
+        self.get_primitive()
+    }
     pub fn get_i16(&mut self) -> Option<i16> {
-        if self.data_bytes.len() < core::mem::size_of::<i16>() {
-            return None;
-        }
-        self.address += core::mem::size_of::<u16>() as u16 / 2;
-        let (int_bytes, rest) = self.data_bytes.split_at(core::mem::size_of::<u16>());
-        self.data_bytes = rest;
-        Some(i16::from_be_bytes(int_bytes.try_into().unwrap()))
+        self.get_primitive()
+    }
+    pub fn get_i32(&mut self) -> Option<i32> {
+        self.get_primitive()
+    }
+    pub fn get_i64(&mut self) -> Option<i64> {
+        self.get_primitive()
+    }
+    pub fn get_f32(&mut self) -> Option<i64> {
+        self.get_primitive()
+    }
+    pub fn get_f64(&mut self) -> Option<i64> {
+        self.get_primitive()
     }
 }
 
-macro_rules! impl_get{
+trait GetPrimitive<T> {
+    fn get_primitive(&mut self) -> Option<T>;
+}
+
+macro_rules! impl_get_primitive{
     ($($ty:ident)+) => ($(
-        impl<'a> FrameIterator<'a> {
-            pub fn get_$ty(&mut self) {
+        impl GetPrimitive<$ty> for FrameIterator<'_> {
+            fn get_primitive(&mut self) -> Option<$ty> {
                 if self.data_bytes.len() < core::mem::size_of::<$ty>() {
                     return None;
                 }
                 self.address += core::mem::size_of::<$ty>() as u16 / 2;
-                let (int_bytes, rest) = self.data_bytes.split_at(core::mem::size_of::<$ty>());
+                let (bytes, rest) = self.data_bytes.split_at(core::mem::size_of::<$ty>());
                 self.data_bytes = rest;
-                Some($ty::from_be_bytes(int_bytes.try_into().unwrap()))
+                Some($ty::from_be_bytes(bytes.try_into().unwrap()))
             }
         }
     )+)
 }
 
-impl_get! { u16 i16 u32 i32 u64 i64 f32 f64 }
+impl_get_primitive! { u16 i16 u32 i32 u64 i64 f32 f64 }
 
 pub struct FrameParser<const H: u16, const C: bool>;
 
@@ -117,12 +126,8 @@ impl<const HEADER: u16, const CRC_ENABLED: bool> FrameParser<HEADER, CRC_ENABLED
         let address = u16::from_be_bytes([*addr_h, *addr_l]);
 
         // Is it ACK?
-        if bytes.is_empty() {
-            if address == u16::from_be_bytes([b'O', b'K']) {
-                return Ok(ParseOk::Ack);
-            } else {
-                return Err(ParseErr::Unknown);
-            }
+        if bytes.is_empty() && address == u16::from_be_bytes([b'O', b'K']) {
+            return Ok(ParseOk::Ack);
         }
 
         // Strip word length

@@ -7,11 +7,12 @@ fn receive_packet() {
 
     let result = parser.parse(&packet).unwrap();
 
-    if let ParseOk::Data(frame) = result {
-        assert_eq!(frame.command, Cmd::Read16);
-        assert_eq!(frame.address, 0xAABB);
-        assert_eq!(frame.word_length, 1);
-        assert_eq!(frame.&data_bytes, &[0xCC, 0xDD]);
+    if let ParseOk::Data(mut frame) = result {
+        assert_eq!(frame.get_command(), Cmd::Read16);
+        assert_eq!(frame.get_address(), 0xAABB);
+        assert_eq!(frame.get_u16(), Some(0xCCDD));
+        assert_eq!(frame.get_address(), 0xAABC);
+        //assert_eq!(word_length, 1);
     } else {
         panic!("Shouldn't reach here");
     };

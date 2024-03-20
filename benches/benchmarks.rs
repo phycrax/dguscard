@@ -2,10 +2,9 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use dwin::{parser::*, Cmd};
 
 fn receive_packet() {
-    let parser = FrameParser::<0x5AA5, true>;
     let packet = [0x5A, 0xA5, 8, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD, 0xE7, 0x8D];
 
-    let result = parser.parse(&packet).unwrap();
+    let result = FrameParser::<0x5AA5, true>::parse(&packet).unwrap();
 
     if let ParseOk::Data(mut frame) = result {
         assert_eq!(frame.get_command(), Cmd::Read16);

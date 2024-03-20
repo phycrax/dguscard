@@ -83,7 +83,7 @@ pub enum ParseErr {
 }
 
 impl<const HEADER: u16, const CRC_ENABLED: bool> FrameParser<HEADER, CRC_ENABLED> {
-    pub fn parse(self, bytes: &[u8]) -> Result<ParseOk, ParseErr> {
+    pub fn parse(bytes: &[u8]) -> Result<ParseOk, ParseErr> {
         // Slice too short?
         let min_len = if CRC_ENABLED { 8 } else { 5 };
         if bytes.len() < min_len {
@@ -153,9 +153,8 @@ mod tests {
 
     #[test]
     fn ack() {
-        let parser = FrameParser::<0x5AA5, true>;
         let packet = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF];
-        let result = parser.parse(&packet);
+        let result = FrameParser::<0x5AA5, true>::parse(&packet);
         let Ok(ParseOk::Ack) = result else {
             panic!("Shouldn't reach here");
         };
@@ -163,9 +162,8 @@ mod tests {
 
     #[test]
     fn bad_header() {
-        let parser = FrameParser::<0x5AA5, true>;
         let packet = [0xAA, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF];
-        let result = parser.parse(&packet);
+        let result = FrameParser::<0x5AA5, true>::parse(&packet);
         let Err(ParseErr::Header) = result else {
             panic!("Shouldn't reach here");
         };
@@ -173,9 +171,8 @@ mod tests {
 
     #[test]
     fn bad_checksum() {
-        let parser = FrameParser::<0x5AA5, true>;
         let packet = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xAA, 0xEF];
-        let result = parser.parse(&packet);
+        let result = FrameParser::<0x5AA5, true>::parse(&packet);
         let Err(ParseErr::Checksum) = result else {
             panic!("Shouldn't reach here");
         };
@@ -183,9 +180,8 @@ mod tests {
 
     #[test]
     fn bad_command() {
-        let parser = FrameParser::<0x5AA5, true>;
         let packet = [0x5A, 0xA5, 5, 0xAA, b'O', b'K', 0x25, 0xE7];
-        let result = parser.parse(&packet);
+        let result = FrameParser::<0x5AA5, true>::parse(&packet);
         let Err(ParseErr::Command) = result else {
             panic!("Shouldn't reach here");
         };
@@ -193,10 +189,9 @@ mod tests {
 
     #[test]
     fn receive_packet() {
-        let parser = FrameParser::<0x5AA5, true>;
         let packet = [0x5A, 0xA5, 8, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD, 0xE7, 0x8D];
 
-        let result = parser.parse(&packet).unwrap();
+        let result = FrameParser::<0x5AA5, true>::parse(&packet).unwrap();
 
         if let ParseOk::Data(mut frame) = result {
             assert_eq!(frame.get_command(), Cmd::Read16);

@@ -11,11 +11,9 @@ impl<'a> FrameIterator<'a> {
     pub const fn get_command(&self) -> Cmd {
         self.command
     }
-
     pub const fn get_address(&self) -> u16 {
         self.address
     }
-
     pub fn get_u16(&mut self) -> Option<u16> {
         self.get_primitive()
     }
@@ -129,8 +127,8 @@ impl<const HEADER: u16, const CRC_ENABLED: bool> FrameParser<HEADER, CRC_ENABLED
         }
 
         // Strip word length
-        let (word_length, data_bytes) = bytes.split_first().ok_or(ParseErr::WordLength)?;
-        let word_length = *word_length;
+        let (word_length, data_bytes) = bytes.split_at(1);
+        let word_length = word_length[0];
 
         // Remanining bytes are data
         Ok(ParseOk::Data(FrameIterator {

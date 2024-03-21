@@ -1,6 +1,6 @@
 #![no_std]
 
-//pub mod builder;
+pub mod builder;
 pub mod parser;
 
 #[repr(u8)]

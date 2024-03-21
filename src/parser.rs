@@ -94,8 +94,8 @@ impl<const HEADER: u16, const CRC_ENABLED: bool> FrameParser<HEADER, CRC_ENABLED
             .ok_or(ParseErr::Header)?;
 
         // Strip length
-        let (length, bytes) = bytes.split_at(1);
-        if length[0] as usize != bytes.len() {
+        let (length, bytes) = bytes.split_first().unwrap();
+        if *length as usize != bytes.len() {
             return Err(ParseErr::Length);
         }
 
@@ -111,8 +111,8 @@ impl<const HEADER: u16, const CRC_ENABLED: bool> FrameParser<HEADER, CRC_ENABLED
         };
 
         // Strip command
-        let (command, bytes) = bytes.split_at(1);
-        let command = Cmd::from(command[0]);
+        let (command, bytes) = bytes.split_first().unwrap();
+        let command = Cmd::from(*command);
         if command == Cmd::Undefined {
             return Err(ParseErr::Command);
         }

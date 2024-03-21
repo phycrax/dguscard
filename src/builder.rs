@@ -8,12 +8,22 @@ pub struct FrameBuilder<const N: usize, const H: u16, const C: bool> {
 impl<const SIZE: usize, const HEADER: u16, const CRC_ENABLED: bool>
     FrameBuilder<SIZE, HEADER, CRC_ENABLED>
 {
+    const MIN_SIZE: () = { assert!(SIZE >= if CRC_ENABLED { 8 } else { 6 }) };
+    const MAX_SIZE: () = { assert!(SIZE < u8::MAX as usize) };
+
     pub fn new(command: Cmd, address: u16) -> Self {
+        // Sanity check
+        #[allow(clippy::let_unit_value)]
+        {
+            let _ = Self::MIN_SIZE;
+            let _ = Self::MAX_SIZE;
+        }
+
         let mut packet = FrameBuilder { data: Vec::new() };
-        packet.append(HEADER);
-        packet.append(0u8); // ->[LEN]
-        packet.append(command as u8); //index 3 is CMD
-        packet.append(address); //index 4 and 5 is ADDR
+        packet.append(HEADER); // -> [HEADER:2]
+        packet.append(0u8); // -> [LEN:1]
+        packet.append(command as u8); // -> [CMD:1]
+        packet.append(address); // -> [ADDR:2]
         packet
     }
 
@@ -86,7 +96,7 @@ trait Append<T> {
 // Note: Manually implement these if it becomes a pain. See unit test.
 macro_rules! impl_append {
     ($($ty:ident)+) => ($(
-        impl<const SIZE: usize, const HEADER: u16, const CRC_ENABLED: bool> Append<$ty> for Packet<SIZE, HEADER, CRC_ENABLED> {
+        impl<const SIZE: usize, const HEADER: u16, const CRC_ENABLED: bool> Append<$ty> for FrameBuilder<SIZE, HEADER, CRC_ENABLED> {
             fn append(&mut self, data: $ty) {
                 let bytes = data.to_be_bytes();
                 for byte in bytes {

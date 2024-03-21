@@ -96,16 +96,15 @@ impl<const HEADER: u16, const CRC_ENABLED: bool> FrameParser<HEADER, CRC_ENABLED
             .ok_or(ParseErr::Header)?;
 
         // Strip length
-        let (length, bytes) = bytes.split_first().ok_or(ParseErr::Length)?;
-        if *length as usize != bytes.len() {
+        let (length, bytes) = bytes.split_at(1);
+        if length[0] as usize != bytes.len() {
             return Err(ParseErr::Length);
         }
 
         // Strip CRC
         let bytes = if CRC_ENABLED {
-            let (crc_h, bytes) = bytes.split_last().ok_or(ParseErr::Checksum)?;
-            let (crc_l, bytes) = bytes.split_last().ok_or(ParseErr::Checksum)?;
-            if u16::from_be_bytes([*crc_h, *crc_l]) != Self::checksum(bytes) {
+            let (bytes, crc) = bytes.split_at(bytes.len() - 2);
+            if u16::from_le_bytes(crc.try_into().unwrap()) != Self::checksum(bytes) {
                 return Err(ParseErr::Checksum);
             }
             bytes
@@ -114,16 +113,15 @@ impl<const HEADER: u16, const CRC_ENABLED: bool> FrameParser<HEADER, CRC_ENABLED
         };
 
         // Strip command
-        let (command, bytes) = bytes.split_first().ok_or(ParseErr::Command)?;
-        let command = Cmd::from(*command);
+        let (command, bytes) = bytes.split_at(1);
+        let command = Cmd::from(command[0]);
         if command == Cmd::Undefined {
             return Err(ParseErr::Command);
         }
 
         // Strip address
-        let (addr_h, bytes) = bytes.split_first().ok_or(ParseErr::Address)?;
-        let (addr_l, bytes) = bytes.split_first().ok_or(ParseErr::Address)?;
-        let address = u16::from_be_bytes([*addr_h, *addr_l]);
+        let (address, bytes) = bytes.split_at(2);
+        let address = u16::from_be_bytes(address.try_into().unwrap());
 
         // Is it ACK?
         if bytes.is_empty() && address == u16::from_be_bytes([b'O', b'K']) {

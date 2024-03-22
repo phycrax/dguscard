@@ -8,8 +8,8 @@ pub struct FrameBuilder<const N: usize, const H: u16, const C: bool> {
 impl<const SIZE: usize, const HEADER: u16, const CRC_ENABLED: bool>
     FrameBuilder<SIZE, HEADER, CRC_ENABLED>
 {
-    const MIN_SIZE: () = { assert!(SIZE >= if CRC_ENABLED { 8 } else { 6 }) };
-    const MAX_SIZE: () = { assert!(SIZE < u8::MAX as usize) };
+    const MIN_SIZE: () = { assert!(SIZE >= if CRC_ENABLED { 8 } else { 6 }, "Size too small") };
+    const MAX_SIZE: () = { assert!(SIZE < u8::MAX as usize, "Size too large") };
 
     pub fn new(command: Cmd, address: u16) -> Self {
         // Sanity check

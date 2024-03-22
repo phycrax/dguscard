@@ -48,13 +48,10 @@ macro_rules! impl_get_primitive{
     ($($ty:ident)+) => ($(
         impl GetPrimitive<$ty> for FrameIterator<'_> {
             fn get_primitive(&mut self) -> Option<$ty> {
-                if self.data_bytes.len() < core::mem::size_of::<$ty>() {
-                    return None;
-                }
                 self.address += core::mem::size_of::<$ty>() as u16 / 2;
-                let (bytes, rest) = self.data_bytes.split_at(core::mem::size_of::<$ty>());
+                let (bytes, rest) = self.data_bytes.split_first_chunk()?;
                 self.data_bytes = rest;
-                Some($ty::from_be_bytes(bytes.try_into().unwrap()))
+                Some($ty::from_be_bytes(*bytes))
             }
         }
     )+)
@@ -81,6 +78,8 @@ pub enum ParseErr {
 }
 
 impl<const HEADER: u16, const CRC_ENABLED: bool> FrameParser<HEADER, CRC_ENABLED> {
+    // Maybe consider returning multiple errors?
+    // CRC will always be invalid, would be good to know what got corrupted?
     pub fn parse(bytes: &[u8]) -> Result<ParseOk, ParseErr> {
         // Slice too short?
         let min_len = if CRC_ENABLED { 8 } else { 5 };
@@ -101,8 +100,8 @@ impl<const HEADER: u16, const CRC_ENABLED: bool> FrameParser<HEADER, CRC_ENABLED
 
         // Strip CRC
         let bytes = if CRC_ENABLED {
-            let (bytes, crc) = bytes.split_at(bytes.len() - 2);
-            if u16::from_le_bytes(crc.try_into().unwrap()) != Self::checksum(bytes) {
+            let (bytes, crc) = bytes.split_last_chunk().unwrap();
+            if u16::from_le_bytes(*crc) != Self::checksum(bytes) {
                 return Err(ParseErr::Checksum);
             }
             bytes
@@ -118,8 +117,8 @@ impl<const HEADER: u16, const CRC_ENABLED: bool> FrameParser<HEADER, CRC_ENABLED
         }
 
         // Strip address
-        let (address, bytes) = bytes.split_at(2);
-        let address = u16::from_be_bytes(address.try_into().unwrap());
+        let (address, bytes) = bytes.split_first_chunk().unwrap();
+        let address = u16::from_be_bytes(*address);
 
         // Is it ACK?
         if bytes.is_empty() && address == u16::from_be_bytes([b'O', b'K']) {
@@ -127,8 +126,8 @@ impl<const HEADER: u16, const CRC_ENABLED: bool> FrameParser<HEADER, CRC_ENABLED
         }
 
         // Strip word length
-        let (word_length, data_bytes) = bytes.split_at(1);
-        let word_length = word_length[0];
+        let (word_length, data_bytes) = bytes.split_first().unwrap();
+        let word_length = *word_length;
 
         // Remanining bytes are data
         Ok(ParseOk::Data(FrameIterator {

@@ -2,7 +2,7 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use dwin::{
     builder::FrameBuilder,
     parser::{FrameParser, ParseOk},
-    Cmd,
+    FrameCommand,
 };
 
 fn receive_packet() {
@@ -11,7 +11,7 @@ fn receive_packet() {
     let result = FrameParser::<0x5AA5, true>::parse(&packet).unwrap();
 
     if let ParseOk::Data(mut frame) = result {
-        assert_eq!(frame.get_command(), Cmd::Read16);
+        assert_eq!(frame.get_command(), FrameCommand::Read16);
         assert_eq!(frame.get_address(), 0xAABB);
         assert_eq!(frame.get_u16(), Some(0xCCDD));
         assert_eq!(frame.get_address(), 0xAABC);
@@ -22,7 +22,7 @@ fn receive_packet() {
 }
 
 fn set_background_icl_output() {
-    let mut packet = FrameBuilder::<50, 0x5AA5, true>::new(Cmd::Write16, 0x00DE);
+    let mut packet = FrameBuilder::<50, 0x5AA5, true>::new(FrameCommand::Write16, 0x00DE);
 
     // Example of the pain with number literals, annotation needed.
     packet.append_u16(0x5A00);

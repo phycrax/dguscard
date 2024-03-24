@@ -1,14 +1,15 @@
-use crate::{Cmd, Crc16Modbus};
+use crate::{Crc16Modbus, FrameCommand};
 
+#[derive(Debug, Copy, Clone)]
 pub struct FrameIterator<'a> {
-    command: Cmd,
+    command: FrameCommand,
     address: u16,
     word_length: u8,
     data_bytes: &'a [u8],
 }
 
 impl<'a> FrameIterator<'a> {
-    pub const fn get_command(&self) -> Cmd {
+    pub const fn get_command(&self) -> FrameCommand {
         self.command
     }
     pub const fn get_address(&self) -> u16 {
@@ -61,6 +62,7 @@ impl_get_primitive! { u16 i16 u32 i32 u64 i64 f32 f64 }
 
 pub struct FrameParser<const H: u16, const C: bool>;
 
+#[derive(Debug, Copy, Clone)]
 pub enum ParseOk<'a> {
     Ack,
     Data(FrameIterator<'a>),
@@ -111,8 +113,8 @@ impl<const HEADER: u16, const CRC_ENABLED: bool> FrameParser<HEADER, CRC_ENABLED
 
         // Strip command
         let (command, bytes) = bytes.split_first().unwrap();
-        let command = Cmd::from(*command);
-        if command == Cmd::Undefined {
+        let command = FrameCommand::from(*command);
+        if command == FrameCommand::Undefined {
             return Err(ParseErr::Command);
         }
 
@@ -189,7 +191,7 @@ mod tests {
         let result = FrameParser::<0x5AA5, true>::parse(&packet).unwrap();
 
         if let ParseOk::Data(mut frame) = result {
-            assert_eq!(frame.get_command(), Cmd::Read16);
+            assert_eq!(frame.get_command(), FrameCommand::Read16);
             assert_eq!(frame.get_address(), 0xAABB);
             assert_eq!(frame.get_u16(), Some(0xCCDD));
             assert_eq!(frame.get_address(), 0xAABC);

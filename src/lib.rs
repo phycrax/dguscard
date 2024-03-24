@@ -5,7 +5,7 @@ pub mod parser;
 
 #[repr(u8)]
 #[derive(PartialEq, Debug, Clone, Copy)]
-pub enum Cmd {
+pub enum FrameCommand {
     WriteRegister = 0x80,
     ReadRegister,
     Write16,
@@ -16,9 +16,9 @@ pub enum Cmd {
     Read32,
 }
 
-impl From<u8> for Cmd {
+impl From<u8> for FrameCommand {
     fn from(value: u8) -> Self {
-        use Cmd::*;
+        use FrameCommand::*;
         match value {
             0x80 => WriteRegister,
             0x81 => ReadRegister,

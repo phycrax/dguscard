@@ -1,6 +1,7 @@
-use crate::{Cmd, Crc16Modbus};
+use crate::{Crc16Modbus, FrameCommand};
 use heapless::Vec;
 
+#[derive(Debug)]
 pub struct FrameBuilder<const N: usize, const H: u16, const C: bool> {
     data: Vec<u8, N>,
 }
@@ -11,7 +12,7 @@ impl<const SIZE: usize, const HEADER: u16, const CRC_ENABLED: bool>
     const MIN_SIZE: () = { assert!(SIZE >= if CRC_ENABLED { 8 } else { 6 }, "Size too small") };
     const MAX_SIZE: () = { assert!(SIZE < u8::MAX as usize, "Size too large") };
 
-    pub fn new(command: Cmd, address: u16) -> Self {
+    pub fn new(command: FrameCommand, address: u16) -> Self {
         // Sanity check
         #[allow(clippy::let_unit_value)]
         {
@@ -121,7 +122,7 @@ mod tests {
 
     #[test]
     fn set_background_icl_output() {
-        let mut packet = FrameBuilder::<50, 0x5AA5, true>::new(Cmd::Write16, 0x00DE);
+        let mut packet = FrameBuilder::<50, 0x5AA5, true>::new(FrameCommand::Write16, 0x00DE);
 
         // Example of the pain with number literals, annotation needed.
         packet.append_u16(0x5A00);

@@ -93,8 +93,6 @@ trait Append<T> {
 }
 
 // Macro for blanket implementation of appending primitive types to the payload
-// Cons: numeric literals must be type annotated.
-// Note: Manually implement these if it becomes a pain. See unit test.
 macro_rules! impl_append {
     ($($ty:ident)+) => ($(
         impl<const SIZE: usize, const HEADER: u16, const CRC_ENABLED: bool> Append<$ty> for FrameBuilder<SIZE, HEADER, CRC_ENABLED> {
@@ -124,7 +122,6 @@ mod tests {
     fn set_background_icl_output() {
         let mut packet = FrameBuilder::<50, 0x5AA5, true>::new(FrameCommand::Write16, 0x00DE);
 
-        // Example of the pain with number literals, annotation needed.
         packet.append_u16(0x5A00);
         packet.append_u16(0x1234);
         let bytes = packet.get();

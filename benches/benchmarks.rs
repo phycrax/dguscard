@@ -1,24 +1,21 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use dwin::{
     builder::FrameBuilder,
-    parser::{FrameParser, ParseOk},
+    parser::{FrameMetadata, FrameParser},
     FrameCommand,
 };
 
 fn receive_packet() {
     let packet = [0x5A, 0xA5, 8, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD, 0xE7, 0x8D];
-
-    let result = FrameParser::<0x5AA5, true>::parse(&packet).unwrap();
-
-    if let ParseOk::Data(mut frame) = result {
-        assert_eq!(frame.get_command(), FrameCommand::Read16);
-        assert_eq!(frame.get_address(), 0xAABB);
-        assert_eq!(frame.get_u16(), Some(0xCCDD));
-        assert_eq!(frame.get_address(), 0xAABC);
-        //assert_eq!(word_length, 1);
-    } else {
-        panic!("Shouldn't reach here");
+    let expected_metadata = FrameMetadata {
+        command: FrameCommand::Read16,
+        address: 0xAABB,
+        word_length: 1,
     };
+
+    let frame = FrameParser::<0x5AA5, true>::parse_metadata(&packet).expect("Parsing failure");
+    assert_eq!(frame.metadata(), expected_metadata);
+    assert_eq!(frame.data().get_u16(), Some(0xCCDD));
 }
 
 fn set_background_icl_output() {

@@ -116,7 +116,7 @@ pub struct FrameParser<const H: u16, const C: bool>;
 impl<const HEADER: u16, const CRC_ENABLED: bool> FrameParser<HEADER, CRC_ENABLED> {
     // Maybe consider returning multiple errors?
     // CRC will always be invalid, would be good to know what got corrupted?
-    pub fn parse_metadata(bytes: &[u8]) -> Result<Frame, ParseErr> {
+    pub fn parse(bytes: &[u8]) -> Result<Frame, ParseErr> {
         // Slice too short?
         let min_len = if CRC_ENABLED { 8 } else { 6 };
         if bytes.len() < min_len {
@@ -182,7 +182,7 @@ mod tests {
     #[test]
     fn ack() {
         let packet = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF];
-        let frame = FrameParser::<0x5AA5, true>::parse_metadata(&packet).expect("Parsing failure");
+        let frame = FrameParser::<0x5AA5, true>::parse(&packet).expect("Parsing failure");
         if !frame.is_ack() {
             panic!("Not ACK");
         };
@@ -191,7 +191,7 @@ mod tests {
     #[test]
     fn bad_header() {
         let packet = [0xAA, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF];
-        let result = FrameParser::<0x5AA5, true>::parse_metadata(&packet);
+        let result = FrameParser::<0x5AA5, true>::parse(&packet);
         let Err(ParseErr::Header) = result else {
             panic!("Shouldn't reach here");
         };
@@ -200,7 +200,7 @@ mod tests {
     #[test]
     fn bad_checksum() {
         let packet = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xAA, 0xEF];
-        let result = FrameParser::<0x5AA5, true>::parse_metadata(&packet);
+        let result = FrameParser::<0x5AA5, true>::parse(&packet);
         let Err(ParseErr::Checksum) = result else {
             panic!("Shouldn't reach here");
         };
@@ -209,7 +209,7 @@ mod tests {
     #[test]
     fn bad_command() {
         let packet = [0x5A, 0xA5, 5, 0xAA, b'O', b'K', 0x25, 0xE7];
-        let result = FrameParser::<0x5AA5, true>::parse_metadata(&packet);
+        let result = FrameParser::<0x5AA5, true>::parse(&packet);
         let Err(ParseErr::Command) = result else {
             panic!("Shouldn't reach here");
         };
@@ -224,7 +224,7 @@ mod tests {
             word_length: 1,
         };
 
-        let frame = FrameParser::<0x5AA5, true>::parse_metadata(&packet).expect("Parsing failure");
+        let frame = FrameParser::<0x5AA5, true>::parse(&packet).expect("Parsing failure");
         assert_eq!(frame.metadata(), expected_metadata);
         assert_eq!(frame.data().get_u16(), Some(0xCCDD));
     }

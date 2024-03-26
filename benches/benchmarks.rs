@@ -13,7 +13,7 @@ fn receive_packet() {
         word_length: 1,
     };
 
-    let frame = FrameParser::<0x5AA5, true>::parse_metadata(&packet).expect("Parsing failure");
+    let frame = FrameParser::<0x5AA5, true>::parse(&packet).expect("Parsing failure");
     assert_eq!(frame.metadata(), expected_metadata);
     assert_eq!(frame.data().get_u16(), Some(0xCCDD));
 }

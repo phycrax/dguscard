@@ -1,4 +1,4 @@
-use core::ops::Deref;
+use core::{ops::Deref, primitive};
 
 use crate::{Crc16Modbus, FrameCommand};
 
@@ -45,6 +45,9 @@ impl<'a> FrameData<'a> {
     pub const fn len(&self) -> usize {
         self.0.len()
     }
+    pub fn get_u16_chunk<const N: usize>(&mut self) -> Option<[u16; N]> {
+        self.get_primitive_chunk()
+    }
     pub fn get_u16(&mut self) -> Option<u16> {
         self.get_primitive()
     }
@@ -71,8 +74,9 @@ impl<'a> FrameData<'a> {
     }
 }
 
-trait GetPrimitive<T> {
+pub trait GetPrimitive<T> {
     fn get_primitive(&mut self) -> Option<T>;
+    fn get_primitive_chunk<const N: usize>(&mut self) -> Option<[T; N]>;
 }
 
 macro_rules! impl_get_primitive{
@@ -82,6 +86,13 @@ macro_rules! impl_get_primitive{
                 let (bytes, rest) = self.0.split_first_chunk()?;
                 self.0 = rest;
                 Some($ty::from_be_bytes(*bytes))
+            }
+            fn get_primitive_chunk<const N: usize>(&mut self) -> Option<[$ty; N]> {
+                let mut chunk = [Default::default(); N];
+                for primitive in chunk.iter_mut() {
+                    *primitive = self.get_primitive()?;
+                }
+                Some(chunk)
             }
         }
     )+)

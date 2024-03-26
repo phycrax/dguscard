@@ -1,6 +1,5 @@
-use core::{ops::Deref, primitive};
-
 use crate::{Crc16Modbus, FrameCommand};
+use core::ops::Deref;
 
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub struct FrameMetadata {
@@ -130,9 +129,10 @@ impl<const HEADER: u16, const CRC_ENABLED: bool> FrameParser<HEADER, CRC_ENABLED
 
         // Strip length
         let (length, bytes) = bytes.split_first().unwrap();
-        if *length as usize != bytes.len() {
-            return Err(ParseErr::Length);
-        }
+        let length = *length as usize;
+
+        // Trim slice with the length
+        let bytes = bytes.get(..length).ok_or(ParseErr::Length)?;
 
         // Strip CRC
         let bytes = if CRC_ENABLED {
@@ -181,7 +181,7 @@ mod tests {
 
     #[test]
     fn ack() {
-        let packet = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF];
+        let packet = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 0, 0, 0, 0];
         let frame = FrameParser::<0x5AA5, true>::parse(&packet).expect("Parsing failure");
         if !frame.is_ack() {
             panic!("Not ACK");
@@ -190,7 +190,7 @@ mod tests {
 
     #[test]
     fn bad_header() {
-        let packet = [0xAA, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF];
+        let packet = [0xAA, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 0, 0, 0, 0];
         let result = FrameParser::<0x5AA5, true>::parse(&packet);
         let Err(ParseErr::Header) = result else {
             panic!("Shouldn't reach here");
@@ -199,7 +199,7 @@ mod tests {
 
     #[test]
     fn bad_checksum() {
-        let packet = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xAA, 0xEF];
+        let packet = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xAA, 0xEF, 0, 0, 0, 0];
         let result = FrameParser::<0x5AA5, true>::parse(&packet);
         let Err(ParseErr::Checksum) = result else {
             panic!("Shouldn't reach here");
@@ -208,7 +208,7 @@ mod tests {
 
     #[test]
     fn bad_command() {
-        let packet = [0x5A, 0xA5, 5, 0xAA, b'O', b'K', 0x25, 0xE7];
+        let packet = [0x5A, 0xA5, 5, 0xAA, b'O', b'K', 0x25, 0xE7, 0, 0, 0, 0];
         let result = FrameParser::<0x5AA5, true>::parse(&packet);
         let Err(ParseErr::Command) = result else {
             panic!("Shouldn't reach here");
@@ -217,7 +217,9 @@ mod tests {
 
     #[test]
     fn receive_packet() {
-        let packet = [0x5A, 0xA5, 8, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD, 0xE7, 0x8D];
+        let packet = [
+            0x5A, 0xA5, 8, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD, 0xE7, 0x8D, 0, 0, 0, 0,
+        ];
         let expected_metadata = FrameMetadata {
             command: FrameCommand::Read16,
             address: 0xAABB,

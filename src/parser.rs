@@ -1,3 +1,5 @@
+use core::ops::Deref;
+
 use crate::{Crc16Modbus, FrameCommand};
 
 #[derive(PartialEq, Debug, Clone, Copy)]
@@ -18,7 +20,7 @@ pub struct Frame<'a> {
 
 impl<'a> Frame<'a> {
     pub fn is_ack(&self) -> bool {
-        self.data.0.is_empty() && self.metadata.address == u16::from_be_bytes([b'O', b'K'])
+        self.data.is_empty() && self.metadata.address == u16::from_be_bytes([b'O', b'K'])
     }
     pub fn metadata(&self) -> FrameMetadata {
         self.metadata
@@ -28,7 +30,21 @@ impl<'a> Frame<'a> {
     }
 }
 
+impl<'a> Deref for FrameData<'a> {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
 impl<'a> FrameData<'a> {
+    pub const fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+    pub const fn len(&self) -> usize {
+        self.0.len()
+    }
     pub fn get_u16(&mut self) -> Option<u16> {
         self.get_primitive()
     }

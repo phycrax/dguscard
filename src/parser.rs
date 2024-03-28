@@ -1,5 +1,4 @@
-use crate::{Crc16Modbus, FrameCommand};
-use core::ops::Deref;
+use crate::{Config, Crc16Modbus, FrameCommand};
 
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub struct FrameMetadata {
@@ -26,14 +25,6 @@ impl<'a> Frame<'a> {
     }
     pub fn data(&self) -> FrameData {
         self.data
-    }
-}
-
-impl<'a> Deref for FrameData<'a> {
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        self.0
     }
 }
 
@@ -110,21 +101,26 @@ pub enum ParseErr {
     WordLength,
 }
 
-pub struct FrameParser<const H: u16, const C: bool>;
+pub struct FrameParser {
+    config: Config,
+}
 
-impl<const HEADER: u16, const CRC_ENABLED: bool> FrameParser<HEADER, CRC_ENABLED> {
+impl FrameParser {
+    pub fn new(config: Config) -> Self {
+        Self { config }
+    }
     // Maybe consider returning multiple errors?
     // CRC will always be invalid, would be good to know what got corrupted?
-    pub fn parse(bytes: &[u8]) -> Result<Frame, ParseErr> {
+    pub fn parse<'a>(&'a self, bytes: &'a [u8]) -> Result<Frame, ParseErr> {
         // Slice too short?
-        let min_len = if CRC_ENABLED { 8 } else { 6 };
+        let min_len = if self.config.crc { 8 } else { 6 };
         if bytes.len() < min_len {
             return Err(ParseErr::Length);
         }
 
         // Strip header
         let bytes = bytes
-            .strip_prefix(&u16::to_be_bytes(HEADER))
+            .strip_prefix(&u16::to_be_bytes(self.config.header))
             .ok_or(ParseErr::Header)?;
 
         // Strip length
@@ -135,7 +131,7 @@ impl<const HEADER: u16, const CRC_ENABLED: bool> FrameParser<HEADER, CRC_ENABLED
         let bytes = bytes.get(..length).ok_or(ParseErr::Length)?;
 
         // Strip CRC
-        let bytes = if CRC_ENABLED {
+        let bytes = if self.config.crc {
             let (bytes, crc) = bytes.split_last_chunk().unwrap();
             if u16::from_le_bytes(*crc) != Self::checksum(bytes) {
                 return Err(ParseErr::Checksum);
@@ -172,9 +168,6 @@ impl<const HEADER: u16, const CRC_ENABLED: bool> FrameParser<HEADER, CRC_ENABLED
     }
 }
 
-#[cfg(feature = "crc")]
-impl<const H: u16, const C: bool> Crc16Modbus for FrameParser<H, C> {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,7 +175,8 @@ mod tests {
     #[test]
     fn ack() {
         let packet = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 0, 0, 0, 0];
-        let frame = FrameParser::<0x5AA5, true>::parse(&packet).expect("Parsing failure");
+        let parser = FrameParser::new(Default::default());
+        let frame = parser.parse(&packet).expect("Parsing failure");
         if !frame.is_ack() {
             panic!("Not ACK");
         };
@@ -191,7 +185,8 @@ mod tests {
     #[test]
     fn bad_header() {
         let packet = [0xAA, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 0, 0, 0, 0];
-        let result = FrameParser::<0x5AA5, true>::parse(&packet);
+        let parser = FrameParser::new(Default::default());
+        let result = parser.parse(&packet);
         let Err(ParseErr::Header) = result else {
             panic!("Shouldn't reach here");
         };
@@ -200,7 +195,8 @@ mod tests {
     #[test]
     fn bad_checksum() {
         let packet = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xAA, 0xEF, 0, 0, 0, 0];
-        let result = FrameParser::<0x5AA5, true>::parse(&packet);
+        let parser = FrameParser::new(Default::default());
+        let result = parser.parse(&packet);
         let Err(ParseErr::Checksum) = result else {
             panic!("Shouldn't reach here");
         };
@@ -209,7 +205,8 @@ mod tests {
     #[test]
     fn bad_command() {
         let packet = [0x5A, 0xA5, 5, 0xAA, b'O', b'K', 0x25, 0xE7, 0, 0, 0, 0];
-        let result = FrameParser::<0x5AA5, true>::parse(&packet);
+        let parser = FrameParser::new(Default::default());
+        let result = parser.parse(&packet);
         let Err(ParseErr::Command) = result else {
             panic!("Shouldn't reach here");
         };
@@ -225,8 +222,8 @@ mod tests {
             address: 0xAABB,
             word_length: 1,
         };
-
-        let frame = FrameParser::<0x5AA5, true>::parse(&packet).expect("Parsing failure");
+        let parser = FrameParser::new(Default::default());
+        let frame = parser.parse(&packet).expect("Parsing failure");
         assert_eq!(frame.metadata(), expected_metadata);
         assert_eq!(frame.data().get_u16(), Some(0xCCDD));
     }

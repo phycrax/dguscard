@@ -12,15 +12,14 @@ fn receive_packet() {
         address: 0xAABB,
         word_length: 1,
     };
-
-    let frame = FrameParser::<0x5AA5, true>::parse(&packet).expect("Parsing failure");
+    let parser = FrameParser::new(Default::default());
+    let frame = parser.parse(&packet).expect("Parsing failure");
     assert_eq!(frame.metadata(), expected_metadata);
     assert_eq!(frame.data().get_u16(), Some(0xCCDD));
 }
 
 fn set_background_icl_output() {
-    let mut packet = FrameBuilder::<50, 0x5AA5, true>::new(FrameCommand::Write16, 0x00DE);
-
+    let mut packet = FrameBuilder::<50>::new(Default::default(), FrameCommand::Write16, 0x00DE);
     // Example of the pain with number literals, annotation needed.
     packet.append_u16(0x5A00);
     packet.append_u16(0x1234);

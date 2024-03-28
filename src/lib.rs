@@ -1,7 +1,27 @@
 #![no_std]
 
 pub mod builder;
+pub mod crc;
 pub mod parser;
+
+pub use builder::FrameBuilder;
+pub use crc::Crc16Modbus;
+pub use parser::FrameParser;
+
+#[derive(Debug, Clone, Copy)]
+pub struct Config {
+    pub header: u16,
+    pub crc: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            header: 0x5AA5,
+            crc: true,
+        }
+    }
+}
 
 #[repr(u8)]
 #[derive(PartialEq, Debug, Clone, Copy)]
@@ -29,14 +49,6 @@ impl From<u8> for FrameCommand {
             0x87 => Read32,
             _ => Undefined,
         }
-    }
-}
-
-pub trait Crc16Modbus {
-    fn checksum(bytes: &[u8]) -> u16 {
-        use crc::{Crc, CRC_16_MODBUS};
-        const CRC: crc::Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
-        CRC.checksum(bytes)
     }
 }
 

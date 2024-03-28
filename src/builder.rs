@@ -1,18 +1,17 @@
-use crate::{Crc16Modbus, FrameCommand};
+use crate::{Config, Crc16Modbus, FrameCommand};
 use heapless::Vec;
 
 #[derive(Debug)]
-pub struct FrameBuilder<const N: usize, const H: u16, const C: bool> {
+pub struct FrameBuilder<const N: usize> {
+    config: Config,
     data: Vec<u8, N>,
 }
 
-impl<const SIZE: usize, const HEADER: u16, const CRC_ENABLED: bool>
-    FrameBuilder<SIZE, HEADER, CRC_ENABLED>
-{
-    const MIN_SIZE: () = { assert!(SIZE >= if CRC_ENABLED { 8 } else { 6 }, "Size too small") };
-    const MAX_SIZE: () = { assert!(SIZE < u8::MAX as usize, "Size too large") };
+impl<const N: usize> FrameBuilder<N> {
+    const MIN_SIZE: () = { assert!(N >= 8, "Size too small") };
+    const MAX_SIZE: () = { assert!(N < u8::MAX as usize, "Size too large") };
 
-    pub fn new(command: FrameCommand, address: u16) -> Self {
+    pub fn new(config: Config, command: FrameCommand, address: u16) -> Self {
         // Sanity check
         #[allow(clippy::let_unit_value)]
         {
@@ -20,8 +19,11 @@ impl<const SIZE: usize, const HEADER: u16, const CRC_ENABLED: bool>
             let _ = Self::MAX_SIZE;
         }
 
-        let mut packet = FrameBuilder { data: Vec::new() };
-        packet.append(HEADER); // -> [HEADER:2]
+        let mut packet = FrameBuilder {
+            config,
+            data: Vec::new(),
+        };
+        packet.append(config.header); // -> [HEADER:2]
         packet.append(0u8); // -> [LEN:1]
         packet.append(command as u8); // -> [CMD:1]
         packet.append(address); // -> [ADDR:2]
@@ -32,7 +34,7 @@ impl<const SIZE: usize, const HEADER: u16, const CRC_ENABLED: bool>
     // todo: how to ensure payload is aligned if there is an odd byte?
     // ToDo: any way to prevent using other methods after calling this? Maybe state pattern?
     pub fn get(&mut self) -> &[u8] {
-        if CRC_ENABLED {
+        if self.config.crc {
             // calculate crc from [CMD] to end.
             let crc = Self::checksum(&self.data[3..]).to_le_bytes();
             // CRC should be little endian in payload, so can't use add_u16
@@ -44,9 +46,7 @@ impl<const SIZE: usize, const HEADER: u16, const CRC_ENABLED: bool>
     }
 }
 
-impl<const SIZE: usize, const HEADER: u16, const CRC_ENABLED: bool>
-    FrameBuilder<SIZE, HEADER, CRC_ENABLED>
-{
+impl<const N: usize> FrameBuilder<N> {
     pub fn append_u8(&mut self, data: u8) {
         self.append(data);
     }
@@ -95,7 +95,7 @@ trait Append<T> {
 // Macro for blanket implementation of appending primitive types to the payload
 macro_rules! impl_append {
     ($($ty:ident)+) => ($(
-        impl<const SIZE: usize, const HEADER: u16, const CRC_ENABLED: bool> Append<$ty> for FrameBuilder<SIZE, HEADER, CRC_ENABLED> {
+        impl<const N: usize> Append<$ty> for FrameBuilder<N> {
             fn append(&mut self, data: $ty) {
                 let bytes = data.to_be_bytes();
                 for byte in bytes {
@@ -108,19 +108,13 @@ macro_rules! impl_append {
 
 impl_append! { u8 i8 u16 i16 u32 i32 u64 i64 f32 f64 }
 
-#[cfg(feature = "crc")]
-impl<const SIZE: usize, const HEADER: u16, const CRC_ENABLED: bool> Crc16Modbus
-    for FrameBuilder<SIZE, HEADER, CRC_ENABLED>
-{
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn set_background_icl_output() {
-        let mut packet = FrameBuilder::<50, 0x5AA5, true>::new(FrameCommand::Write16, 0x00DE);
+        let mut packet = FrameBuilder::<50>::new(Default::default(), FrameCommand::Write16, 0x00DE);
 
         packet.append_u16(0x5A00);
         packet.append_u16(0x1234);

@@ -101,12 +101,12 @@ pub enum ParseErr {
     WordLength,
 }
 
-pub struct FrameParser {
-    config: Config,
+pub struct FrameParser<T> {
+    config: Config<T>,
 }
 
-impl FrameParser {
-    pub fn new(config: Config) -> Self {
+impl<T: Crc16Modbus> FrameParser<T> {
+    pub fn new(config: Config<T>) -> Self {
         Self { config }
     }
     // Maybe consider returning multiple errors?
@@ -133,7 +133,7 @@ impl FrameParser {
         // Strip CRC
         let bytes = if self.config.crc {
             let (bytes, crc) = bytes.split_last_chunk().unwrap();
-            if u16::from_le_bytes(*crc) != Self::checksum(bytes) {
+            if u16::from_le_bytes(*crc) != self.config.crc_engine.checksum(bytes) {
                 return Err(ParseErr::Checksum);
             }
             bytes

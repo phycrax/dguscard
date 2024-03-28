@@ -8,17 +8,22 @@ pub use builder::FrameBuilder;
 pub use crc::Crc16Modbus;
 pub use parser::FrameParser;
 
-#[derive(Debug, Clone, Copy)]
-pub struct Config {
+pub struct Config<T> {
     pub header: u16,
     pub crc: bool,
+    pub crc_engine: T,
 }
 
-impl Default for Config {
+#[cfg(feature = "crc")]
+pub use crc::CrcEngine;
+
+#[cfg(feature = "crc")]
+impl Default for Config<CrcEngine> {
     fn default() -> Self {
         Self {
             header: 0x5AA5,
             crc: true,
+            crc_engine: CrcEngine,
         }
     }
 }

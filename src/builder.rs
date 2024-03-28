@@ -1,29 +1,28 @@
 use crate::{Config, Crc16Modbus, FrameCommand};
 use heapless::Vec;
 
-#[derive(Debug)]
-pub struct FrameBuilder<const N: usize> {
-    config: Config,
+pub struct FrameBuilder<T, const N: usize> {
+    config: Config<T>,
     data: Vec<u8, N>,
 }
 
-impl<const N: usize> FrameBuilder<N> {
+impl<T: Crc16Modbus, const N: usize> FrameBuilder<T, N> {
     const MIN_SIZE: () = { assert!(N >= 8, "Size too small") };
     const MAX_SIZE: () = { assert!(N < u8::MAX as usize, "Size too large") };
 
-    pub fn new(config: Config, command: FrameCommand, address: u16) -> Self {
+    pub fn new(config: Config<T>, command: FrameCommand, address: u16) -> Self {
         // Sanity check
         #[allow(clippy::let_unit_value)]
         {
             let _ = Self::MIN_SIZE;
             let _ = Self::MAX_SIZE;
         }
-
-        let mut packet = FrameBuilder {
+        let header = config.header;
+        let mut packet = Self {
             config,
             data: Vec::new(),
         };
-        packet.append(config.header); // -> [HEADER:2]
+        packet.append(header); // -> [HEADER:2]
         packet.append(0u8); // -> [LEN:1]
         packet.append(command as u8); // -> [CMD:1]
         packet.append(address); // -> [ADDR:2]
@@ -36,7 +35,11 @@ impl<const N: usize> FrameBuilder<N> {
     pub fn get(&mut self) -> &[u8] {
         if self.config.crc {
             // calculate crc from [CMD] to end.
-            let crc = Self::checksum(&self.data[3..]).to_le_bytes();
+            let crc = self
+                .config
+                .crc_engine
+                .checksum(&self.data[3..])
+                .to_le_bytes();
             // CRC should be little endian in payload, so can't use add_u16
             self.append(crc[0]);
             self.append(crc[1]);
@@ -46,7 +49,7 @@ impl<const N: usize> FrameBuilder<N> {
     }
 }
 
-impl<const N: usize> FrameBuilder<N> {
+impl<T: Crc16Modbus, const N: usize> FrameBuilder<T, N> {
     pub fn append_u8(&mut self, data: u8) {
         self.append(data);
     }
@@ -95,7 +98,7 @@ trait Append<T> {
 // Macro for blanket implementation of appending primitive types to the payload
 macro_rules! impl_append {
     ($($ty:ident)+) => ($(
-        impl<const N: usize> Append<$ty> for FrameBuilder<N> {
+        impl<T, const N: usize> Append<$ty> for FrameBuilder<T, N> {
             fn append(&mut self, data: $ty) {
                 let bytes = data.to_be_bytes();
                 for byte in bytes {
@@ -114,7 +117,8 @@ mod tests {
 
     #[test]
     fn set_background_icl_output() {
-        let mut packet = FrameBuilder::<50>::new(Default::default(), FrameCommand::Write16, 0x00DE);
+        let mut packet =
+            FrameBuilder::<_, 50>::new(Default::default(), FrameCommand::Write16, 0x00DE);
 
         packet.append_u16(0x5A00);
         packet.append_u16(0x1234);

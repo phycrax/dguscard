@@ -19,7 +19,7 @@ fn receive_packet() {
 }
 
 fn set_background_icl_output() {
-    let mut packet = FrameBuilder::<50>::new(Default::default(), FrameCommand::Write16, 0x00DE);
+    let mut packet = FrameBuilder::<_, 50>::new(Default::default(), FrameCommand::Write16, 0x00DE);
     // Example of the pain with number literals, annotation needed.
     packet.append_u16(0x5A00);
     packet.append_u16(0x1234);

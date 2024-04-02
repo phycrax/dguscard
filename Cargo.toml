@@ -7,7 +7,6 @@ edition = "2021"
 
 [dependencies]
 crc = { version = "3.0.1", optional = true }
-heapless = "0.8.0"
 
 [dev-dependencies]
 criterion = "0.5.1"

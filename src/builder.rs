@@ -1,55 +1,54 @@
 use crate::{Config, Crc16Modbus, FrameCommand};
-use heapless::Vec;
 
-pub struct FrameBuilder<T, const N: usize> {
+pub struct FrameBuilder<'a, T> {
     config: Config<T>,
-    data: Vec<u8, N>,
+    data: &'a mut [u8],
+    index: usize,
 }
 
-impl<T: Crc16Modbus, const N: usize> FrameBuilder<T, N> {
-    const MIN_SIZE: () = { assert!(N >= 8, "Size too small") };
-    const MAX_SIZE: () = { assert!(N < u8::MAX as usize, "Size too large") };
-
-    pub fn new(config: Config<T>, command: FrameCommand, address: u16) -> Self {
-        // Sanity check
-        #[allow(clippy::let_unit_value)]
-        {
-            let _ = Self::MIN_SIZE;
-            let _ = Self::MAX_SIZE;
-        }
+impl<'a, T: Crc16Modbus> FrameBuilder<'a, T> {
+    pub fn new(
+        buffer: &'a mut [u8],
+        config: Config<T>,
+        command: FrameCommand,
+        address: u16,
+    ) -> Self {
+        assert!(buffer.len() >= 8, "Buffer too small");
+        assert!(buffer.len() < u8::MAX as usize, "Buffer too large");
         let header = config.header;
-        let mut packet = Self {
+        let mut frame = Self {
             config,
-            data: Vec::new(),
+            data: buffer,
+            index: 0,
         };
-        packet.append(header); // -> [HEADER:2]
-        packet.append(0u8); // -> [LEN:1]
-        packet.append(command as u8); // -> [CMD:1]
-        packet.append(address); // -> [ADDR:2]
-        packet
+        frame.append(header); // -> [HEADER:2]
+        frame.append(0u8); // -> [LEN:1]
+        frame.append(command as u8); // -> [CMD:1]
+        frame.append(address); // -> [ADDR:2]
+        frame
     }
 
     // todo: test dwin response if len is oddnum?
     // todo: how to ensure payload is aligned if there is an odd byte?
     // ToDo: any way to prevent using other methods after calling this? Maybe state pattern?
-    pub fn get(&mut self) -> &[u8] {
+    pub fn consume(mut self) -> &'a [u8] {
         if self.config.crc {
             // calculate crc from [CMD] to end.
             let crc = self
                 .config
                 .crc_engine
-                .checksum(&self.data[3..])
+                .checksum(&self.data[3..self.index])
                 .to_le_bytes();
             // CRC should be little endian in payload, so can't use add_u16
             self.append(crc[0]);
             self.append(crc[1]);
         }
-        self.data[2] = (self.data.len() - 3) as u8; //[LEN:1] -> first 3 bytes are excluded
-        &self.data
+        self.data[2] = (self.index - 3) as u8; //[LEN:1] -> first 3 bytes are excluded
+        &self.data[..self.index]
     }
 }
 
-impl<T: Crc16Modbus, const N: usize> FrameBuilder<T, N> {
+impl<'a, T: Crc16Modbus> FrameBuilder<'a, T> {
     pub fn append_u8(&mut self, data: u8) {
         self.append(data);
     }
@@ -98,11 +97,12 @@ trait Append<T> {
 // Macro for blanket implementation of appending primitive types to the payload
 macro_rules! impl_append {
     ($($ty:ident)+) => ($(
-        impl<T, const N: usize> Append<$ty> for FrameBuilder<T, N> {
+        impl<'a, T> Append<$ty> for FrameBuilder<'a, T> {
             fn append(&mut self, data: $ty) {
                 let bytes = data.to_be_bytes();
                 for byte in bytes {
-                    let _ = self.data.push(byte);
+                    self.data[self.index] = byte;
+                    self.index += 1;
                 }
             }
         }
@@ -117,12 +117,17 @@ mod tests {
 
     #[test]
     fn set_background_icl_output() {
-        let mut packet =
-            FrameBuilder::<_, 50>::new(Default::default(), FrameCommand::Write16, 0x00DE);
+        let mut buffer = [0u8; 50];
+        let mut packet = FrameBuilder::new(
+            &mut buffer,
+            Default::default(),
+            FrameCommand::Write16,
+            0x00DE,
+        );
 
         packet.append_u16(0x5A00);
         packet.append_u16(0x1234);
-        let bytes = packet.get();
+        let bytes = packet.consume();
 
         if bytes.len() != 12 {
             panic!("Len should have been 12");

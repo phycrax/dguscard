@@ -19,11 +19,17 @@ fn receive_packet() {
 }
 
 fn set_background_icl_output() {
-    let mut packet = FrameBuilder::<_, 50>::new(Default::default(), FrameCommand::Write16, 0x00DE);
+    let mut buffer = [0u8; 50];
+    let mut packet = FrameBuilder::new(
+        &mut buffer,
+        Default::default(),
+        FrameCommand::Write16,
+        0x00DE,
+    );
     // Example of the pain with number literals, annotation needed.
     packet.append_u16(0x5A00);
     packet.append_u16(0x1234);
-    let bytes = packet.get();
+    let bytes = packet.consume();
 
     if bytes.len() != 12 {
         panic!("Len should have been 12");

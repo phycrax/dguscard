@@ -30,6 +30,7 @@ impl Default for Config<CrcEngine> {
 
 #[repr(u8)]
 #[derive(PartialEq, Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FrameCommand {
     WriteRegister = 0x80,
     ReadRegister,

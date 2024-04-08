@@ -1,6 +1,7 @@
 use crate::{Config, Crc16Modbus, FrameCommand};
 
 #[derive(PartialEq, Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FrameMetadata {
     pub command: FrameCommand,
     pub address: u16,
@@ -8,9 +9,11 @@ pub struct FrameMetadata {
 }
 
 #[derive(PartialEq, Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FrameData<'a>(&'a [u8]);
 
 #[derive(PartialEq, Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Frame<'a> {
     metadata: FrameMetadata,
     data: FrameData<'a>,
@@ -91,6 +94,7 @@ macro_rules! impl_get_primitive{
 impl_get_primitive! { u16 i16 u32 i32 u64 i64 f32 f64 }
 
 #[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ParseErr {
     Header,
     Length,

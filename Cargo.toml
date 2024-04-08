@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 crc = { version = "3.0.1", optional = true }
+defmt = { version = "0.3.6", optional = true }
 
 [dev-dependencies]
 criterion = "0.5.1"
@@ -14,6 +15,7 @@ criterion = "0.5.1"
 [features]
 default = ["crc"]
 crc = ["dep:crc"]
+defmt = ["dep:defmt"]
 
 [[bench]]
 name = "benchmarks"

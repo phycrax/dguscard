@@ -111,6 +111,34 @@ macro_rules! impl_append {
 
 impl_append! { u8 i8 u16 i16 u32 i32 u64 i64 f32 f64 }
 
+pub fn change_page(buffer: &mut [u8], page: u16) -> &[u8] {
+    let mut builder = FrameBuilder::new(buffer, Default::default(), FrameCommand::Write16, 0x0084);
+    builder.append_u16(0x5A01);
+    builder.append_u16(page);
+    builder.consume()
+}
+
+pub fn set_brightness(
+    buffer: &mut [u8],
+    standby_level: u8,
+    sleep_level: u8,
+    secs_to_sleep: u16,
+) -> &[u8] {
+    // todo assert levels?
+    let mut builder = FrameBuilder::new(buffer, Default::default(), FrameCommand::Write16, 0x0082);
+    builder.append_u8(standby_level);
+    builder.append_u8(sleep_level);
+    builder.append_u16(secs_to_sleep);
+    builder.consume()
+}
+
+pub fn set_bg_icl(buffer: &mut [u8], icl: u16) -> &[u8] {
+    let mut builder = FrameBuilder::new(buffer, Default::default(), FrameCommand::Write16, 0x00DE);
+    builder.append_u16(0x5A00);
+    builder.append_u16(icl);
+    builder.consume()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

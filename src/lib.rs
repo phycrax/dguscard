@@ -2,7 +2,9 @@
 
 pub mod builder;
 pub mod crc;
+pub mod error;
 pub mod parser;
+pub mod ser;
 
 pub use builder::FrameBuilder;
 pub use crc::Crc16Modbus;

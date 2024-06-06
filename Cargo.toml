@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 crc = { version = "3.0.1", optional = true }
 defmt = { version = "0.3.6", optional = true }
+serde = { version = "1.0", default-features = false }
 
 [dev-dependencies]
 criterion = "0.5.1"

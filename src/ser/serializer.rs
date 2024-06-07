@@ -54,7 +54,7 @@ trait SerializeBigEndian<T> {
 // Macro for blanket implementation of primitive type serialization
 macro_rules! impl_serialize_be {
     ($($ty:ident)+) => ($(
-        impl<'a> SerializeBigEndian<$ty> for Serializer<'a> {
+        impl SerializeBigEndian<$ty> for Serializer<'_> {
             #[inline]
             fn serialize_be(&mut self, v: $ty) -> Result<()> {
                 let bytes = v.to_be_bytes();

@@ -170,6 +170,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     {
         Err(Error::NotYetImplemented)
     }
+
     #[inline]
     fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value>
     where
@@ -177,6 +178,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     {
         Err(Error::NotYetImplemented)
     }
+
     #[inline]
     fn deserialize_option<V>(self, visitor: V) -> Result<V::Value>
     where
@@ -184,6 +186,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     {
         Err(Error::NotYetImplemented)
     }
+
     #[inline]
     fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value>
     where
@@ -191,6 +194,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     {
         visitor.visit_unit()
     }
+
     #[inline]
     fn deserialize_unit_struct<V>(self, name: &'static str, visitor: V) -> Result<V::Value>
     where
@@ -198,6 +202,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     {
         self.deserialize_unit(visitor)
     }
+
     #[inline]
     fn deserialize_newtype_struct<V>(self, name: &'static str, visitor: V) -> Result<V::Value>
     where
@@ -205,6 +210,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     {
         visitor.visit_newtype_struct(self)
     }
+
     #[inline]
     fn deserialize_seq<V>(self, visitor: V) -> Result<V::Value>
     where
@@ -212,13 +218,18 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     {
         Err(Error::NotYetImplemented)
     }
+
     #[inline]
     fn deserialize_tuple<V>(self, len: usize, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        Err(Error::NotYetImplemented)
+        visitor.visit_seq(SeqAccess {
+            deserializer: self,
+            len,
+        })
     }
+
     #[inline]
     fn deserialize_tuple_struct<V>(
         self,
@@ -231,6 +242,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     {
         self.deserialize_tuple(len, visitor)
     }
+
     #[inline]
     fn deserialize_map<V>(self, visitor: V) -> Result<V::Value>
     where
@@ -238,6 +250,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     {
         Err(Error::NotYetImplemented)
     }
+
     #[inline]
     fn deserialize_struct<V>(
         self,
@@ -250,6 +263,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     {
         self.deserialize_tuple(fields.len(), visitor)
     }
+
     #[inline]
     fn deserialize_enum<V>(
         self,
@@ -262,6 +276,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     {
         Err(Error::NotYetImplemented)
     }
+
     #[inline]
     fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value>
     where
@@ -269,11 +284,34 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     {
         Err(Error::WontImplement)
     }
+
     #[inline]
     fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
         Err(Error::WontImplement)
+    }
+}
+
+struct SeqAccess<'a, 'b: 'a> {
+    deserializer: &'a mut Deserializer<'b>,
+    len: usize,
+}
+
+impl<'a, 'b: 'a> serde::de::SeqAccess<'b> for SeqAccess<'a, 'b> {
+    type Error = Error;
+
+    #[inline]
+    fn next_element_seed<V: DeserializeSeed<'b>>(&mut self, seed: V) -> Result<Option<V::Value>> {
+        if self.len > 0 {
+            self.len -= 1;
+            Ok(Some(DeserializeSeed::deserialize(
+                seed,
+                &mut *self.deserializer,
+            )?))
+        } else {
+            Ok(None)
+        }
     }
 }

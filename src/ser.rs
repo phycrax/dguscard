@@ -30,15 +30,14 @@ pub trait DwinVariable {
     const ADDRESS: u16;
 }
 
-// pub fn to_slice<'v, 'b, T>(value: &'v T, buf: &'b mut [u8], config: Config) -> Result<&'b [u8]>
-// where
-//     T: Serialize + DwinVariable,
-// {
-//     let mut serializer = Serializer::new(buf, config.header, T::ADDRESS);
-//     value.serialize(&mut serializer)?;
-//     let buf = serializer.end(config.crc)?;
-//     Ok(serializer.end(config.crc)?)
-// }
+pub fn to_slice<'b, T>(value: &T, buf: &'b mut [u8], config: Config) -> Result<&'b [u8]>
+where
+    T: Serialize + DwinVariable,
+{
+    let mut serializer = Serializer::new(buf, config.header, T::ADDRESS);
+    value.serialize(&mut serializer)?;
+    serializer.finalize(config.crc)
+}
 
 pub struct Serializer<'b>(&'b mut [u8]);
 
@@ -67,7 +66,7 @@ impl<'b> Serializer<'b> {
         Ok(())
     }
 
-    pub fn end(mut self, crc: bool) -> Result<&'b [u8]> {
+    pub fn finalize(mut self, crc: bool) -> Result<&'b [u8]> {
         if crc {
             let index = self.0[2] as usize;
             // calculate crc from [CMD] to end.
@@ -104,7 +103,7 @@ macro_rules! impl_serialize_be {
 
 impl_serialize_be! { u16 i16 u32 i32 u64 i64 f32 f64 }
 
-impl<'a> ser::Serializer for &'a mut Serializer<'a> {
+impl ser::Serializer for &'_ mut Serializer<'_> {
     type Ok = ();
 
     type Error = Error;
@@ -309,5 +308,170 @@ impl<'a> ser::Serializer for &'a mut Serializer<'a> {
     ) -> Result<Self::SerializeStructVariant> {
         self.serialize_be(variant_index as u16)?;
         Ok(self)
+    }
+}
+
+impl ser::SerializeSeq for &'_ mut Serializer<'_> {
+    type Ok = ();
+    type Error = Error;
+
+    #[inline]
+    fn serialize_element<T>(&mut self, value: &T) -> Result<()>
+    where
+        T: ?Sized + Serialize,
+    {
+        value.serialize(&mut **self)
+    }
+
+    // Close the sequence.
+    #[inline]
+    fn end(self) -> Result<()> {
+        Ok(())
+    }
+}
+
+impl ser::SerializeTuple for &'_ mut Serializer<'_> {
+    type Ok = ();
+    type Error = Error;
+
+    fn serialize_element<T>(&mut self, value: &T) -> Result<()>
+    where
+        T: ?Sized + Serialize,
+    {
+        value.serialize(&mut **self)
+    }
+
+    fn end(self) -> Result<()> {
+        Ok(())
+    }
+}
+
+impl ser::SerializeTupleStruct for &'_ mut Serializer<'_> {
+    type Ok = ();
+    type Error = Error;
+
+    #[inline]
+    fn serialize_field<T>(&mut self, value: &T) -> Result<()>
+    where
+        T: ?Sized + Serialize,
+    {
+        value.serialize(&mut **self)
+    }
+
+    #[inline]
+    fn end(self) -> Result<()> {
+        Ok(())
+    }
+}
+
+impl ser::SerializeTupleVariant for &'_ mut Serializer<'_> {
+    type Ok = ();
+    type Error = Error;
+
+    #[inline]
+    fn serialize_field<T>(&mut self, value: &T) -> Result<()>
+    where
+        T: ?Sized + Serialize,
+    {
+        value.serialize(&mut **self)
+    }
+
+    #[inline]
+    fn end(self) -> Result<()> {
+        Ok(())
+    }
+}
+
+impl ser::SerializeMap for &'_ mut Serializer<'_> {
+    type Ok = ();
+    type Error = Error;
+
+    #[inline]
+    fn serialize_key<T>(&mut self, key: &T) -> Result<()>
+    where
+        T: ?Sized + Serialize,
+    {
+        key.serialize(&mut **self)
+    }
+
+    #[inline]
+    fn serialize_value<T>(&mut self, value: &T) -> Result<()>
+    where
+        T: ?Sized + Serialize,
+    {
+        value.serialize(&mut **self)
+    }
+
+    #[inline]
+    fn end(self) -> Result<()> {
+        Ok(())
+    }
+}
+
+impl ser::SerializeStruct for &'_ mut Serializer<'_> {
+    type Ok = ();
+    type Error = Error;
+
+    #[inline]
+    fn serialize_field<T>(&mut self, _key: &'static str, value: &T) -> Result<()>
+    where
+        T: ?Sized + Serialize,
+    {
+        value.serialize(&mut **self)
+    }
+
+    #[inline]
+    fn end(self) -> Result<()> {
+        Ok(())
+    }
+}
+
+impl ser::SerializeStructVariant for &'_ mut Serializer<'_> {
+    type Ok = ();
+    type Error = Error;
+
+    #[inline]
+    fn serialize_field<T>(&mut self, _key: &'static str, value: &T) -> Result<()>
+    where
+        T: ?Sized + Serialize,
+    {
+        value.serialize(&mut **self)
+    }
+
+    #[inline]
+    fn end(self) -> Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    #[derive(Serialize)]
+    struct BackgroundIcl(u16, u16);
+
+    impl BackgroundIcl {
+        pub fn new(id: u16) -> Self {
+            Self(0x5A00, id)
+        }
+    }
+
+    impl DwinVariable for BackgroundIcl {
+        const ADDRESS: u16 = 0x00DE;
+    }
+
+    use super::*;
+
+    #[test]
+    fn set_background_icl_output() {
+        let expected = [
+            0x5Au8, 0xA5, 9, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34, 0x0e, 0xb4,
+        ];
+
+        let mut buf = [0u8; 50];
+        let bg = BackgroundIcl::new(0x1234);
+        let output = to_slice(&bg, &mut buf, Default::default()).unwrap();
+
+        assert_eq!(output, &expected);
     }
 }

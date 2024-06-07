@@ -1,64 +1,79 @@
 #![no_std]
 
-pub mod builder;
-pub mod crc;
 pub mod error;
-pub mod parser;
 pub mod ser;
 
-pub use builder::FrameBuilder;
-pub use crc::Crc16Modbus;
-pub use parser::FrameParser;
+use crc::{Crc, CRC_16_MODBUS};
+const CRC: crc::Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
 
-pub struct Config<T> {
+#[derive(Copy, Clone)]
+pub struct Config {
     pub header: u16,
     pub crc: bool,
-    pub crc_engine: T,
 }
 
-#[cfg(feature = "crc")]
-pub use crc::CrcEngine;
-
-#[cfg(feature = "crc")]
-impl Default for Config<CrcEngine> {
+impl Default for Config {
     fn default() -> Self {
         Self {
             header: 0x5AA5,
             crc: true,
-            crc_engine: CrcEngine,
         }
     }
 }
 
-#[repr(u8)]
-#[derive(PartialEq, Debug, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum FrameCommand {
-    WriteRegister = 0x80,
-    ReadRegister,
-    Write16,
-    Read16,
-    WriteCurve,
-    Undefined,
-    Write32,
-    Read32,
+pub trait DwinVariable {
+    const ADDRESS: u16;
 }
 
-impl From<u8> for FrameCommand {
-    fn from(value: u8) -> Self {
-        use FrameCommand::*;
-        match value {
-            0x80 => WriteRegister,
-            0x81 => ReadRegister,
-            0x82 => Write16,
-            0x83 => Read16,
-            0x84 => WriteCurve,
-            0x86 => Write32,
-            0x87 => Read32,
-            _ => Undefined,
-        }
-    }
-}
+// pub struct Config<T> {
+//     pub header: u16,
+//     pub crc: bool,
+//     pub crc_engine: T,
+// }
+
+// #[cfg(feature = "crc")]
+// pub use crc::CrcEngine;
+
+// #[cfg(feature = "crc")]
+// impl Default for Config<CrcEngine> {
+//     fn default() -> Self {
+//         Self {
+//             header: 0x5AA5,
+//             crc: true,
+//             crc_engine: CrcEngine,
+//         }
+//     }
+// }
+
+// #[repr(u8)]
+// #[derive(PartialEq, Debug, Clone, Copy)]
+// #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+// pub enum FrameCommand {
+//     WriteRegister = 0x80,
+//     ReadRegister,
+//     Write16,
+//     Read16,
+//     WriteCurve,
+//     Undefined,
+//     Write32,
+//     Read32,
+// }
+
+// impl From<u8> for FrameCommand {
+//     fn from(value: u8) -> Self {
+//         use FrameCommand::*;
+//         match value {
+//             0x80 => WriteRegister,
+//             0x81 => ReadRegister,
+//             0x82 => Write16,
+//             0x83 => Read16,
+//             0x84 => WriteCurve,
+//             0x86 => Write32,
+//             0x87 => Read32,
+//             _ => Undefined,
+//         }
+//     }
+// }
 
 //device commands
 /*

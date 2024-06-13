@@ -26,35 +26,33 @@ pub trait DwinVariable {
     const ADDRESS: u16;
 }
 
-// #[repr(u8)]
-// #[derive(PartialEq, Debug, Clone, Copy)]
-// #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-// pub enum FrameCommand {
-//     WriteRegister = 0x80,
-//     ReadRegister,
-//     Write16,
-//     Read16,
-//     WriteCurve,
-//     Undefined,
-//     Write32,
-//     Read32,
-// }
+pub fn request<T: DwinVariable + Sized>(buf: &mut [u8], cfg: Config) -> error::Result<&[u8]> {
+    let mut serializer =
+        ser::serializer::Serializer::new(buf, cfg.header, Command::Read, T::ADDRESS)?;
+    serializer.push_byte((core::mem::size_of::<T>() / 2) as u8)?;
+    serializer.finalize(cfg.crc)
+}
 
-// impl From<u8> for FrameCommand {
-//     fn from(value: u8) -> Self {
-//         use FrameCommand::*;
-//         match value {
-//             0x80 => WriteRegister,
-//             0x81 => ReadRegister,
-//             0x82 => Write16,
-//             0x83 => Read16,
-//             0x84 => WriteCurve,
-//             0x86 => Write32,
-//             0x87 => Read32,
-//             _ => Undefined,
-//         }
-//     }
-// }
+#[repr(u8)]
+#[derive(PartialEq, Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Command {
+    Write = 0x82,
+    Read,
+    // ToDo other cmds
+    Undefined,
+}
+
+impl From<u8> for Command {
+    fn from(value: u8) -> Self {
+        use Command::*;
+        match value {
+            0x82 => Write,
+            0x83 => Read,
+            _ => Undefined,
+        }
+    }
+}
 
 //device commands
 /*

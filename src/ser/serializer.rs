@@ -2,13 +2,13 @@ use serde::{ser, Serialize};
 
 use crate::{
     error::{Error, Result},
-    CRC,
+    Command, CRC,
 };
 
 pub struct Serializer<'se>(&'se mut [u8]);
 
 impl<'se> Serializer<'se> {
-    pub fn new(buf: &'se mut [u8], head: u16, addr: u16) -> Result<Self> {
+    pub fn new(buf: &'se mut [u8], head: u16, cmd: Command, addr: u16) -> Result<Self> {
         if buf.len() < 8 {
             return Err(Error::SerializeBufferTooSmall);
         }
@@ -20,7 +20,7 @@ impl<'se> Serializer<'se> {
         buf[0] = head[0];
         buf[1] = head[1];
         buf[2] = 6;
-        buf[3] = 0x82;
+        buf[3] = cmd as u8;
         buf[4] = addr[0];
         buf[5] = addr[1];
         Ok(Self(buf))

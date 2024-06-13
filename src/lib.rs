@@ -26,26 +26,6 @@ pub trait DwinVariable {
     const ADDRESS: u16;
 }
 
-// pub struct Config<T> {
-//     pub header: u16,
-//     pub crc: bool,
-//     pub crc_engine: T,
-// }
-
-// #[cfg(feature = "crc")]
-// pub use crc::CrcEngine;
-
-// #[cfg(feature = "crc")]
-// impl Default for Config<CrcEngine> {
-//     fn default() -> Self {
-//         Self {
-//             header: 0x5AA5,
-//             crc: true,
-//             crc_engine: CrcEngine,
-//         }
-//     }
-// }
-
 // #[repr(u8)]
 // #[derive(PartialEq, Debug, Clone, Copy)]
 // #[cfg_attr(feature = "defmt", derive(defmt::Format))]

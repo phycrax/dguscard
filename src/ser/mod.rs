@@ -1,7 +1,4 @@
-use crate::{
-    error::{Error, Result},
-    Config, DwinVariable,
-};
+use crate::{error::Result, Config, DwinVariable};
 use serde::Serialize;
 use serializer::Serializer;
 
@@ -11,7 +8,7 @@ pub fn to_slice<'b, T>(value: &T, buf: &'b mut [u8], config: Config) -> Result<&
 where
     T: Serialize + DwinVariable,
 {
-    let mut serializer = Serializer::new(buf, config.header, T::ADDRESS);
+    let mut serializer = Serializer::new(buf, config.header, T::ADDRESS)?;
     value.serialize(&mut serializer)?;
     serializer.finalize(config.crc)
 }
@@ -19,6 +16,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::Error;
     #[derive(Serialize)]
     struct BackgroundIcl(u16, u16);
 

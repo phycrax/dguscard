@@ -1,7 +1,4 @@
-use crate::{
-    error::{Error, Result},
-    DwinVariable,
-};
+use crate::error::Result;
 use deserializer::Deserializer;
 use serde::Deserialize;
 

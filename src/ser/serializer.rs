@@ -8,9 +8,13 @@ use crate::{
 pub struct Serializer<'se>(&'se mut [u8]);
 
 impl<'se> Serializer<'se> {
-    pub fn new(buf: &'se mut [u8], head: u16, addr: u16) -> Self {
-        assert!(buf.len() >= 8, "Buffer too small");
-        assert!(buf.len() < u8::MAX as usize, "Buffer too large");
+    pub fn new(buf: &'se mut [u8], head: u16, addr: u16) -> Result<Self> {
+        if buf.len() < 8 {
+            return Err(Error::SerializeBufferTooSmall);
+        }
+        if buf.len() > u8::MAX as usize {
+            return Err(Error::SerializeBufferTooLarge);
+        }
         let head = u16::to_be_bytes(head);
         let addr = u16::to_be_bytes(addr);
         buf[0] = head[0];
@@ -19,7 +23,7 @@ impl<'se> Serializer<'se> {
         buf[3] = 0x82;
         buf[4] = addr[0];
         buf[5] = addr[1];
-        Self(buf)
+        Ok(Self(buf))
     }
 
     #[inline]
@@ -277,7 +281,7 @@ impl ser::Serializer for &'_ mut Serializer<'_> {
     }
 
     #[inline]
-    fn collect_str<T>(self, value: &T) -> Result<()>
+    fn collect_str<T>(self, _value: &T) -> Result<()>
     where
         T: core::fmt::Display + ?Sized,
     {

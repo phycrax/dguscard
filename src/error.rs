@@ -11,6 +11,10 @@ pub enum Error {
     NotYetImplemented,
     /// The serialize buffer is full
     SerializeBufferFull,
+    /// The serialize buffer is too small
+    SerializeBufferTooSmall,
+    /// The serialize buffer is too small
+    SerializeBufferTooLarge,
     /// The length of a sequence must be known
     SerializeSeqLengthUnknown,
     /// Hit the end of buffer, expected more data
@@ -51,6 +55,8 @@ impl Display for Error {
                     "This is a feature that Postcard intends to support, but does not yet"
                 }
                 SerializeBufferFull => "The serialize buffer is full",
+                SerializeBufferTooSmall => "The serialize buffer size must be 8 bytes or more",
+                SerializeBufferTooLarge => "The serialize buffer size must be less than 256 bytes",
                 SerializeSeqLengthUnknown => "The length of a sequence must be known",
                 DeserializeUnexpectedEnd => "Hit the end of buffer, expected more data",
                 DeserializeBadVarint => {

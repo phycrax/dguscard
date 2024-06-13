@@ -1,5 +1,5 @@
 use crate::error::{Error, Result};
-use serde::de::{self, DeserializeSeed, IntoDeserializer, Visitor};
+use serde::de::{self, DeserializeSeed, Visitor};
 
 pub struct Deserializer<'de>(&'de [u8]);
 
@@ -25,7 +25,7 @@ macro_rules! impl_deserialize_be{
     )+)
 }
 
-impl_deserialize_be! { u16 i16 u32 i32 u64 i64 f32 f64 }
+impl_deserialize_be! { u16 u32 u64 i16 i32 i64 f32 f64 }
 
 impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     type Error = Error;
@@ -36,7 +36,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -44,7 +44,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_bool<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -52,7 +52,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_i8<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_i8<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -87,7 +87,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_u8<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_u8<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -140,7 +140,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_char<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_char<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -148,7 +148,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_str<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_str<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -156,7 +156,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_string<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_string<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -164,7 +164,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_bytes<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -172,7 +172,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_byte_buf<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -180,7 +180,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_option<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_option<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -196,7 +196,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_unit_struct<V>(self, name: &'static str, visitor: V) -> Result<V::Value>
+    fn deserialize_unit_struct<V>(self, _name: &'static str, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -204,7 +204,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_newtype_struct<V>(self, name: &'static str, visitor: V) -> Result<V::Value>
+    fn deserialize_newtype_struct<V>(self, _name: &'static str, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -212,7 +212,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_seq<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_seq<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -233,7 +233,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     #[inline]
     fn deserialize_tuple_struct<V>(
         self,
-        name: &'static str,
+        _name: &'static str,
         len: usize,
         visitor: V,
     ) -> Result<V::Value>
@@ -244,7 +244,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_map<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_map<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -254,7 +254,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     #[inline]
     fn deserialize_struct<V>(
         self,
-        name: &'static str,
+        _name: &'static str,
         fields: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value>
@@ -267,9 +267,9 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     #[inline]
     fn deserialize_enum<V>(
         self,
-        name: &'static str,
-        variants: &'static [&'static str],
-        visitor: V,
+        _name: &'static str,
+        _variants: &'static [&'static str],
+        _visitor: V,
     ) -> Result<V::Value>
     where
         V: Visitor<'de>,
@@ -278,7 +278,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_identifier<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -286,7 +286,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_ignored_any<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {

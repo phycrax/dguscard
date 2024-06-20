@@ -26,13 +26,6 @@ pub trait DwinVariable {
     const ADDRESS: u16;
 }
 
-pub fn to_request<T: DwinVariable + Sized>(buf: &mut [u8], cfg: Config) -> error::Result<&[u8]> {
-    let mut serializer =
-        ser::serializer::Serializer::new(buf, cfg.header, Command::Read, T::ADDRESS)?;
-    serializer.push_byte((core::mem::size_of::<T>() / 2) as u8)?;
-    serializer.finalize(cfg.crc)
-}
-
 #[repr(u8)]
 #[derive(PartialEq, Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -51,27 +44,6 @@ impl From<u8> for Command {
             0x83 => Read,
             _ => Undefined,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    struct Energy {
-        _u: u16,
-    }
-
-    impl DwinVariable for Energy {
-        const ADDRESS: u16 = 0x000F;
-    }
-
-    #[test]
-    fn request() {
-        let expected = [0x5Au8, 0xA5, 6, 0x83, 0x00, 0x0F, 1, 0xED, 0x90];
-        let mut buf = [0u8; 9];
-        let output = to_request::<Energy>(&mut buf, Default::default()).unwrap();
-        assert_eq!(output, expected);
     }
 }
 

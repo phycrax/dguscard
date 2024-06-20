@@ -4,13 +4,19 @@ use serializer::Serializer;
 
 pub(crate) mod serializer;
 
-pub fn to_slice<'b, T>(value: &T, buf: &'b mut [u8], config: Config) -> Result<&'b [u8]>
+pub fn send_to_slice<'b, T>(value: &T, buf: &'b mut [u8], config: Config) -> Result<&'b [u8]>
 where
     T: Serialize + DwinVariable,
 {
     let mut serializer = Serializer::new(buf, config.header, Command::Write, T::ADDRESS)?;
     value.serialize(&mut serializer)?;
     serializer.finalize(config.crc)
+}
+
+pub fn request_to_slice<T: DwinVariable + Sized>(buf: &mut [u8], cfg: Config) -> Result<&[u8]> {
+    let mut serializer = Serializer::new(buf, cfg.header, Command::Read, T::ADDRESS)?;
+    serializer.push_byte((core::mem::size_of::<T>() / 2) as u8)?;
+    serializer.finalize(cfg.crc)
 }
 
 #[cfg(test)]
@@ -34,7 +40,7 @@ mod tests {
     fn buffer_short() {
         let mut buf = [0u8; 10];
         let bg = BackgroundIcl::new(0x1234); //needs 12 with crc
-        match to_slice(&bg, &mut buf, Default::default()) {
+        match send_to_slice(&bg, &mut buf, Default::default()) {
             Err(Error::SerializeBufferFull) => (),
             _ => panic!("should return buffer full"),
         }
@@ -48,7 +54,7 @@ mod tests {
 
         let mut buf = [0u8; 50];
         let bg = BackgroundIcl::new(0x1234);
-        let output = to_slice(&bg, &mut buf, Default::default()).unwrap();
+        let output = send_to_slice(&bg, &mut buf, Default::default()).unwrap();
 
         assert_eq!(output, &expected);
     }
@@ -59,7 +65,7 @@ mod tests {
 
         let mut buf = [0u8; 50];
         let bg = BackgroundIcl::new(0x1234);
-        let output = to_slice(
+        let output = send_to_slice(
             &bg,
             &mut buf,
             Config {
@@ -78,7 +84,7 @@ mod tests {
 
         let mut buf = [0u8; 50];
         let bg = BackgroundIcl::new(0x1234);
-        let output = to_slice(
+        let output = send_to_slice(
             &bg,
             &mut buf,
             Config {
@@ -102,9 +108,25 @@ mod tests {
     fn not_yet_u8_tuple() {
         let mut buf = [0u8; 50];
         let not_yet = NotYetImpl(123);
-        match to_slice(&not_yet, &mut buf, Default::default()) {
+        match send_to_slice(&not_yet, &mut buf, Default::default()) {
             Err(Error::NotYetImplemented) => (),
             _ => panic!("u8 impl not ready"),
         }
+    }
+
+    struct Energy {
+        _u: u16,
+    }
+
+    impl DwinVariable for Energy {
+        const ADDRESS: u16 = 0x000F;
+    }
+
+    #[test]
+    fn request() {
+        let expected = [0x5Au8, 0xA5, 6, 0x83, 0x00, 0x0F, 1, 0xED, 0x90];
+        let mut buf = [0u8; 9];
+        let output = request_to_slice::<Energy>(&mut buf, Default::default()).unwrap();
+        assert_eq!(output, expected);
     }
 }

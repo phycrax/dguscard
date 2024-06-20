@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use dwin::{ser::to_slice, DwinVariable};
+use dwin::{ser::send_to_slice, DwinVariable};
 
 // fn receive_packet() {
 //     let packet = [0x5A, 0xA5, 8, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD, 0xE7, 0x8D];
@@ -30,7 +30,7 @@ impl DwinVariable for BackgroundIcl {
 fn set_background_icl_output_new() {
     let mut buf = [0u8; 50];
     let bg = BackgroundIcl::new(0x1234);
-    let output = to_slice(&bg, &mut buf, Default::default()).unwrap();
+    let output = send_to_slice(&bg, &mut buf, Default::default()).unwrap();
 
     if output.len() != 12 {
         panic!("Len should have been 12");

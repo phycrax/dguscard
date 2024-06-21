@@ -3,7 +3,7 @@ use core::fmt::{Display, Formatter};
 /// This is the error type used by Postcard
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[non_exhaustive]
+//#[non_exhaustive]
 pub enum Error {
     /// This is a feature that PostCard will never implement
     WontImplement,
@@ -17,6 +17,16 @@ pub enum Error {
     SerializeBufferTooLarge,
     /// The length of a sequence must be known
     SerializeSeqLengthUnknown,
+    /// Bad buffer length
+    DeserializeBadBufferLen,
+    /// Bad header
+    DeserializeBadHeader,
+    /// Bad command
+    DeserializeBadCmd,
+    /// Unexpected address
+    DeserializeUnexpectedAddr,
+    /// Unexpected word length
+    DeserializeUnexpectedWlen,
     /// Hit the end of buffer, expected more data
     DeserializeUnexpectedEnd,
     /// Found a varint that didn't terminate. Is the usize too big for this platform?
@@ -59,6 +69,8 @@ impl Display for Error {
                 SerializeBufferTooLarge => "The serialize buffer size must be less than 256 bytes",
                 SerializeSeqLengthUnknown => "The length of a sequence must be known",
                 DeserializeUnexpectedEnd => "Hit the end of buffer, expected more data",
+                DeserializeUnexpectedAddr => todo!(),
+                DeserializeUnexpectedWlen => todo!(),
                 DeserializeBadVarint => {
                     "Found a varint that didn't terminate. Is the usize too big for this platform?"
                 }
@@ -72,6 +84,9 @@ impl Display for Error {
                 SerdeSerCustom => "Serde Serialization Error",
                 SerdeDeCustom => "Serde Deserialization Error",
                 CollectStrError => "Error while processing `collect_str` during serialization",
+                DeserializeBadBufferLen => todo!(),
+                DeserializeBadHeader => todo!(),
+                DeserializeBadCmd => todo!(),
             }
         )
     }

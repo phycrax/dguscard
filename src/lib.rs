@@ -4,8 +4,26 @@ pub mod de;
 pub mod error;
 pub mod ser;
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct MetaData {
+    pub addr: u16,
+    pub wlen: u8,
+}
+
 pub trait DwinVariable {
     const ADDRESS: u16;
+
+    fn metadata() -> MetaData
+    where
+        Self: Sized,
+    {
+        const { assert!(core::mem::size_of::<Self>() % 2 == 0) }
+        MetaData {
+            addr: Self::ADDRESS,
+            wlen: (core::mem::size_of::<Self>() / 2) as u8,
+        }
+    }
 }
 
 #[derive(Clone)]

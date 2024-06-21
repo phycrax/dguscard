@@ -31,67 +31,6 @@ impl<'a> Frame<'a> {
     }
 }
 
-impl<'a> FrameData<'a> {
-    pub const fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-    pub const fn len(&self) -> usize {
-        self.0.len()
-    }
-    pub fn get_u16_chunk<const N: usize>(&mut self) -> Option<[u16; N]> {
-        self.get_primitive_chunk()
-    }
-    pub fn get_u16(&mut self) -> Option<u16> {
-        self.get_primitive()
-    }
-    pub fn get_u32(&mut self) -> Option<u32> {
-        self.get_primitive()
-    }
-    pub fn get_u64(&mut self) -> Option<u64> {
-        self.get_primitive()
-    }
-    pub fn get_i16(&mut self) -> Option<i16> {
-        self.get_primitive()
-    }
-    pub fn get_i32(&mut self) -> Option<i32> {
-        self.get_primitive()
-    }
-    pub fn get_i64(&mut self) -> Option<i64> {
-        self.get_primitive()
-    }
-    pub fn get_f32(&mut self) -> Option<f32> {
-        self.get_primitive()
-    }
-    pub fn get_f64(&mut self) -> Option<f64> {
-        self.get_primitive()
-    }
-}
-
-pub trait GetPrimitive<T> {
-    fn get_primitive(&mut self) -> Option<T>;
-    fn get_primitive_chunk<const N: usize>(&mut self) -> Option<[T; N]>;
-}
-
-macro_rules! impl_get_primitive{
-    ($($ty:ident)+) => ($(
-        impl GetPrimitive<$ty> for FrameData<'_> {
-            fn get_primitive(&mut self) -> Option<$ty> {
-                let (bytes, rest) = self.0.split_first_chunk()?;
-                self.0 = rest;
-                Some($ty::from_be_bytes(*bytes))
-            }
-            fn get_primitive_chunk<const N: usize>(&mut self) -> Option<[$ty; N]> {
-                let mut chunk = [Default::default(); N];
-                for primitive in chunk.iter_mut() {
-                    *primitive = self.get_primitive()?;
-                }
-                Some(chunk)
-            }
-        }
-    )+)
-}
-
-impl_get_primitive! { u16 i16 u32 i32 u64 i64 f32 f64 }
 
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

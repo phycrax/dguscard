@@ -25,15 +25,14 @@ where
 
 pub fn request_to_slice<'b, T>(buf: &'b mut [u8], cfg: Config) -> Result<&'b mut [u8]>
 where
-    T: DwinVariable + Sized,
+    T: DwinVariable,
 {
+    let metadata = T::metadata();
     let mut serializer = Serializer {
         output: Slice::new(buf),
     };
-    serializer.init(cfg.header, Command::Read, T::ADDRESS)?;
-    serializer
-        .output
-        .try_push((core::mem::size_of::<T>() / 2) as u8)?;
+    serializer.init(cfg.header, Command::Read, metadata.addr)?;
+    serializer.output.try_push(metadata.wlen)?;
     serializer.finalize(cfg.crc)
 }
 
@@ -45,6 +44,8 @@ pub fn send_to_vec<T, const N: usize>(value: &T, cfg: Config) -> Result<Vec<u8, 
 where
     T: DwinVariable + Serialize,
 {
+    // todo update assert
+    const { assert!(N > 10) }
     let mut serializer = Serializer { output: Vec::new() };
     serializer.init(cfg.header, Command::Write, T::ADDRESS)?;
     value.serialize(&mut serializer)?;
@@ -54,13 +55,14 @@ where
 #[cfg(feature = "heapless")]
 pub fn request_to_vec<T, const N: usize>(cfg: Config) -> Result<Vec<u8, N>>
 where
-    T: DwinVariable + Serialize,
+    T: DwinVariable,
 {
+    // todo update assert
+    const { assert!(N > 10) }
+    let metadata = T::metadata();
     let mut serializer = Serializer { output: Vec::new() };
     serializer.init(cfg.header, Command::Read, T::ADDRESS)?;
-    serializer
-        .output
-        .try_push((core::mem::size_of::<T>() / 2) as u8)?;
+    serializer.output.try_push(metadata.wlen)?;
     serializer.finalize(cfg.crc)
 }
 

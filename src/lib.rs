@@ -7,17 +7,17 @@ pub mod ser;
 use crc::{Crc, CRC_16_MODBUS};
 const CRC: crc::Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
 
-#[derive(Copy, Clone)]
-pub struct Config {
+#[derive(Clone)]
+pub struct Config<'a> {
     pub header: u16,
-    pub crc: bool,
+    pub crc: Option<crc::Digest<'a, u16>>,
 }
 
-impl Default for Config {
+impl<'a> Default for Config<'a> {
     fn default() -> Self {
         Self {
             header: 0x5AA5,
-            crc: true,
+            crc: Some(CRC.digest()),
         }
     }
 }

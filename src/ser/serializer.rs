@@ -2,52 +2,36 @@ use serde::{ser, Serialize};
 
 use crate::{
     error::{Error, Result},
-    Command, CRC,
+    ser::output::Output,
+    Command,
 };
 
-pub struct Serializer<'se>(&'se mut [u8]);
+pub(crate) struct Serializer<O: Output> {
+    pub output: O,
+}
 
-impl<'se> Serializer<'se> {
-    pub fn new(buf: &'se mut [u8], head: u16, cmd: Command, addr: u16) -> Result<Self> {
-        if buf.len() < 8 {
-            return Err(Error::SerializeBufferTooSmall);
-        }
-        if buf.len() > u8::MAX as usize {
-            return Err(Error::SerializeBufferTooLarge);
-        }
-        let head = u16::to_be_bytes(head);
-        let addr = u16::to_be_bytes(addr);
-        buf[0] = head[0];
-        buf[1] = head[1];
-        buf[2] = 6;
-        buf[3] = cmd as u8;
-        buf[4] = addr[0];
-        buf[5] = addr[1];
-        Ok(Self(buf))
-    }
-
-    #[inline]
-    pub fn push_byte(&mut self, v: u8) -> Result<()> {
-        *self
-            .0
-            .get_mut(self.0[2] as usize)
-            .ok_or(Error::SerializeBufferFull)? = v;
-        self.0[2] += 1;
+impl<O: Output> Serializer<O> {
+    pub fn init(&mut self, hdr: u16, cmd: Command, addr: u16) -> Result<()> {
+        self.serialize_be(hdr)?;
+        self.serialize_be(cmd as u16)?;
+        self.serialize_be(addr)?;
         Ok(())
     }
 
-    pub fn finalize(mut self, crc: bool) -> Result<&'se [u8]> {
-        if crc {
-            let index = self.0[2] as usize;
-            // calculate crc from [CMD] to end.
-            let crc = CRC.checksum(&self.0[3..index]).to_le_bytes();
-            // CRC should be little endian in payload, so can't use add_u16
-            self.push_byte(crc[0])?;
-            self.push_byte(crc[1])?;
+    #[inline]
+    pub fn try_push(&mut self, v: u8) -> Result<()> {
+        self.output.try_push(v)
+    }
+
+    #[inline]
+    pub fn finalize(mut self, crc: Option<crc::Digest<'_, u16>>) -> Result<O::Out> {
+        if let Some(mut digest) = crc {
+            digest.update(&self.output.as_bytes()[3..]);
+            let crc = u16::to_le_bytes(digest.finalize());
+            self.try_push(crc[0])?;
+            self.try_push(crc[1])?;
         }
-        let index = self.0[2] as usize;
-        self.0[2] -= 3; //[LEN:1] -> first 3 bytes are excluded
-        Ok(&self.0[..index])
+        Ok(self.output.finalize())
     }
 }
 
@@ -55,15 +39,15 @@ trait SerializeBigEndian<T> {
     fn serialize_be(&mut self, data: T) -> Result<()>;
 }
 
-// Macro for blanket implementation of primitive type serialization
+// Macro for blanket implementation for primitive type big endian serialization
 macro_rules! impl_serialize_be {
     ($($ty:ident)+) => ($(
-        impl SerializeBigEndian<$ty> for Serializer<'_> {
+        impl<O: Output> SerializeBigEndian<$ty> for Serializer<O> {
             #[inline]
             fn serialize_be(&mut self, v: $ty) -> Result<()> {
                 let bytes = v.to_be_bytes();
                 for byte in bytes {
-                    self.push_byte(byte)?;
+                    self.try_push(byte)?;
                 }
                 Ok(())
             }
@@ -73,7 +57,7 @@ macro_rules! impl_serialize_be {
 
 impl_serialize_be! { u16 i16 u32 i32 u64 i64 f32 f64 }
 
-impl ser::Serializer for &'_ mut Serializer<'_> {
+impl<O: Output> ser::Serializer for &'_ mut Serializer<O> {
     type Ok = ();
 
     type Error = Error;
@@ -289,7 +273,7 @@ impl ser::Serializer for &'_ mut Serializer<'_> {
     }
 }
 
-impl ser::SerializeSeq for &'_ mut Serializer<'_> {
+impl<O: Output> ser::SerializeSeq for &'_ mut Serializer<O> {
     type Ok = ();
     type Error = Error;
 
@@ -308,7 +292,7 @@ impl ser::SerializeSeq for &'_ mut Serializer<'_> {
     }
 }
 
-impl ser::SerializeTuple for &'_ mut Serializer<'_> {
+impl<O: Output> ser::SerializeTuple for &'_ mut Serializer<O> {
     type Ok = ();
     type Error = Error;
 
@@ -324,7 +308,7 @@ impl ser::SerializeTuple for &'_ mut Serializer<'_> {
     }
 }
 
-impl ser::SerializeTupleStruct for &'_ mut Serializer<'_> {
+impl<O: Output> ser::SerializeTupleStruct for &'_ mut Serializer<O> {
     type Ok = ();
     type Error = Error;
 
@@ -342,7 +326,7 @@ impl ser::SerializeTupleStruct for &'_ mut Serializer<'_> {
     }
 }
 
-impl ser::SerializeTupleVariant for &'_ mut Serializer<'_> {
+impl<O: Output> ser::SerializeTupleVariant for &'_ mut Serializer<O> {
     type Ok = ();
     type Error = Error;
 
@@ -360,7 +344,7 @@ impl ser::SerializeTupleVariant for &'_ mut Serializer<'_> {
     }
 }
 
-impl ser::SerializeMap for &'_ mut Serializer<'_> {
+impl<O: Output> ser::SerializeMap for &'_ mut Serializer<O> {
     type Ok = ();
     type Error = Error;
 
@@ -386,7 +370,7 @@ impl ser::SerializeMap for &'_ mut Serializer<'_> {
     }
 }
 
-impl ser::SerializeStruct for &'_ mut Serializer<'_> {
+impl<O: Output> ser::SerializeStruct for &'_ mut Serializer<O> {
     type Ok = ();
     type Error = Error;
 
@@ -404,7 +388,7 @@ impl ser::SerializeStruct for &'_ mut Serializer<'_> {
     }
 }
 
-impl ser::SerializeStructVariant for &'_ mut Serializer<'_> {
+impl<O: Output> ser::SerializeStructVariant for &'_ mut Serializer<O> {
     type Ok = ();
     type Error = Error;
 

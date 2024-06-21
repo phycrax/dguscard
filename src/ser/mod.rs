@@ -1,28 +1,63 @@
-use crate::{error::Result, Command, Config, DwinVariable};
+use crate::{error::Result, ser::serializer::Serializer, Command, Config, DwinVariable};
+use output::Slice;
 use serde::Serialize;
-use serializer::Serializer;
 
+pub(crate) mod output;
 pub(crate) mod serializer;
 
-pub fn send_to_slice<'b, T>(value: &T, buf: &'b mut [u8], config: Config) -> Result<&'b [u8]>
+pub fn send_to_slice<'b, T>(value: &T, buf: &'b mut [u8], cfg: Config) -> Result<&'b mut [u8]>
 where
-    T: Serialize + DwinVariable,
+    T: DwinVariable + Serialize,
 {
-    let mut serializer = Serializer::new(buf, config.header, Command::Write, T::ADDRESS)?;
+    let mut serializer = Serializer {
+        output: Slice::new(buf),
+    };
+    serializer.init(cfg.header, Command::Write, T::ADDRESS)?;
     value.serialize(&mut serializer)?;
-    serializer.finalize(config.crc)
+    serializer.finalize(cfg.crc)
 }
 
-pub fn request_to_slice<T: DwinVariable + Sized>(buf: &mut [u8], cfg: Config) -> Result<&[u8]> {
-    let mut serializer = Serializer::new(buf, cfg.header, Command::Read, T::ADDRESS)?;
-    serializer.push_byte((core::mem::size_of::<T>() / 2) as u8)?;
+pub fn request_to_slice<'b, T>(buf: &'b mut [u8], cfg: Config) -> Result<&'b mut [u8]>
+where
+    T: DwinVariable + Sized,
+{
+    let mut serializer = Serializer {
+        output: Slice::new(buf),
+    };
+    serializer.init(cfg.header, Command::Read, T::ADDRESS)?;
+    serializer.try_push((core::mem::size_of::<T>() / 2) as u8)?;
+    serializer.finalize(cfg.crc)
+}
+
+#[cfg(feature = "heapless")]
+use heapless::Vec;
+
+#[cfg(feature = "heapless")]
+pub fn send_to_vec<T, const N: usize>(value: &T, cfg: Config) -> Result<Vec<u8, N>>
+where
+    T: DwinVariable + Serialize,
+{
+    let mut serializer = Serializer { output: Vec::new() };
+    serializer.init(cfg.header, Command::Write, T::ADDRESS)?;
+    value.serialize(&mut serializer)?;
+    serializer.finalize(cfg.crc)
+}
+
+#[cfg(feature = "heapless")]
+pub fn request_to_vec<T, const N: usize>(cfg: Config) -> Result<Vec<u8, N>>
+where
+    T: DwinVariable + Serialize,
+{
+    let mut serializer = Serializer { output: Vec::new() };
+    serializer.init(cfg.header, Command::Read, T::ADDRESS)?;
+    serializer.try_push((core::mem::size_of::<T>() / 2) as u8)?;
     serializer.finalize(cfg.crc)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::Error;
+    use crate::error::{Error, Result};
     #[derive(Serialize)]
     struct BackgroundIcl(u16, u16);
 
@@ -37,10 +72,20 @@ mod tests {
     }
 
     #[test]
-    fn buffer_short() {
+    fn buffer_short_slice() {
         let mut buf = [0u8; 10];
         let bg = BackgroundIcl::new(0x1234); //needs 12 with crc
         match send_to_slice(&bg, &mut buf, Default::default()) {
+            Err(Error::SerializeBufferFull) => (),
+            _ => panic!("should return buffer full"),
+        }
+    }
+
+    #[test]
+    fn buffer_short_vec() {
+        let bg = BackgroundIcl::new(0x1234);
+        let result: Result<Vec<u8, 10>> = send_to_vec(&bg, Default::default()); //needs 12 with crc
+        match result {
             Err(Error::SerializeBufferFull) => (),
             _ => panic!("should return buffer full"),
         }
@@ -60,6 +105,19 @@ mod tests {
     }
 
     #[test]
+    fn set_background_icl_output_crc_hvec() {
+        let expected = [
+            0x5Au8, 0xA5, 9, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34, 0x0e, 0xb4,
+        ];
+
+        let expected: Vec<u8, 12> = heapless::Vec::from_slice(&expected).unwrap();
+        let bg = BackgroundIcl::new(0x1234);
+        let output: Vec<u8, 12> = send_to_vec(&bg, Default::default()).unwrap();
+
+        assert_eq!(output, expected);
+    }
+
+    #[test]
     fn set_background_icl_nocrc() {
         let expected = [0x5Au8, 0xA5, 7, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34];
 
@@ -70,7 +128,7 @@ mod tests {
             &mut buf,
             Config {
                 header: 0x5AA5,
-                crc: false,
+                crc: None,
             },
         )
         .unwrap();
@@ -89,7 +147,7 @@ mod tests {
             &mut buf,
             Config {
                 header: 0xB44B,
-                crc: false,
+                crc: None,
             },
         )
         .unwrap();

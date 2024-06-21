@@ -1,9 +1,15 @@
-use crate::{error::Result, ser::serializer::Serializer, Command, Config, DwinVariable};
-use output::Slice;
-use serde::Serialize;
-
 pub(crate) mod output;
 pub(crate) mod serializer;
+
+use crate::{
+    error::Result,
+    ser::{
+        output::{Output, Slice},
+        serializer::Serializer,
+    },
+    Command, Config, DwinVariable,
+};
+use serde::Serialize;
 
 pub fn send_to_slice<'b, T>(value: &T, buf: &'b mut [u8], cfg: Config) -> Result<&'b mut [u8]>
 where
@@ -25,7 +31,9 @@ where
         output: Slice::new(buf),
     };
     serializer.init(cfg.header, Command::Read, T::ADDRESS)?;
-    serializer.try_push((core::mem::size_of::<T>() / 2) as u8)?;
+    serializer
+        .output
+        .try_push((core::mem::size_of::<T>() / 2) as u8)?;
     serializer.finalize(cfg.crc)
 }
 
@@ -50,7 +58,9 @@ where
 {
     let mut serializer = Serializer { output: Vec::new() };
     serializer.init(cfg.header, Command::Read, T::ADDRESS)?;
-    serializer.try_push((core::mem::size_of::<T>() / 2) as u8)?;
+    serializer
+        .output
+        .try_push((core::mem::size_of::<T>() / 2) as u8)?;
     serializer.finalize(cfg.crc)
 }
 

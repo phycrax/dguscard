@@ -4,8 +4,9 @@ pub mod de;
 pub mod error;
 pub mod ser;
 
-use crc::{Crc, CRC_16_MODBUS};
-const CRC: crc::Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
+pub trait DwinVariable {
+    const ADDRESS: u16;
+}
 
 #[derive(Clone)]
 pub struct Config<'a> {
@@ -15,15 +16,13 @@ pub struct Config<'a> {
 
 impl<'a> Default for Config<'a> {
     fn default() -> Self {
+        use crc::{Crc, CRC_16_MODBUS};
+        const CRC: crc::Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
         Self {
             header: 0x5AA5,
             crc: Some(CRC.digest()),
         }
     }
-}
-
-pub trait DwinVariable {
-    const ADDRESS: u16;
 }
 
 #[repr(u8)]

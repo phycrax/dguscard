@@ -1,8 +1,8 @@
+pub(crate) mod deserializer;
+
 use crate::error::Result;
 use deserializer::Deserializer;
 use serde::Deserialize;
-
-pub(crate) mod deserializer;
 
 pub fn from_bytes<'a, T>(input: &'a [u8]) -> Result<T>
 where

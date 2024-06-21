@@ -16,6 +16,7 @@ trait DeserializeBigEndian<T> {
 macro_rules! impl_deserialize_be{
     ($($ty:ident)+) => ($(
         impl DeserializeBigEndian<$ty> for Deserializer<'_> {
+            #[inline]
             fn deserialize_be(&mut self) -> Result<$ty> {
                 let (bytes, rest) = self.0.split_first_chunk().ok_or(Error::DeserializeUnexpectedEnd)?;
                 self.0 = rest;

@@ -1,10 +1,9 @@
-use serde::{ser, Serialize};
-
 use crate::{
     error::{Error, Result},
     ser::output::Output,
     Command,
 };
+use serde::{ser, Serialize};
 
 pub(crate) struct Serializer<O: Output> {
     pub output: O,
@@ -18,18 +17,12 @@ impl<O: Output> Serializer<O> {
         Ok(())
     }
 
-    #[inline]
-    pub fn try_push(&mut self, v: u8) -> Result<()> {
-        self.output.try_push(v)
-    }
-
-    #[inline]
     pub fn finalize(mut self, crc: Option<crc::Digest<'_, u16>>) -> Result<O::Out> {
         if let Some(mut digest) = crc {
             digest.update(&self.output.as_bytes()[3..]);
             let crc = u16::to_le_bytes(digest.finalize());
-            self.try_push(crc[0])?;
-            self.try_push(crc[1])?;
+            self.output.try_push(crc[0])?;
+            self.output.try_push(crc[1])?;
         }
         Ok(self.output.finalize())
     }
@@ -47,7 +40,7 @@ macro_rules! impl_serialize_be {
             fn serialize_be(&mut self, v: $ty) -> Result<()> {
                 let bytes = v.to_be_bytes();
                 for byte in bytes {
-                    self.try_push(byte)?;
+                    self.output.try_push(byte)?;
                 }
                 Ok(())
             }
@@ -296,6 +289,7 @@ impl<O: Output> ser::SerializeTuple for &'_ mut Serializer<O> {
     type Ok = ();
     type Error = Error;
 
+    #[inline]
     fn serialize_element<T>(&mut self, value: &T) -> Result<()>
     where
         T: ?Sized + Serialize,
@@ -303,6 +297,7 @@ impl<O: Output> ser::SerializeTuple for &'_ mut Serializer<O> {
         value.serialize(&mut **self)
     }
 
+    #[inline]
     fn end(self) -> Result<()> {
         Ok(())
     }

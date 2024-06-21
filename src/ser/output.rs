@@ -10,7 +10,7 @@ pub(crate) trait Output {
     fn finalize(self) -> Self::Out;
 }
 
-pub struct Slice<'a> {
+pub(crate) struct Slice<'a> {
     buf: &'a mut [u8],
     index: usize,
 }
@@ -38,6 +38,7 @@ impl<'a> Output for Slice<'a> {
         Ok(())
     }
 
+    // Will panic with len() < 3
     fn finalize(self) -> Self::Out {
         self.buf[2] = (self.index - 3) as u8;
         &mut self.buf[..self.index]
@@ -57,6 +58,7 @@ impl<const N: usize> Output for heapless::Vec<u8, N> {
         self.push(data).map_err(|_| Error::SerializeBufferFull)
     }
 
+    // Will panic with len() < 3
     fn finalize(mut self) -> Self::Out {
         self[2] = (self.len() - 3) as u8;
         self

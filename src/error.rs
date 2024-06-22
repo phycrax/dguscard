@@ -45,6 +45,8 @@ pub enum Error {
     DeserializeBadEncoding,
     /// Bad CRC while deserializing
     DeserializeBadCrc,
+    /// Bad CRC while deserializing
+    Dispatch,
     /// Serde Serialization Error
     SerdeSerCustom,
     /// Serde Deserialization Error
@@ -87,6 +89,7 @@ impl Display for Error {
                 DeserializeBadBufferLen => todo!(),
                 DeserializeBadHeader => todo!(),
                 DeserializeBadCmd => todo!(),
+                Dispatch => todo!(),
             }
         )
     }

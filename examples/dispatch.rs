@@ -12,7 +12,7 @@ impl Variable for Button {
     const ADDRESS: u16 = 0x1234;
 }
 
-impl Dispatch<'_> for Button {
+impl Dispatch for Button {
     fn handler(&self) {
         print!("button: {}", self.val);
     }
@@ -27,7 +27,7 @@ impl Variable for Energy {
     const ADDRESS: u16 = 0x1235;
 }
 
-impl Dispatch<'_> for Energy {
+impl Dispatch for Energy {
     fn handler(&self) {
         println!("energy: {}", self.val);
     }

@@ -1,7 +1,6 @@
-use crate::Variable;
-use serde::Deserialize;
-
-pub trait Dispatch<'a>: Variable + Deserialize<'a> {
+// ? Maybe get rid of trait and let users give their own fns in define_dispatch macro?
+// ? The macro does not use this trait for bounds, use internal generic fn with this trait?
+pub trait Dispatch {
     fn handler(&self);
 }
 
@@ -24,7 +23,8 @@ macro_rules! define_dispatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Config;
+    use crate::{Config, Variable};
+    use serde::Deserialize;
 
     #[derive(Deserialize, Debug)]
     struct Button {
@@ -35,7 +35,7 @@ mod tests {
         const ADDRESS: u16 = 0x1234;
     }
 
-    impl Dispatch<'_> for Button {
+    impl Dispatch for Button {
         fn handler(&self) {
             assert_eq!(0xCCDD, self.val);
         }

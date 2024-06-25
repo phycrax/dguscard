@@ -17,6 +17,7 @@ pub struct MetaData {
 pub trait Variable {
     const ADDRESS: u16;
 
+    // ? Separate this to fn address and fn wlen, get rid of metadata struct
     fn metadata() -> MetaData
     where
         Self: Sized,
@@ -69,6 +70,7 @@ impl From<u8> for Command {
 
 // Device functionality
 
+// ? Let user define their own ACK type or handle it in dispatcher macro
 #[derive(Deserialize)]
 pub struct Ack;
 
@@ -126,6 +128,7 @@ impl Variable for Brightness {
 
 impl Brightness {
     fn new(active: u8, sleep: u8, timeout: u16) -> Self {
+        // ? Don't panic, set it to 100 if above 100
         assert!(active <= 100 || sleep <= 100);
         Self {
             brightness: u16::from_be_bytes([active, sleep]),

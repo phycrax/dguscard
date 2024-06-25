@@ -44,7 +44,7 @@ pub fn send_to_vec<T, const N: usize>(value: &T, cfg: Config) -> Result<Vec<u8, 
 where
     T: Variable + Serialize,
 {
-    // todo update assert
+    // ToDO update assert
     const { assert!(N >= 8) }
     let mut serializer = Serializer { output: Vec::new() };
     serializer.init(cfg.header, Command::Write, T::ADDRESS)?;
@@ -57,7 +57,7 @@ pub fn request_to_vec<T, const N: usize>(cfg: Config) -> Result<Vec<u8, N>>
 where
     T: Variable,
 {
-    // todo update assert
+    // ToDO update assert
     const { assert!(N >= 8) }
     let metadata = T::metadata();
     let mut serializer = Serializer { output: Vec::new() };

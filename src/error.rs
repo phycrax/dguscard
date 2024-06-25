@@ -1,5 +1,6 @@
 use core::fmt::{Display, Formatter};
 
+// ToDo: cleanup unused errors
 /// This is the error type used by Postcard
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

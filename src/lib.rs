@@ -1,5 +1,7 @@
 #![no_std]
 
+use serde::{Deserialize, Serialize};
+
 pub mod de;
 pub mod dispatcher;
 pub mod error;
@@ -65,45 +67,69 @@ impl From<u8> for Command {
     }
 }
 
-//device commands
-/*
-void DWIN_ReadVP(uint16_t vAdd, uint8_t vSize) {
-  DWIN_AddByte(DWIN_CMD_VAR_R);
-  DWIN_AddWord(vAdd);
-  DWIN_AddByte(vSize);
-  DWIN_SendPack();
+// Device functionality
+
+#[derive(Deserialize)]
+pub struct Ack;
+
+impl Variable for Ack {
+    const ADDRESS: u16 = u16::from_be_bytes([b'O', b'K']);
 }
 
-void DWIN_SetPage(uint16_t pAdd) {
-  DWIN_AddByte(DWIN_CMD_VAR_W);
-  DWIN_AddWord(DWIN_VADD_PIC_SET);
-  DWIN_AddWord(0x5A01);
-  DWIN_AddWord(pAdd);
-  DWIN_SendPack();
+#[derive(Serialize, Deserialize)]
+pub struct Page {
+    precmd: u16,
+    pub page: u16,
 }
 
-void DWIN_SetBrightness(uint8_t level, uint16_t time) {
-  DWIN_AddByte(DWIN_CMD_VAR_W);
-  DWIN_AddWord(DWIN_VADD_LED_CFG);
-  DWIN_AddByte(level);
-  DWIN_AddByte(level / 2);
-  DWIN_AddWord(time);
-  DWIN_SendPack();
-
-  DWIN_AddByte(DWIN_CMD_VAR_W);
-  DWIN_AddWord(0x0512);
-  DWIN_AddByte(0x5A);
-  DWIN_AddByte(level);
-  DWIN_SendPack();
+impl Variable for Page {
+    const ADDRESS: u16 = 0x0084;
 }
 
-void DWIN_SetBackgroundIcl(uint16_t icl) {
-  DWIN_AddByte(DWIN_CMD_VAR_W);
-  DWIN_AddWord(DWIN_VADD_ICL_SET);
-  DWIN_AddWord(0x5A00);
-  DWIN_AddWord(icl);
-  DWIN_SendPack();
+impl Page {
+    fn new(id: u16) -> Self {
+        Self {
+            precmd: 0x5A01,
+            page: id,
+        }
+    }
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct Background {
+    precmd: u16,
+    pub bg: u16,
+}
 
-*/
+impl Variable for Background {
+    const ADDRESS: u16 = 0x00DE;
+}
+
+impl Background {
+    fn new(id: u16) -> Self {
+        Self {
+            precmd: 0x5A00,
+            bg: id,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Brightness {
+    pub brightness: u16,
+    pub timeout: u16,
+}
+
+impl Variable for Brightness {
+    const ADDRESS: u16 = 0x0082;
+}
+
+impl Brightness {
+    fn new(active: u8, sleep: u8, timeout: u16) -> Self {
+        assert!(active <= 100 || sleep <= 100);
+        Self {
+            brightness: u16::from_be_bytes([active, sleep]),
+            timeout,
+        }
+    }
+}

@@ -1,7 +1,7 @@
-use crate::DwinVariable;
+use crate::Variable;
 use serde::Deserialize;
 
-pub trait Dispatch<'a>: DwinVariable + Deserialize<'a> {
+pub trait Dispatch<'a>: Variable + Deserialize<'a> {
     fn handler(&self);
 }
 
@@ -31,7 +31,7 @@ mod tests {
         val: u16,
     }
 
-    impl DwinVariable for Button {
+    impl Variable for Button {
         const ADDRESS: u16 = 0x1234;
     }
 

@@ -3,7 +3,7 @@ pub(crate) mod deserializer;
 use crate::{
     de::deserializer::Deserializer,
     error::{Error, Result},
-    Command, Config, DwinVariable, MetaData,
+    Command, Config, MetaData, Variable,
 };
 use serde::Deserialize;
 
@@ -11,7 +11,7 @@ pub struct RawBytes<'a>(&'a [u8]);
 
 pub fn from_bytes<'a, T>(input: &'a [u8], cfg: Config) -> Result<T>
 where
-    T: DwinVariable + Deserialize<'a>,
+    T: Variable + Deserialize<'a>,
 {
     let (input_md, rawdata) = metadata_from_bytes(input, cfg)?;
     let type_md = T::metadata();
@@ -133,7 +133,7 @@ mod tests {
             data: u16,
         }
 
-        impl DwinVariable for Expected {
+        impl Variable for Expected {
             const ADDRESS: u16 = 0xAABB;
         }
 
@@ -155,7 +155,7 @@ mod tests {
             data2: u16,
         }
 
-        impl DwinVariable for Expected {
+        impl Variable for Expected {
             const ADDRESS: u16 = 0xAABB;
         }
 

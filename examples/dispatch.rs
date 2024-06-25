@@ -1,8 +1,6 @@
 extern crate dwin;
 
-use dwin::{
-    de::metadata_from_bytes, define_dispatcher, dispatcher::Dispatch, Config, DwinVariable,
-};
+use dwin::{define_dispatcher, dispatcher::Dispatch, Config, Variable};
 use serde::Deserialize;
 
 #[derive(Deserialize, Debug)]
@@ -10,7 +8,7 @@ struct Button {
     val: u16,
 }
 
-impl DwinVariable for Button {
+impl Variable for Button {
     const ADDRESS: u16 = 0x1234;
 }
 
@@ -25,7 +23,7 @@ struct Energy {
     val: u16,
 }
 
-impl DwinVariable for Energy {
+impl Variable for Energy {
     const ADDRESS: u16 = 0x1235;
 }
 

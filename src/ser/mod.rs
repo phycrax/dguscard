@@ -7,13 +7,13 @@ use crate::{
         output::{Output, Slice},
         serializer::Serializer,
     },
-    Command, Config, DwinVariable,
+    Command, Config, Variable,
 };
 use serde::Serialize;
 
 pub fn send_to_slice<'b, T>(value: &T, buf: &'b mut [u8], cfg: Config) -> Result<&'b mut [u8]>
 where
-    T: DwinVariable + Serialize,
+    T: Variable + Serialize,
 {
     let mut serializer = Serializer {
         output: Slice::new(buf),
@@ -25,7 +25,7 @@ where
 
 pub fn request_to_slice<'b, T>(buf: &'b mut [u8], cfg: Config) -> Result<&'b mut [u8]>
 where
-    T: DwinVariable,
+    T: Variable,
 {
     let metadata = T::metadata();
     let mut serializer = Serializer {
@@ -42,7 +42,7 @@ use heapless::Vec;
 #[cfg(feature = "heapless")]
 pub fn send_to_vec<T, const N: usize>(value: &T, cfg: Config) -> Result<Vec<u8, N>>
 where
-    T: DwinVariable + Serialize,
+    T: Variable + Serialize,
 {
     // todo update assert
     const { assert!(N >= 8) }
@@ -55,7 +55,7 @@ where
 #[cfg(feature = "heapless")]
 pub fn request_to_vec<T, const N: usize>(cfg: Config) -> Result<Vec<u8, N>>
 where
-    T: DwinVariable,
+    T: Variable,
 {
     // todo update assert
     const { assert!(N >= 8) }
@@ -79,7 +79,7 @@ mod tests {
         }
     }
 
-    impl DwinVariable for BackgroundIcl {
+    impl Variable for BackgroundIcl {
         const ADDRESS: u16 = 0x00DE;
     }
 
@@ -170,7 +170,7 @@ mod tests {
     #[derive(Serialize)]
     struct NotYetImpl(u8);
 
-    impl DwinVariable for NotYetImpl {
+    impl Variable for NotYetImpl {
         const ADDRESS: u16 = 0x3456;
     }
 
@@ -188,7 +188,7 @@ mod tests {
         _u: u16,
     }
 
-    impl DwinVariable for Energy {
+    impl Variable for Energy {
         const ADDRESS: u16 = 0x000F;
     }
 

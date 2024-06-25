@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use dwin::{ser::send_to_slice, DwinVariable};
+use dwin::{ser::send_to_slice, Variable};
 
 // fn receive_packet() {
 //     let packet = [0x5A, 0xA5, 8, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD, 0xE7, 0x8D];
@@ -23,7 +23,7 @@ impl BackgroundIcl {
     }
 }
 
-impl DwinVariable for BackgroundIcl {
+impl Variable for BackgroundIcl {
     const ADDRESS: u16 = 0x00DE;
 }
 

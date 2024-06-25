@@ -12,7 +12,7 @@ pub struct MetaData {
     pub wlen: u8,
 }
 
-pub trait DwinVariable {
+pub trait Variable {
     const ADDRESS: u16;
 
     fn metadata() -> MetaData

@@ -45,7 +45,7 @@ where
     T: DwinVariable + Serialize,
 {
     // todo update assert
-    const { assert!(N > 10) }
+    const { assert!(N >= 8) }
     let mut serializer = Serializer { output: Vec::new() };
     serializer.init(cfg.header, Command::Write, T::ADDRESS)?;
     value.serialize(&mut serializer)?;
@@ -58,7 +58,7 @@ where
     T: DwinVariable,
 {
     // todo update assert
-    const { assert!(N > 10) }
+    const { assert!(N >= 8) }
     let metadata = T::metadata();
     let mut serializer = Serializer { output: Vec::new() };
     serializer.init(cfg.header, Command::Read, T::ADDRESS)?;

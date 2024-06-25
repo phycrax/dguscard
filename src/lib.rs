@@ -1,6 +1,7 @@
 #![no_std]
 
 pub mod de;
+pub mod dispatcher;
 pub mod error;
 pub mod ser;
 

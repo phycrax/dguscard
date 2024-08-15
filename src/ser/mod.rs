@@ -7,32 +7,40 @@ use crate::{
         output::{Output, Slice},
         serializer::Serializer,
     },
-    Command, Config, Variable,
+    Command, Config,
 };
 use serde::Serialize;
 
-pub fn send_to_slice<'b, T>(value: &T, buf: &'b mut [u8], cfg: Config) -> Result<&'b mut [u8]>
+pub fn send_to_slice<'b, T>(
+    value: &T,
+    buf: &'b mut [u8],
+    addr: u16,
+    cfg: Config,
+) -> Result<&'b mut [u8]>
 where
-    T: Variable + Serialize,
+    T: Serialize,
 {
     let mut serializer = Serializer {
         output: Slice::new(buf),
     };
-    serializer.init(cfg.header, Command::Write, T::ADDRESS)?;
+    serializer.init(cfg.header, Command::Write, addr)?;
     value.serialize(&mut serializer)?;
     serializer.finalize(cfg.crc)
 }
 
-pub fn request_to_slice<'b, T>(buf: &'b mut [u8], cfg: Config) -> Result<&'b mut [u8]>
+pub fn request_to_slice<'b, T>(buf: &'b mut [u8], addr: u16, cfg: Config) -> Result<&'b mut [u8]>
 where
-    T: Variable,
+    T: Sized,
 {
-    let metadata = T::metadata();
+    const { assert!(core::mem::size_of::<T>() % 2 == 0) }
+    const { assert!(core::mem::size_of::<T>() <= u8::MAX as usize) }
     let mut serializer = Serializer {
         output: Slice::new(buf),
     };
-    serializer.init(cfg.header, Command::Read, metadata.addr)?;
-    serializer.output.try_push(metadata.wlen)?;
+    serializer.init(cfg.header, Command::Read, addr)?;
+    serializer
+        .output
+        .try_push(core::mem::size_of::<T>() as u8 / 2)?;
     serializer.finalize(cfg.crc)
 }
 
@@ -40,29 +48,27 @@ where
 use heapless::Vec;
 
 #[cfg(feature = "heapless")]
-pub fn send_to_vec<T, const N: usize>(value: &T, cfg: Config) -> Result<Vec<u8, N>>
+pub fn send_to_vec<T, const N: usize>(value: &T, addr: u16, cfg: Config) -> Result<Vec<u8, N>>
 where
-    T: Variable + Serialize,
+    T: Serialize,
 {
-    // ToDO update assert
-    const { assert!(N >= 8) }
     let mut serializer = Serializer { output: Vec::new() };
-    serializer.init(cfg.header, Command::Write, T::ADDRESS)?;
+    serializer.init(cfg.header, Command::Write, addr)?;
     value.serialize(&mut serializer)?;
     serializer.finalize(cfg.crc)
 }
 
 #[cfg(feature = "heapless")]
-pub fn request_to_vec<T, const N: usize>(cfg: Config) -> Result<Vec<u8, N>>
+pub fn request_to_vec<T, const N: usize>(addr: u16, cfg: Config) -> Result<Vec<u8, N>>
 where
-    T: Variable,
+    T: Sized,
 {
-    // ToDO update assert
-    const { assert!(N >= 8) }
-    let metadata = T::metadata();
+    const { assert!(core::mem::size_of::<T>() % 2 == 0) }
     let mut serializer = Serializer { output: Vec::new() };
-    serializer.init(cfg.header, Command::Read, T::ADDRESS)?;
-    serializer.output.try_push(metadata.wlen)?;
+    serializer.init(cfg.header, Command::Read, addr)?;
+    serializer
+        .output
+        .try_push(core::mem::size_of::<T>() as u8 / 2)?;
     serializer.finalize(cfg.crc)
 }
 
@@ -79,15 +85,11 @@ mod tests {
         }
     }
 
-    impl Variable for BackgroundIcl {
-        const ADDRESS: u16 = 0x00DE;
-    }
-
     #[test]
     fn buffer_short_slice() {
         let mut buf = [0u8; 10];
         let bg = BackgroundIcl::new(0x1234); //needs 12 with crc
-        match send_to_slice(&bg, &mut buf, Default::default()) {
+        match send_to_slice(&bg, &mut buf, 0x00DE, Default::default()) {
             Err(Error::SerializeBufferFull) => (),
             _ => panic!("should return buffer full"),
         }
@@ -96,7 +98,7 @@ mod tests {
     #[test]
     fn buffer_short_vec() {
         let bg = BackgroundIcl::new(0x1234);
-        let result: Result<Vec<u8, 10>> = send_to_vec(&bg, Default::default()); //needs 12 with crc
+        let result: Result<Vec<u8, 10>> = send_to_vec(&bg, 0x00DE, Default::default()); //needs 12 with crc
         match result {
             Err(Error::SerializeBufferFull) => (),
             _ => panic!("should return buffer full"),
@@ -111,7 +113,7 @@ mod tests {
 
         let mut buf = [0u8; 50];
         let bg = BackgroundIcl::new(0x1234);
-        let output = send_to_slice(&bg, &mut buf, Default::default()).unwrap();
+        let output = send_to_slice(&bg, &mut buf, 0x00DE, Default::default()).unwrap();
 
         assert_eq!(output, &expected);
     }
@@ -124,7 +126,7 @@ mod tests {
 
         let expected: Vec<u8, 12> = heapless::Vec::from_slice(&expected).unwrap();
         let bg = BackgroundIcl::new(0x1234);
-        let output: Vec<u8, 12> = send_to_vec(&bg, Default::default()).unwrap();
+        let output: Vec<u8, 12> = send_to_vec(&bg, 0x00DE, Default::default()).unwrap();
 
         assert_eq!(output, expected);
     }
@@ -138,6 +140,7 @@ mod tests {
         let output = send_to_slice(
             &bg,
             &mut buf,
+            0x00DE,
             Config {
                 header: 0x5AA5,
                 crc: None,
@@ -157,6 +160,7 @@ mod tests {
         let output = send_to_slice(
             &bg,
             &mut buf,
+            0x00DE,
             Config {
                 header: 0xB44B,
                 crc: None,
@@ -170,15 +174,11 @@ mod tests {
     #[derive(Serialize)]
     struct NotYetImpl(u8);
 
-    impl Variable for NotYetImpl {
-        const ADDRESS: u16 = 0x3456;
-    }
-
     #[test]
     fn not_yet_u8_tuple() {
         let mut buf = [0u8; 50];
         let not_yet = NotYetImpl(123);
-        match send_to_slice(&not_yet, &mut buf, Default::default()) {
+        match send_to_slice(&not_yet, &mut buf, 0x3456, Default::default()) {
             Err(Error::NotYetImplemented) => (),
             _ => panic!("u8 impl not ready"),
         }
@@ -188,15 +188,11 @@ mod tests {
         _u: u16,
     }
 
-    impl Variable for Energy {
-        const ADDRESS: u16 = 0x000F;
-    }
-
     #[test]
     fn request() {
         let expected = [0x5Au8, 0xA5, 6, 0x83, 0x00, 0x0F, 1, 0xED, 0x90];
         let mut buf = [0u8; 9];
-        let output = request_to_slice::<Energy>(&mut buf, Default::default()).unwrap();
+        let output = request_to_slice::<Energy>(&mut buf, 0x000F, Default::default()).unwrap();
         assert_eq!(output, expected);
     }
 }

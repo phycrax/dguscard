@@ -19,7 +19,10 @@ pub enum Error {
     /// The length of a sequence must be known
     SerializeSeqLengthUnknown,
     /// Bad buffer length
-    DeserializeBadBufferLen,
+    DeserializeBadBufferLen1,
+    DeserializeBadBufferLen2,
+    DeserializeBadBufferLen3,
+    DeserializeBadBufferLen4,
     /// Bad header
     DeserializeBadHeader,
     /// Bad command
@@ -63,10 +66,12 @@ impl Display for Error {
             f,
             "{}",
             match self {
-                WontImplement => "This is a feature that PostCard will never implement",
+                WontImplement => "This is a feature that serde-dgus will never implement",
                 NotYetImplemented => {
-                    "This is a feature that Postcard intends to support, but does not yet"
+                    "This is a feature that serde-dgus intends to support, but does not yet"
                 }
+                SerdeSerCustom => "Serde Serialization Error",
+                SerdeDeCustom => "Serde Deserialization Error",
                 SerializeBufferFull => "The serialize buffer is full",
                 SerializeBufferTooSmall => "The serialize buffer size must be 8 bytes or more",
                 SerializeBufferTooLarge => "The serialize buffer size must be less than 256 bytes",
@@ -84,13 +89,10 @@ impl Display for Error {
                 DeserializeBadEnum => "Found an enum discriminant that was > u32::max_value()",
                 DeserializeBadEncoding => "The original data was not well encoded",
                 DeserializeBadCrc => "Bad CRC while deserializing",
-                SerdeSerCustom => "Serde Serialization Error",
-                SerdeDeCustom => "Serde Deserialization Error",
                 CollectStrError => "Error while processing `collect_str` during serialization",
                 DeserializeBadBufferLen => todo!(),
                 DeserializeBadHeader => todo!(),
                 DeserializeBadCmd => todo!(),
-                DispatchMetadataMismatch => todo!(),
             }
         )
     }

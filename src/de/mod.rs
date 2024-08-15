@@ -3,33 +3,18 @@ pub(crate) mod deserializer;
 use crate::{
     de::deserializer::Deserializer,
     error::{Error, Result},
-    Command, Config, MetaData, Variable,
+    Command, Config, Metadata,
 };
 use serde::Deserialize;
 
-pub struct RawBytes<'a>(&'a [u8]);
+pub struct RawBytes<'a>(pub &'a [u8]);
 
-pub fn from_bytes<'a, T>(input: &'a [u8], cfg: Config) -> Result<T>
-where
-    T: Variable + Deserialize<'a>,
-{
-    let (input_md, rawdata) = metadata_from_bytes(input, cfg)?;
-    let type_md = T::metadata();
-
-    if type_md.addr != input_md.addr {
-        return Err(Error::DeserializeUnexpectedAddr);
-    }
-    if type_md.wlen != input_md.wlen {
-        return Err(Error::DeserializeUnexpectedWlen);
-    }
-    from_raw_bytes(rawdata)
-}
-
-pub fn metadata_from_bytes<'a>(input: &'a [u8], cfg: Config) -> Result<(MetaData, RawBytes<'a>)> {
+/// Splits metadata from a byte slice and returns the metadata and the remaining bytes.
+pub fn split_metadata<'a>(input: &'a [u8], cfg: Config) -> Result<(Metadata, RawBytes<'a>)> {
     // Slice too short?
     let min_len = if cfg.crc.is_some() { 8 } else { 6 };
     if input.len() < min_len {
-        return Err(Error::DeserializeBadBufferLen);
+        return Err(Error::DeserializeBadBufferLen1);
     }
 
     // Strip header from input
@@ -38,15 +23,17 @@ pub fn metadata_from_bytes<'a>(input: &'a [u8], cfg: Config) -> Result<(MetaData
         .ok_or(Error::DeserializeBadHeader)?;
 
     // Strip length from input
-    let (length, input) = input.split_first().unwrap();
-    let length = *length as usize;
+    let (len, input) = input.split_first().ok_or(Error::DeserializeBadBufferLen2)?;
+    let len = *len as usize;
 
     // Trim slice with the length
-    let input = input.get(..length).ok_or(Error::DeserializeBadBufferLen)?;
+    let input = input.get(..len).ok_or(Error::DeserializeBadBufferLen3)?;
 
     // Strip CRC from input
     let input = if let Some(mut digest) = cfg.crc {
-        let (input, crc) = input.split_last_chunk().unwrap();
+        let (input, crc) = input
+            .split_last_chunk()
+            .ok_or(Error::DeserializeBadBufferLen4)?;
         digest.update(input);
         if u16::from_le_bytes(*crc) != digest.finalize() {
             return Err(Error::DeserializeBadCrc);
@@ -57,9 +44,9 @@ pub fn metadata_from_bytes<'a>(input: &'a [u8], cfg: Config) -> Result<(MetaData
     };
 
     // Strip command from input
-    let (command, input) = input.split_first().unwrap();
-    let command = Command::from(*command);
-    if command == Command::Undefined {
+    let (cmd, input) = input.split_first().unwrap();
+    let cmd = Command::from(*cmd);
+    if cmd == Command::Undefined {
         return Err(Error::DeserializeBadCmd);
     }
 
@@ -71,9 +58,13 @@ pub fn metadata_from_bytes<'a>(input: &'a [u8], cfg: Config) -> Result<(MetaData
     let (wlen, input) = input.split_first().unwrap_or((&0, input));
     let wlen = *wlen;
 
-    Ok((MetaData { addr, wlen }, RawBytes(input)))
+    // Calculate the actual raw
+
+    Ok((Metadata { addr, wlen }, RawBytes(input)))
 }
 
+/// Deserialize a message of type `T` from a data byte slice.
+/// The unused portion (if any) of the byte slice is not returned.
 pub fn from_raw_bytes<'a, T>(input: RawBytes<'a>) -> Result<T>
 where
     T: Deserialize<'a>,
@@ -89,19 +80,18 @@ mod tests {
     #[test]
     fn md_ack() {
         let input = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 0, 0, 0, 0];
-        let expected = MetaData {
+        let expected = Metadata {
             addr: u16::from_be_bytes([b'O', b'K']),
             wlen: 0,
         };
-        let (md, _) = metadata_from_bytes(&input, Default::default()).unwrap();
+        let (md, _) = split_metadata(&input, Default::default()).unwrap();
         assert_eq!(md, expected);
     }
 
     #[test]
     fn md_bad_hdr() {
         let input = [0xAA, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 0, 0, 0, 0];
-        let Err(Error::DeserializeBadHeader) = metadata_from_bytes(&input, Default::default())
-        else {
+        let Err(Error::DeserializeBadHeader) = split_metadata(&input, Default::default()) else {
             panic!();
         };
     }
@@ -109,7 +99,7 @@ mod tests {
     #[test]
     fn md_bad_crc() {
         let input = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xAA, 0xEF, 0, 0, 0, 0];
-        let Err(Error::DeserializeBadCrc) = metadata_from_bytes(&input, Default::default()) else {
+        let Err(Error::DeserializeBadCrc) = split_metadata(&input, Default::default()) else {
             panic!();
         };
     }
@@ -117,7 +107,7 @@ mod tests {
     #[test]
     fn md_bad_cmd() {
         let input = [0x5A, 0xA5, 5, 0xAA, b'O', b'K', 0x25, 0xE7, 0, 0, 0, 0];
-        let Err(Error::DeserializeBadCmd) = metadata_from_bytes(&input, Default::default()) else {
+        let Err(Error::DeserializeBadCmd) = split_metadata(&input, Default::default()) else {
             panic!();
         };
     }
@@ -133,35 +123,17 @@ mod tests {
             data: u16,
         }
 
-        impl Variable for Expected {
-            const ADDRESS: u16 = 0xAABB;
-        }
+        let (metadata, raw_bytes) = split_metadata(&input, Default::default()).unwrap();
+        assert_eq!(
+            metadata,
+            Metadata {
+                addr: 0xAABB,
+                wlen: 1
+            }
+        );
 
         let expected = Expected { data: 0xCCDD };
-
-        let actual: Expected = from_bytes(&input, Default::default()).unwrap();
+        let actual: Expected = from_raw_bytes(raw_bytes).unwrap();
         assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn fb_unexp_wlen() {
-        let input = [
-            0x5A, 0xA5, 8, 0x83, 0xAA, 0xBB, 1, 0xCC, 0xDD, 0xE7, 0x8D, 0, 0, 0, 0,
-        ];
-
-        #[derive(Deserialize, Debug, PartialEq, Eq)]
-        struct Expected {
-            data1: u16,
-            data2: u16,
-        }
-
-        impl Variable for Expected {
-            const ADDRESS: u16 = 0xAABB;
-        }
-
-        let result: Result<Expected> = from_bytes(&input, Default::default());
-        let Err(Error::DeserializeUnexpectedWlen) = result else {
-            panic!();
-        };
     }
 }

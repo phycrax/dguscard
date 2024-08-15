@@ -4,15 +4,18 @@ use serde::de::{self, DeserializeSeed, Visitor};
 pub struct Deserializer<'de>(&'de [u8]);
 
 impl<'de> Deserializer<'de> {
+    /// Obtain a Deserializer from a slice of bytes
     pub fn from_bytes(s: &'de [u8]) -> Self {
         Self(s)
     }
 }
 
+/// Generic trait for blanket impl of big endian deserialization
 trait DeserializeBigEndian<T> {
     fn deserialize_be(&mut self) -> Result<T>;
 }
 
+/// Macro for blanket impl of big endian deserialization
 macro_rules! impl_deserialize_be{
     ($($ty:ident)+) => ($(
         impl DeserializeBigEndian<$ty> for Deserializer<'_> {
@@ -28,6 +31,8 @@ macro_rules! impl_deserialize_be{
 
 impl_deserialize_be! { u16 u32 u64 i16 i32 i64 f32 f64 }
 
+/// Serde deserializer implementation
+/// u8 is not supported yet
 impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     type Error = Error;
 

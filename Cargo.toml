@@ -1,14 +1,14 @@
 [package]
-name = "dwin"
-version = "0.0.0"
+name = "serde_dgus"
+version = "0.1.0"
 authors = ["Süha ÜNÜVAR"]
-edition = "2021"
+edition = "2018"
 readme = "README.md"
-repository = "https://github.com/phycrax/dwin-rs"
-description = "A no_std + serde based DWIN DGUS2 library for Rust"
+repository = "https://github.com/phycrax/serde-dgus"
+description = "DWIN DGUS2 wire format for Serde"
 license = "MIT OR Apache-2.0"
 categories = ["embedded", "no-std"]
-keywords = ["dwin", "dgus"]
+keywords = ["dwin", "dgus", "hmi", "serde"]
 
 [dependencies]
 serde = { version = "1.0", default-features = false, features = ["derive"] }
@@ -23,10 +23,3 @@ criterion = "0.5.1"
 default = ["heapless"]
 defmt = ["dep:defmt"]
 heapless = ["dep:heapless"]
-
-[[bench]]
-name = "benchmarks"
-harness = false
-
-[lib]
-bench = false

@@ -49,8 +49,6 @@ pub enum Error {
     DeserializeBadEncoding,
     /// Bad CRC while deserializing
     DeserializeBadCrc,
-    /// Bad CRC while deserializing
-    DispatchMetadataMismatch,
     /// Serde Serialization Error
     SerdeSerCustom,
     /// Serde Deserialization Error
@@ -77,8 +75,10 @@ impl Display for Error {
                 SerializeBufferTooLarge => "The serialize buffer size must be less than 256 bytes",
                 SerializeSeqLengthUnknown => "The length of a sequence must be known",
                 DeserializeUnexpectedEnd => "Hit the end of buffer, expected more data",
-                DeserializeUnexpectedAddr => todo!(),
-                DeserializeUnexpectedWlen => todo!(),
+                DeserializeUnexpectedAddr =>
+                    "Error while processing `collect_str` during serialization",
+                DeserializeUnexpectedWlen =>
+                    "Error while processing `collect_str` during serialization",
                 DeserializeBadVarint => {
                     "Found a varint that didn't terminate. Is the usize too big for this platform?"
                 }
@@ -90,15 +90,22 @@ impl Display for Error {
                 DeserializeBadEncoding => "The original data was not well encoded",
                 DeserializeBadCrc => "Bad CRC while deserializing",
                 CollectStrError => "Error while processing `collect_str` during serialization",
-                DeserializeBadBufferLen => todo!(),
-                DeserializeBadHeader => todo!(),
-                DeserializeBadCmd => todo!(),
+                DeserializeBadBufferLen1 =>
+                    "Error while processing `collect_str` during serialization",
+                DeserializeBadBufferLen2 =>
+                    "Error while processing `collect_str` during serialization",
+                DeserializeBadBufferLen3 =>
+                    "Error while processing `collect_str` during serialization",
+                DeserializeBadBufferLen4 =>
+                    "Error while processing `collect_str` during serialization",
+                DeserializeBadHeader => "Error while processing `collect_str` during serialization",
+                DeserializeBadCmd => "Error while processing `collect_str` during serialization",
             }
         )
     }
 }
 
-/// This is the Result type used by Postcard.
+/// Result type used by serde-dgus.
 pub type Result<T> = ::core::result::Result<T, Error>;
 
 impl serde::ser::Error for Error {

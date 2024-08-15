@@ -1,28 +1,28 @@
 use crate::{
     error::{Error, Result},
     ser::output::Output,
-    Command,
+    Command, Config,
 };
 use serde::{ser, Serialize};
 
 pub(crate) struct Serializer<O: Output> {
     pub output: O,
+    cfg: Config,
 }
 
 impl<O: Output> Serializer<O> {
-    pub fn init(&mut self, hdr: u16, cmd: Command, addr: u16) -> Result<()> {
-        self.serialize_be(hdr)?;
-        self.serialize_be(cmd as u16)?;
-        self.serialize_be(addr)?;
-        Ok(())
+    pub fn new(output: O, cfg: Config, cmd: Command, addr: u16) -> Result<Self> {
+        let mut this = Self { output, cfg };
+        this.serialize_be(this.cfg.header)?;
+        this.serialize_be(cmd as u16)?;
+        this.serialize_be(addr)?;
+        Ok(this)
     }
 
-    pub fn finalize(mut self, crc: Option<crc::Digest<'_, u16>>) -> Result<O::Out> {
-        if let Some(mut digest) = crc {
+    pub fn finalize(mut self) -> Result<O::Out> {
+        if let Some(mut digest) = self.cfg.crc.clone() {
             digest.update(&self.output.as_bytes()[3..]);
-            let crc = u16::to_le_bytes(digest.finalize());
-            self.output.try_push(crc[0])?;
-            self.output.try_push(crc[1])?;
+            self.serialize_be(digest.finalize().swap_bytes())?;
         }
         Ok(self.output.finalize())
     }

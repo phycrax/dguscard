@@ -2,11 +2,8 @@ use crate::error::{Error, Result};
 
 pub(crate) trait Output {
     type Out;
-
     fn as_bytes(&self) -> &[u8];
-
     fn try_push(&mut self, data: u8) -> Result<()>;
-
     fn finalize(self) -> Self::Out;
 }
 

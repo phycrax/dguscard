@@ -14,12 +14,12 @@ pub struct Metadata {
 
 /// DGUS Configuration for the packet serialization and deserialization
 #[derive(Clone)]
-pub struct Config<'a> {
+pub struct Config {
     pub header: u16,
-    pub crc: Option<crc::Digest<'a, u16>>,
+    pub crc: Option<crc::Digest<'static, u16>>,
 }
 
-impl<'a> Default for Config<'a> {
+impl Default for Config {
     fn default() -> Self {
         use crc::{Crc, CRC_16_MODBUS};
         const CRC: crc::Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);

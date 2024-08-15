@@ -10,7 +10,7 @@ use serde::Deserialize;
 pub struct RawBytes<'a>(pub &'a [u8]);
 
 /// Splits metadata from a byte slice and returns the metadata and the remaining bytes.
-pub fn split_metadata<'a>(input: &'a [u8], cfg: Config) -> Result<(Metadata, RawBytes<'a>)> {
+pub fn split_metadata(input: &[u8], cfg: Config) -> Result<(Metadata, RawBytes)> {
     // Slice too short?
     let min_len = if cfg.crc.is_some() { 8 } else { 6 };
     if input.len() < min_len {

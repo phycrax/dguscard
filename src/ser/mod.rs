@@ -50,21 +50,66 @@ mod tests {
     struct TestTuple(u16, u16);
 
     impl TestTuple {
-        pub fn new() -> Self {
+        fn new() -> Self {
             Self(0x5A00, 0x1234)
         }
     }
 
     #[test]
-    fn test_tuple() {
-        let expected = [
-            0x5Au8, 0xA5, 9, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34, 0x0e, 0xb4,
+    fn tuple_to_slice() {
+        let buf = &mut [0u8; 20];
+        let expected = &[
+            0x5A, 0xA5, 9, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34, 0x0E, 0xB4,
         ];
-        let expected: Vec<u8, 12> = Vec::from_slice(&expected).unwrap();
         let data = TestTuple::new();
+        let cfg = Config {
+            ..Default::default()
+        };
 
-        let output: Vec<u8, 12> =
-            to_hvec(&data, 0x00DE, Command::Write, Default::default()).unwrap();
+        let output = to_slice(&data, buf, 0x00DE, Command::Write, cfg).unwrap();
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn tuple_to_slice_nocrc() {
+        let buf = &mut [0u8; 20];
+        let expected = &[0x5A, 0xA5, 7, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34];
+        let data = TestTuple::new();
+        let cfg = Config {
+            crc: None,
+            ..Default::default()
+        };
+
+        let output = to_slice(&data, buf, 0x00DE, Command::Write, cfg).unwrap();
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn tuple_to_hvec() {
+        let expected: Vec<u8, 12> = Vec::from_slice(&[
+            0x5A, 0xA5, 9, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34, 0x0E, 0xB4,
+        ])
+        .unwrap();
+        let data = TestTuple::new();
+        let cfg = Config {
+            ..Default::default()
+        };
+
+        let output: Vec<_, 12> = to_hvec(&data, 0x00DE, Command::Write, cfg).unwrap();
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn tuple_to_hvec_nocrc() {
+        let expected: Vec<u8, 10> =
+            Vec::from_slice(&[0x5A, 0xA5, 7, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34]).unwrap();
+        let data = TestTuple::new();
+        let cfg = Config {
+            crc: None,
+            ..Default::default()
+        };
+
+        let output: Vec<_, 10> = to_hvec(&data, 0x00DE, Command::Write, cfg).unwrap();
         assert_eq!(output, expected);
     }
 }

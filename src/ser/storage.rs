@@ -1,9 +1,17 @@
 use crate::error::{Error, Result};
 use core::ops::{Deref, DerefMut};
 
+/// The serialization output trait
+/// Serialization buffers can implement this trait to be used with the serializer
 pub trait Storage: Deref<Target = [u8]> + DerefMut<Target = [u8]> {
+    /// The `Output` type is what this storage "resolves" to when the serialization is complete,
+    /// such as a slice or a Vec of some sort.
     type Output;
+
+    /// The try_push() trait method can be used to push a single byte to be modified and/or stored
     fn try_push(&mut self, data: u8) -> Result<()>;
+
+    /// Finalize the serialization process
     fn finalize(self) -> Self::Output;
 }
 

@@ -5,13 +5,15 @@ use crate::{
 };
 use serde::{ser, Serialize};
 
-pub struct Serializer<O: Storage> {
-    output: O,
+/// Serde compatible serializer. Serialization output type is generic and must implement the [`Storage`] trait.
+/// Unless you are implementing [`Storage`], you don't have to use this directly.
+pub struct Serializer<S: Storage> {
+    output: S,
 }
 
-impl<O: Storage> Serializer<O> {
+impl<S: Storage> Serializer<S> {
     /// Create a new serializer with the given output type, header, command and address
-    pub fn new(output: O, header: u16, cmd: Command, addr: u16) -> Result<Self> {
+    pub fn new(output: S, header: u16, cmd: Command, addr: u16) -> Result<Self> {
         let mut this = Self { output };
         this.serialize_be(header)?;
         this.serialize_be(cmd as u16)?;
@@ -20,7 +22,7 @@ impl<O: Storage> Serializer<O> {
     }
 
     /// Finalize the serialization process with optional CRC
-    pub fn finalize(mut self, crc: Option<crc::Digest<'_, u16>>) -> Result<O::Output> {
+    pub fn finalize(mut self, crc: Option<crc::Digest<'_, u16>>) -> Result<S::Output> {
         if let Some(mut digest) = crc {
             digest.update(&self.output[3..]);
             self.serialize_be(digest.finalize().swap_bytes())?;
@@ -38,7 +40,7 @@ trait SerializeBigEndian<T> {
 // Macro for blanket implementation of primitive number type big endian serialization
 macro_rules! impl_serialize_be {
     ($($ty:ident)+) => ($(
-        impl<O: Storage> SerializeBigEndian<$ty> for Serializer<O> {
+        impl<S: Storage> SerializeBigEndian<$ty> for Serializer<S> {
             #[inline]
             fn serialize_be(&mut self, v: $ty) -> Result<()> {
                 let bytes = v.to_be_bytes();
@@ -54,7 +56,7 @@ macro_rules! impl_serialize_be {
 // Implement big endian serialization for the following types
 impl_serialize_be! { u8 i8 u16 i16 u32 i32 u64 i64 u128 i128 f32 f64 }
 
-impl<O: Storage> ser::Serializer for &'_ mut Serializer<O> {
+impl<S: Storage> ser::Serializer for &'_ mut Serializer<S> {
     type Ok = ();
 
     type Error = Error;
@@ -270,7 +272,7 @@ impl<O: Storage> ser::Serializer for &'_ mut Serializer<O> {
     }
 }
 
-impl<O: Storage> ser::SerializeSeq for &'_ mut Serializer<O> {
+impl<S: Storage> ser::SerializeSeq for &'_ mut Serializer<S> {
     type Ok = ();
     type Error = Error;
 
@@ -289,7 +291,7 @@ impl<O: Storage> ser::SerializeSeq for &'_ mut Serializer<O> {
     }
 }
 
-impl<O: Storage> ser::SerializeTuple for &'_ mut Serializer<O> {
+impl<S: Storage> ser::SerializeTuple for &'_ mut Serializer<S> {
     type Ok = ();
     type Error = Error;
 
@@ -307,7 +309,7 @@ impl<O: Storage> ser::SerializeTuple for &'_ mut Serializer<O> {
     }
 }
 
-impl<O: Storage> ser::SerializeTupleStruct for &'_ mut Serializer<O> {
+impl<S: Storage> ser::SerializeTupleStruct for &'_ mut Serializer<S> {
     type Ok = ();
     type Error = Error;
 
@@ -325,7 +327,7 @@ impl<O: Storage> ser::SerializeTupleStruct for &'_ mut Serializer<O> {
     }
 }
 
-impl<O: Storage> ser::SerializeTupleVariant for &'_ mut Serializer<O> {
+impl<S: Storage> ser::SerializeTupleVariant for &'_ mut Serializer<S> {
     type Ok = ();
     type Error = Error;
 
@@ -343,7 +345,7 @@ impl<O: Storage> ser::SerializeTupleVariant for &'_ mut Serializer<O> {
     }
 }
 
-impl<O: Storage> ser::SerializeMap for &'_ mut Serializer<O> {
+impl<S: Storage> ser::SerializeMap for &'_ mut Serializer<S> {
     type Ok = ();
     type Error = Error;
 
@@ -369,7 +371,7 @@ impl<O: Storage> ser::SerializeMap for &'_ mut Serializer<O> {
     }
 }
 
-impl<O: Storage> ser::SerializeStruct for &'_ mut Serializer<O> {
+impl<S: Storage> ser::SerializeStruct for &'_ mut Serializer<S> {
     type Ok = ();
     type Error = Error;
 
@@ -387,7 +389,7 @@ impl<O: Storage> ser::SerializeStruct for &'_ mut Serializer<O> {
     }
 }
 
-impl<O: Storage> ser::SerializeStructVariant for &'_ mut Serializer<O> {
+impl<S: Storage> ser::SerializeStructVariant for &'_ mut Serializer<S> {
     type Ok = ();
     type Error = Error;
 

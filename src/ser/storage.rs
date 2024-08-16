@@ -8,6 +8,14 @@ pub trait Storage: Deref<Target = [u8]> + DerefMut<Target = [u8]> {
     /// such as a slice or a Vec of some sort.
     type Output;
 
+    /// The try_extend() trait method can be implemented when there is a more efficient way of processing
+    /// multiple bytes at once, such as copying a slice to the output, rather than iterating over one byte
+    /// at a time.
+    #[inline]
+    fn try_extend(&mut self, data: &[u8]) -> Result<()> {
+        data.iter().try_for_each(|d| self.try_push(*d))
+    }
+
     /// The try_push() trait method can be used to push a single byte to be modified and/or stored
     fn try_push(&mut self, data: u8) -> Result<()>;
 
@@ -15,12 +23,15 @@ pub trait Storage: Deref<Target = [u8]> + DerefMut<Target = [u8]> {
     fn finalize(self) -> Self::Output;
 }
 
+/// The `Slice` flavor is a storage flavor, storing the serialized (or otherwise modified) bytes into a plain
+/// `[u8]` slice. The `Slice` flavor resolves into a sub-slice of the original slice buffer.
 pub struct Slice<'a> {
     buf: &'a mut [u8],
     index: usize,
 }
 
 impl<'a> Slice<'a> {
+    /// Create a new `Slice` flavor from a given backing buffer
     pub fn new(buf: &'a mut [u8]) -> Self {
         Self { buf, index: 0 }
     }
@@ -39,7 +50,6 @@ impl<'a> Storage for Slice<'a> {
         Ok(())
     }
 
-    // Will panic with len() < 3
     fn finalize(self) -> Self::Output {
         &mut self.buf[..self.index]
     }
@@ -64,11 +74,16 @@ impl<const N: usize> Storage for heapless::Vec<u8, N> {
     type Output = heapless::Vec<u8, N>;
 
     #[inline(always)]
+    fn try_extend(&mut self, data: &[u8]) -> Result<()> {
+        self.extend_from_slice(data)
+            .map_err(|_| Error::SerializeBufferFull)
+    }
+
+    #[inline(always)]
     fn try_push(&mut self, data: u8) -> Result<()> {
         self.push(data).map_err(|_| Error::SerializeBufferFull)
     }
 
-    // Will panic with len() < 3
     fn finalize(self) -> Self::Output {
         self
     }

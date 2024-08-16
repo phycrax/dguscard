@@ -15,9 +15,9 @@ impl<S: Storage> Serializer<S> {
     /// Create a new serializer with the given output type, header, command and address
     pub fn new(output: S, header: u16, cmd: Command, addr: u16) -> Result<Self> {
         let mut this = Self { output };
-        this.serialize_be(header)?;
-        this.serialize_be(cmd as u16)?;
-        this.serialize_be(addr)?;
+        ser::Serializer::serialize_u16(&mut this, header)?;
+        ser::Serializer::serialize_u16(&mut this, cmd as u16)?;
+        ser::Serializer::serialize_u16(&mut this, addr)?;
         Ok(this)
     }
 
@@ -25,36 +25,12 @@ impl<S: Storage> Serializer<S> {
     pub fn finalize(mut self, crc: Option<crc::Digest<'_, u16>>) -> Result<S::Output> {
         if let Some(mut digest) = crc {
             digest.update(&self.output[3..]);
-            self.serialize_be(digest.finalize().swap_bytes())?;
+            ser::Serializer::serialize_u16(&mut self, digest.finalize().swap_bytes())?;
         }
         self.output[2] = (self.output.len() - 3) as u8;
         Ok(self.output.finalize())
     }
 }
-
-// Trait for blanket implementation of primitive number type big endian serialization
-trait SerializeBigEndian<T> {
-    fn serialize_be(&mut self, data: T) -> Result<()>;
-}
-
-// Macro for blanket implementation of primitive number type big endian serialization
-macro_rules! impl_serialize_be {
-    ($($ty:ident)+) => ($(
-        impl<S: Storage> SerializeBigEndian<$ty> for Serializer<S> {
-            #[inline]
-            fn serialize_be(&mut self, v: $ty) -> Result<()> {
-                let bytes = v.to_be_bytes();
-                for byte in bytes {
-                    self.output.try_push(byte)?;
-                }
-                Ok(())
-            }
-        }
-    )+)
-}
-
-// Implement big endian serialization for the following types
-impl_serialize_be! { u8 i8 u16 i16 u32 i32 u64 i64 u128 i128 f32 f64 }
 
 impl<S: Storage> ser::Serializer for &'_ mut Serializer<S> {
     type Ok = ();
@@ -81,62 +57,62 @@ impl<S: Storage> ser::Serializer for &'_ mut Serializer<S> {
 
     #[inline]
     fn serialize_i8(self, v: i8) -> Result<()> {
-        self.serialize_be(v)
+        self.output.try_extend(&v.to_be_bytes())
     }
 
     #[inline]
     fn serialize_i16(self, v: i16) -> Result<()> {
-        self.serialize_be(v)
+        self.output.try_extend(&v.to_be_bytes())
     }
 
     #[inline]
     fn serialize_i32(self, v: i32) -> Result<()> {
-        self.serialize_be(v)
+        self.output.try_extend(&v.to_be_bytes())
     }
 
     #[inline]
     fn serialize_i64(self, v: i64) -> Result<()> {
-        self.serialize_be(v)
+        self.output.try_extend(&v.to_be_bytes())
     }
 
     #[inline]
     fn serialize_i128(self, v: i128) -> Result<()> {
-        self.serialize_be(v)
+        self.output.try_extend(&v.to_be_bytes())
     }
 
     #[inline]
     fn serialize_u8(self, v: u8) -> Result<()> {
-        self.serialize_be(v)
+        self.output.try_extend(&v.to_be_bytes())
     }
 
     #[inline]
     fn serialize_u16(self, v: u16) -> Result<()> {
-        self.serialize_be(v)
+        self.output.try_extend(&v.to_be_bytes())
     }
 
     #[inline]
     fn serialize_u32(self, v: u32) -> Result<()> {
-        self.serialize_be(v)
+        self.output.try_extend(&v.to_be_bytes())
     }
 
     #[inline]
     fn serialize_u64(self, v: u64) -> Result<()> {
-        self.serialize_be(v)
+        self.output.try_extend(&v.to_be_bytes())
     }
 
     #[inline]
     fn serialize_u128(self, v: u128) -> Result<()> {
-        self.serialize_be(v)
+        self.output.try_extend(&v.to_be_bytes())
     }
 
     #[inline]
     fn serialize_f32(self, v: f32) -> Result<()> {
-        self.serialize_be(v)
+        self.output.try_extend(&v.to_be_bytes())
     }
 
     #[inline]
     fn serialize_f64(self, v: f64) -> Result<()> {
-        self.serialize_be(v)
+        self.output.try_extend(&v.to_be_bytes())
     }
 
     #[inline]
@@ -184,7 +160,7 @@ impl<S: Storage> ser::Serializer for &'_ mut Serializer<S> {
         variant_index: u32,
         _variant: &'static str,
     ) -> Result<()> {
-        self.serialize_be(variant_index as u16)
+        self.serialize_u16(variant_index as u16)
     }
 
     #[inline]
@@ -206,7 +182,7 @@ impl<S: Storage> ser::Serializer for &'_ mut Serializer<S> {
     where
         T: ?Sized + Serialize,
     {
-        self.serialize_be(variant_index as u16)?;
+        self.serialize_u16(variant_index as u16)?;
         value.serialize(self)
     }
 
@@ -237,7 +213,7 @@ impl<S: Storage> ser::Serializer for &'_ mut Serializer<S> {
         _variant: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeTupleVariant> {
-        self.serialize_be(variant_index as u16)?;
+        self.serialize_u16(variant_index as u16)?;
         Ok(self)
     }
 
@@ -259,7 +235,7 @@ impl<S: Storage> ser::Serializer for &'_ mut Serializer<S> {
         _variant: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeStructVariant> {
-        self.serialize_be(variant_index as u16)?;
+        self.serialize_u16(variant_index as u16)?;
         Ok(self)
     }
 

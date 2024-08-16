@@ -7,6 +7,7 @@ mod ser;
 pub use de::deserializer::Deserializer;
 // pub use de::{from_bytes, from_bytes_cobs, take_from_bytes, take_from_bytes_cobs};
 pub use error::{Error, Result};
+pub use ser::storage as ser_storage;
 pub use ser::{serializer::Serializer, to_hvec, to_slice};
 
 /// Metadata

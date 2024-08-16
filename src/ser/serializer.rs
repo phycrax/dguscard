@@ -1,41 +1,44 @@
 use crate::{
     error::{Error, Result},
-    ser::output::Output,
-    Command, Config,
+    ser::storage::Storage,
+    Command,
 };
 use serde::{ser, Serialize};
 
-pub(crate) struct Serializer<O: Output> {
-    pub output: O,
-    cfg: Config,
+pub struct Serializer<O: Storage> {
+    output: O,
 }
 
-impl<O: Output> Serializer<O> {
-    pub fn new(output: O, cfg: Config, cmd: Command, addr: u16) -> Result<Self> {
-        let mut this = Self { output, cfg };
-        this.serialize_be(this.cfg.header)?;
+impl<O: Storage> Serializer<O> {
+    /// Create a new serializer with the given output type, header, command and address
+    pub fn new(output: O, header: u16, cmd: Command, addr: u16) -> Result<Self> {
+        let mut this = Self { output };
+        this.serialize_be(header)?;
         this.serialize_be(cmd as u16)?;
         this.serialize_be(addr)?;
         Ok(this)
     }
 
-    pub fn finalize(mut self) -> Result<O::Out> {
-        if let Some(mut digest) = self.cfg.crc.clone() {
-            digest.update(&self.output.as_bytes()[3..]);
+    /// Finalize the serialization process with optional CRC
+    pub fn finalize(mut self, crc: Option<crc::Digest<'_, u16>>) -> Result<O::Output> {
+        if let Some(mut digest) = crc {
+            digest.update(&self.output[3..]);
             self.serialize_be(digest.finalize().swap_bytes())?;
         }
+        self.output[2] = (self.output.len() - 3) as u8;
         Ok(self.output.finalize())
     }
 }
 
+// Trait for blanket implementation of primitive number type big endian serialization
 trait SerializeBigEndian<T> {
     fn serialize_be(&mut self, data: T) -> Result<()>;
 }
 
-// Macro for blanket implementation for primitive type big endian serialization
+// Macro for blanket implementation of primitive number type big endian serialization
 macro_rules! impl_serialize_be {
     ($($ty:ident)+) => ($(
-        impl<O: Output> SerializeBigEndian<$ty> for Serializer<O> {
+        impl<O: Storage> SerializeBigEndian<$ty> for Serializer<O> {
             #[inline]
             fn serialize_be(&mut self, v: $ty) -> Result<()> {
                 let bytes = v.to_be_bytes();
@@ -48,9 +51,10 @@ macro_rules! impl_serialize_be {
     )+)
 }
 
-impl_serialize_be! { u16 i16 u32 i32 u64 i64 f32 f64 }
+// Implement big endian serialization for the following types
+impl_serialize_be! { u8 i8 u16 i16 u32 i32 u64 i64 u128 i128 f32 f64 }
 
-impl<O: Output> ser::Serializer for &'_ mut Serializer<O> {
+impl<O: Storage> ser::Serializer for &'_ mut Serializer<O> {
     type Ok = ();
 
     type Error = Error;
@@ -74,8 +78,8 @@ impl<O: Output> ser::Serializer for &'_ mut Serializer<O> {
     }
 
     #[inline]
-    fn serialize_i8(self, _v: i8) -> Result<()> {
-        Err(Error::NotYetImplemented)
+    fn serialize_i8(self, v: i8) -> Result<()> {
+        self.serialize_be(v)
     }
 
     #[inline]
@@ -94,13 +98,13 @@ impl<O: Output> ser::Serializer for &'_ mut Serializer<O> {
     }
 
     #[inline]
-    fn serialize_i128(self, _v: i128) -> Result<()> {
-        Err(Error::NotYetImplemented)
+    fn serialize_i128(self, v: i128) -> Result<()> {
+        self.serialize_be(v)
     }
 
     #[inline]
-    fn serialize_u8(self, _v: u8) -> Result<()> {
-        Err(Error::NotYetImplemented)
+    fn serialize_u8(self, v: u8) -> Result<()> {
+        self.serialize_be(v)
     }
 
     #[inline]
@@ -119,8 +123,8 @@ impl<O: Output> ser::Serializer for &'_ mut Serializer<O> {
     }
 
     #[inline]
-    fn serialize_u128(self, _v: u128) -> Result<()> {
-        Err(Error::WontImplement)
+    fn serialize_u128(self, v: u128) -> Result<()> {
+        self.serialize_be(v)
     }
 
     #[inline]
@@ -266,7 +270,7 @@ impl<O: Output> ser::Serializer for &'_ mut Serializer<O> {
     }
 }
 
-impl<O: Output> ser::SerializeSeq for &'_ mut Serializer<O> {
+impl<O: Storage> ser::SerializeSeq for &'_ mut Serializer<O> {
     type Ok = ();
     type Error = Error;
 
@@ -285,7 +289,7 @@ impl<O: Output> ser::SerializeSeq for &'_ mut Serializer<O> {
     }
 }
 
-impl<O: Output> ser::SerializeTuple for &'_ mut Serializer<O> {
+impl<O: Storage> ser::SerializeTuple for &'_ mut Serializer<O> {
     type Ok = ();
     type Error = Error;
 
@@ -303,7 +307,7 @@ impl<O: Output> ser::SerializeTuple for &'_ mut Serializer<O> {
     }
 }
 
-impl<O: Output> ser::SerializeTupleStruct for &'_ mut Serializer<O> {
+impl<O: Storage> ser::SerializeTupleStruct for &'_ mut Serializer<O> {
     type Ok = ();
     type Error = Error;
 
@@ -321,7 +325,7 @@ impl<O: Output> ser::SerializeTupleStruct for &'_ mut Serializer<O> {
     }
 }
 
-impl<O: Output> ser::SerializeTupleVariant for &'_ mut Serializer<O> {
+impl<O: Storage> ser::SerializeTupleVariant for &'_ mut Serializer<O> {
     type Ok = ();
     type Error = Error;
 
@@ -339,7 +343,7 @@ impl<O: Output> ser::SerializeTupleVariant for &'_ mut Serializer<O> {
     }
 }
 
-impl<O: Output> ser::SerializeMap for &'_ mut Serializer<O> {
+impl<O: Storage> ser::SerializeMap for &'_ mut Serializer<O> {
     type Ok = ();
     type Error = Error;
 
@@ -365,7 +369,7 @@ impl<O: Output> ser::SerializeMap for &'_ mut Serializer<O> {
     }
 }
 
-impl<O: Output> ser::SerializeStruct for &'_ mut Serializer<O> {
+impl<O: Storage> ser::SerializeStruct for &'_ mut Serializer<O> {
     type Ok = ();
     type Error = Error;
 
@@ -383,7 +387,7 @@ impl<O: Output> ser::SerializeStruct for &'_ mut Serializer<O> {
     }
 }
 
-impl<O: Output> ser::SerializeStructVariant for &'_ mut Serializer<O> {
+impl<O: Storage> ser::SerializeStructVariant for &'_ mut Serializer<O> {
     type Ok = ();
     type Error = Error;
 

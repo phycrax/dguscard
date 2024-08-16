@@ -1,13 +1,13 @@
 use crate::error::{Error, Result};
+use core::ops::{Deref, DerefMut};
 
-pub(crate) trait Output {
-    type Out;
-    fn as_bytes(&self) -> &[u8];
+pub trait Storage: Deref<Target = [u8]> + DerefMut<Target = [u8]> {
+    type Output;
     fn try_push(&mut self, data: u8) -> Result<()>;
-    fn finalize(self) -> Self::Out;
+    fn finalize(self) -> Self::Output;
 }
 
-pub(crate) struct Slice<'a> {
+pub struct Slice<'a> {
     buf: &'a mut [u8],
     index: usize,
 }
@@ -18,12 +18,8 @@ impl<'a> Slice<'a> {
     }
 }
 
-impl<'a> Output for Slice<'a> {
-    type Out = &'a mut [u8];
-
-    fn as_bytes(&self) -> &[u8] {
-        &self.buf[..self.index]
-    }
+impl<'a> Storage for Slice<'a> {
+    type Output = &'a mut [u8];
 
     #[inline(always)]
     fn try_push(&mut self, b: u8) -> Result<()> {
@@ -36,19 +32,28 @@ impl<'a> Output for Slice<'a> {
     }
 
     // Will panic with len() < 3
-    fn finalize(self) -> Self::Out {
-        self.buf[2] = (self.index - 3) as u8;
+    fn finalize(self) -> Self::Output {
+        &mut self.buf[..self.index]
+    }
+}
+
+impl<'a> Deref for Slice<'a> {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.buf[..self.index]
+    }
+}
+
+impl<'a> DerefMut for Slice<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.buf[..self.index]
     }
 }
 
 #[cfg(feature = "heapless")]
-impl<const N: usize> Output for heapless::Vec<u8, N> {
-    type Out = heapless::Vec<u8, N>;
-
-    fn as_bytes(&self) -> &[u8] {
-        self.as_slice()
-    }
+impl<const N: usize> Storage for heapless::Vec<u8, N> {
+    type Output = heapless::Vec<u8, N>;
 
     #[inline(always)]
     fn try_push(&mut self, data: u8) -> Result<()> {
@@ -56,8 +61,7 @@ impl<const N: usize> Output for heapless::Vec<u8, N> {
     }
 
     // Will panic with len() < 3
-    fn finalize(mut self) -> Self::Out {
-        self[2] = (self.len() - 3) as u8;
+    fn finalize(self) -> Self::Output {
         self
     }
 }

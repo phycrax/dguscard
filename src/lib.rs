@@ -1,8 +1,13 @@
 #![no_std]
 
-pub mod de;
-pub mod error;
-pub mod ser;
+mod de;
+mod error;
+mod ser;
+
+pub use de::deserializer::Deserializer;
+// pub use de::{from_bytes, from_bytes_cobs, take_from_bytes, take_from_bytes_cobs};
+pub use error::{Error, Result};
+pub use ser::{serializer::Serializer, to_hvec, to_slice};
 
 /// Metadata
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

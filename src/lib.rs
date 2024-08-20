@@ -12,14 +12,6 @@ pub use error::{Error, Result};
 pub use ser::storage as ser_storage;
 pub use ser::{serializer::Serializer, to_hvec, to_slice};
 
-/// Metadata
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Metadata {
-    pub addr: u16,
-    pub wlen: u8,
-}
-
 /// Serialization / Deserialization configuration for DGUS data packets
 #[derive(Clone)]
 pub struct Config {
@@ -40,7 +32,7 @@ impl Default for Config {
 
 /// DGUS Commands
 #[repr(u8)]
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Command {
     Write = 0x82,

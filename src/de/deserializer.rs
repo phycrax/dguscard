@@ -1,21 +1,30 @@
-use crate::error::{Error, Result};
+use crate::{
+    error::{Error, Result},
+    Config,
+};
 use serde::de::{self, DeserializeSeed, Visitor};
 
+/// `serde` compatible deserializer.
 pub struct Deserializer<'de>(&'de [u8]);
 
 impl<'de> Deserializer<'de> {
-    /// Obtain a Deserializer from a slice of bytes
+    /// Obtain a Deserializer from an already parsed slice of bytes
     pub fn from_bytes(s: &'de [u8]) -> Self {
         Self(s)
     }
+
+    /// Return the remaining (unused) bytes in the Deserializer
+    pub fn finalize(self) -> &'de [u8] {
+        self.0
+    }
 }
 
-/// Generic trait for blanket impl of big endian deserialization
+// Generic trait for blanket impl of big endian deserialization
 trait DeserializeBigEndian<T> {
     fn deserialize_be(&mut self) -> Result<T>;
 }
 
-/// Macro for blanket impl of big endian deserialization
+// Big endian deserialization macro
 macro_rules! impl_deserialize_be{
     ($($ty:ident)+) => ($(
         impl DeserializeBigEndian<$ty> for Deserializer<'_> {
@@ -29,10 +38,10 @@ macro_rules! impl_deserialize_be{
     )+)
 }
 
-impl_deserialize_be! { u16 u32 u64 i16 i32 i64 f32 f64 }
+// Deserialize following types with the macro
+impl_deserialize_be! { u8 u16 u32 u64 u128 i8 i16 i32 i64 i128 f32 f64 }
 
 /// Serde deserializer implementation
-/// u8 is not supported yet
 impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     type Error = Error;
 
@@ -50,19 +59,27 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_bool<V>(self, _visitor: V) -> Result<V::Value>
+    fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        Err(Error::NotYetImplemented)
+        // Take a boolean encoded as u16
+        let v: u16 = self.deserialize_be()?;
+        let v = match v {
+            0 => false,
+            1 => true,
+            _ => return Err(Error::DeserializeBadBool),
+        };
+        visitor.visit_bool(v)
     }
 
     #[inline]
-    fn deserialize_i8<V>(self, _visitor: V) -> Result<V::Value>
+    fn deserialize_i8<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        Err(Error::NotYetImplemented)
+        let v = self.deserialize_be()?;
+        visitor.visit_i8(v)
     }
 
     #[inline]
@@ -93,11 +110,21 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_u8<V>(self, _visitor: V) -> Result<V::Value>
+    fn deserialize_i128<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        Err(Error::NotYetImplemented)
+        let v = self.deserialize_be()?;
+        visitor.visit_i128(v)
+    }
+
+    #[inline]
+    fn deserialize_u8<V>(self, visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        let v = self.deserialize_be()?;
+        visitor.visit_u8(v)
     }
 
     #[inline]
@@ -125,6 +152,15 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     {
         let v = self.deserialize_be()?;
         visitor.visit_u64(v)
+    }
+
+    #[inline]
+    fn deserialize_u128<V>(self, visitor: V) -> Result<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        let v = self.deserialize_be()?;
+        visitor.visit_u128(v)
     }
 
     #[inline]

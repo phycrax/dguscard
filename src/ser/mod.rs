@@ -3,7 +3,10 @@ pub mod storage;
 
 use crate::{
     error::Result,
-    ser::{serializer::Serializer, storage::{Slice,Storage}},
+    ser::{
+        serializer::Serializer,
+        storage::{Slice, Storage},
+    },
     Command, Config,
 };
 use serde::Serialize;

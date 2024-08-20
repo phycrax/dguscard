@@ -18,7 +18,7 @@ pub struct Metadata {
     pub wlen: u8,
 }
 
-/// DGUS Configuration for the packet serialization and deserialization
+/// Serialization / Deserialization configuration for DGUS data packets
 #[derive(Clone)]
 pub struct Config {
     pub header: u16,

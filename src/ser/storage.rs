@@ -1,8 +1,9 @@
 use crate::error::{Error, Result};
 use core::ops::{Deref, DerefMut};
 
-/// The serialization output trait
-/// Serialization buffers can implement this trait to be used with the serializer
+/// Serialization output trait
+///
+/// Serialization buffers can implement this trait to be used as an output with the serializer.
 pub trait Storage: Deref<Target = [u8]> + DerefMut<Target = [u8]> {
     /// The `Output` type is what this storage "resolves" to when the serialization is complete,
     /// such as a slice or a Vec of some sort.
@@ -23,15 +24,12 @@ pub trait Storage: Deref<Target = [u8]> + DerefMut<Target = [u8]> {
     fn finalize(self) -> Self::Output;
 }
 
-/// The `Slice` flavor is a storage flavor, storing the serialized (or otherwise modified) bytes into a plain
-/// `[u8]` slice. The `Slice` flavor resolves into a sub-slice of the original slice buffer.
 pub struct Slice<'a> {
     buf: &'a mut [u8],
     index: usize,
 }
 
 impl<'a> Slice<'a> {
-    /// Create a new `Slice` flavor from a given backing buffer
     pub fn new(buf: &'a mut [u8]) -> Self {
         Self { buf, index: 0 }
     }

@@ -1,3 +1,7 @@
+//! # Serialization outputs
+//!
+//! i.e., the output medium of the serialization, e.g. whether the data is serialized to a `[u8]` slice, or a `heapless::Vec`.
+
 use crate::error::{Error, Result};
 use core::ops::{Deref, DerefMut};
 
@@ -24,12 +28,15 @@ pub trait Storage: Deref<Target = [u8]> + DerefMut<Target = [u8]> {
     fn finalize(self) -> Self::Output;
 }
 
+/// The `Slice` type is a storage type, storing the serialized bytes into a plain `[u8]` slice.
+/// The `Slice` type resolves into a sub-slice of the original slice buffer.
 pub struct Slice<'a> {
     buf: &'a mut [u8],
     index: usize,
 }
 
 impl<'a> Slice<'a> {
+    /// Create a new `Slice` type from a given backing buffer
     pub fn new(buf: &'a mut [u8]) -> Self {
         Self { buf, index: 0 }
     }

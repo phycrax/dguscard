@@ -5,7 +5,9 @@ use crate::{
 };
 use serde::{ser, Serialize};
 
-/// Serde compatible serializer. Serialization output type is generic and must implement the [`Storage`] trait.
+/// `serde` compatible serializer.
+///
+/// Serialization output type is generic and must implement the [`Storage`] trait.
 /// Unless you are implementing [`Storage`], you don't have to use this directly.
 pub struct Serializer<S: Storage> {
     output: S,

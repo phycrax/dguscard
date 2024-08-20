@@ -1,23 +1,16 @@
 use core::fmt::{Display, Formatter};
 
-// ToDo: cleanup unused errors
-/// This is the error type used by Postcard
+/// Error type used by serde_dgus
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 //#[non_exhaustive]
 pub enum Error {
-    /// This is a feature that PostCard will never implement
+    /// This is a feature that serde_dgus will never implement
     WontImplement,
-    /// This is a feature that Postcard intends to support, but does not yet
+    /// This is a feature that serde_dgus intends to support, but does not yet
     NotYetImplemented,
     /// The serialize buffer is full
     SerializeBufferFull,
-    /// The serialize buffer is too small
-    SerializeBufferTooSmall,
-    /// The serialize buffer is too small
-    SerializeBufferTooLarge,
-    /// The length of a sequence must be known
-    SerializeSeqLengthUnknown,
     /// Bad buffer length
     DeserializeBadBufferLen1,
     DeserializeBadBufferLen2,
@@ -70,11 +63,7 @@ impl Display for Error {
                 }
                 SerdeSerCustom => "Serde Serialization Error",
                 SerdeDeCustom => "Serde Deserialization Error",
-                SerializeBufferFull => "The serialize buffer is full",
-                SerializeBufferTooSmall => "The serialize buffer size must be 8 bytes or more",
-                SerializeBufferTooLarge => "The serialize buffer size must be less than 256 bytes",
-                SerializeSeqLengthUnknown => "The length of a sequence must be known",
-                DeserializeUnexpectedEnd => "Hit the end of buffer, expected more data",
+                SerializeBufferFull => "The serialize buffer is full",                DeserializeUnexpectedEnd => "Hit the end of buffer, expected more data",
                 DeserializeUnexpectedAddr =>
                     "Error while processing `collect_str` during serialization",
                 DeserializeUnexpectedWlen =>

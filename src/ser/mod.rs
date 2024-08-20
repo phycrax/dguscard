@@ -3,7 +3,7 @@ pub mod storage;
 
 use crate::{
     error::Result,
-    ser::{serializer::Serializer, storage::Slice},
+    ser::{serializer::Serializer, storage::{Slice,Storage}},
     Command, Config,
 };
 use serde::Serialize;
@@ -32,9 +32,7 @@ pub fn to_slice<'b, T>(
 where
     T: Serialize,
 {
-    let mut serializer = Serializer::new(Slice::new(buf), cfg.header, cmd, addr)?;
-    value.serialize(&mut serializer)?;
-    serializer.finalize(cfg.crc)
+    serialize_with_storage(value, Slice::new(buf), addr, cmd, cfg)
 }
 
 /// Serialize given data to a `heapless::Vec<u8>`, with the resulting `Vec` containing data in a serialized DGUS data packet.
@@ -59,7 +57,26 @@ pub fn to_hvec<const N: usize, T>(
 where
     T: Serialize,
 {
-    let mut serializer = Serializer::new(Vec::new(), cfg.header, cmd, addr)?;
+    serialize_with_storage(value, Vec::new(), addr, cmd, cfg)
+}
+
+/// `serialize_with_storage()` has three generic parameters, `T, S, O`.
+///
+/// * `T`: This is the type that is being serialized
+/// * `S`: This is the Storage that is used during serialization
+/// * `O`: This is the resulting storage type that is returned containing the serialized data
+pub fn serialize_with_storage<T, S, O>(
+    value: &T,
+    storage: S,
+    addr: u16,
+    cmd: Command,
+    cfg: Config,
+) -> Result<O>
+where
+    T: Serialize,
+    S: Storage<Output = O>,
+{
+    let mut serializer = Serializer::new(storage, cfg.header, cmd, addr)?;
     value.serialize(&mut serializer)?;
     serializer.finalize(cfg.crc)
 }

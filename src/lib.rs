@@ -1,4 +1,6 @@
 #![no_std]
+#![cfg_attr(not(doctest), doc = include_str!("../README.md"))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod de;
 mod error;
@@ -37,7 +39,6 @@ impl Default for Config {
 }
 
 /// DGUS Commands
-/// Currently Read word and Write word are supported
 #[repr(u8)]
 #[derive(PartialEq, Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

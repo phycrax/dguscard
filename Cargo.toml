@@ -3,21 +3,22 @@ name = "serde_dgus"
 version = "0.1.0"
 authors = ["Süha ÜNÜVAR"]
 edition = "2018"
-readme = "README.md"
 repository = "https://github.com/phycrax/serde-dgus"
-description = "DWIN DGUS2 wire format for Serde"
+description = "DWIN DGUS wire format for Serde"
 license = "MIT OR Apache-2.0"
 categories = ["embedded", "no-std"]
 keywords = ["dwin", "dgus", "hmi", "serde"]
+documentation = "https://docs.rs/serde_dgus/"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 crc = { version = "3.0.1" }
 defmt = { version = "0.3", optional = true }
-heapless = { version = "0.8.0", default-features = false, optional = true }
-
-[dev-dependencies]
-criterion = "0.5.1"
+heapless = { version = "0.8.0", default-features = false, features = ["serde"], optional = true }
 
 [features]
 default = ["heapless"]

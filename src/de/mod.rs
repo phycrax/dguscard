@@ -1,17 +1,16 @@
 pub(crate) mod deserializer;
 
-use serde::Deserialize;
-
 use crate::{
     de::deserializer::Deserializer,
     error::{Error, Result},
     Command, CRC,
 };
+use serde::Deserialize;
 
 pub struct Frame<'de> {
     pub cmd: Command,
     pub addr: u16,
-    pub wlen: Option<u8>,
+    pub wlen: u8,
     pub deserializer: Deserializer<'de>,
 }
 
@@ -43,7 +42,7 @@ impl<'de> Frame<'de> {
             let (input, crc) = input
                 .split_last_chunk()
                 .ok_or(Error::DeserializeUnexpectedEnd)?;
-            if u16::from_le_bytes(*crc) != CRC.checksum(&input[3..]) {
+            if u16::from_le_bytes(*crc) != CRC.checksum(input) {
                 return Err(Error::DeserializeBadCrc);
             }
             input
@@ -52,19 +51,18 @@ impl<'de> Frame<'de> {
         };
 
         // Strip command from input
-        let (cmd, input) = input.split_first().unwrap();
-        let cmd = Command::from(*cmd);
+        let (&cmd, input) = input.split_first().unwrap();
+        let cmd = Command::from(cmd);
         if cmd == Command::Undefined {
             return Err(Error::DeserializeBadCommand);
         }
 
         // Strip address from input
-        let (addr, input) = input.split_first_chunk().unwrap();
-        let addr = u16::from_be_bytes(*addr);
+        let (&addr, input) = input.split_first_chunk().unwrap();
+        let addr = u16::from_be_bytes(addr);
 
         // Strip word length from input, if there is none (could be ACK), set to 0
-        let (wlen, input) = input.split_first().unwrap_or((&0, input));
-        let wlen = if *wlen == 0 { None } else { Some(*wlen) };
+        let (&wlen, input) = input.split_first().unwrap_or((&0, input));
 
         // Construct the frame
         Ok((
@@ -72,7 +70,7 @@ impl<'de> Frame<'de> {
                 cmd,
                 addr,
                 wlen,
-                deserializer: Deserializer{input},
+                deserializer: Deserializer { input },
             },
             rest,
         ))
@@ -86,4 +84,17 @@ impl<'de> Frame<'de> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ack() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Ack;
+
+        let input = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 0, 0, 0, 0];
+        let expected = (Command::WriteVp, u16::from_be_bytes([b'O', b'K']), 0);
+        let mut frame = Frame::from_bytes(&input, true).unwrap();
+        let ack: Ack = frame.deserialize().unwrap();
+        assert_eq!((frame.cmd, frame.addr, frame.wlen), expected);
+        assert_eq!(ack, Ack);
+    }
 }

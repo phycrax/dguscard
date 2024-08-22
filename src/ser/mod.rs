@@ -1,7 +1,6 @@
 pub(crate) mod serializer;
 pub mod storage;
 
-
 use crate::{
     error::Result,
     ser::{
@@ -26,7 +25,7 @@ impl<S: Storage<Output = O>, O> Frame<S> {
         addr.serialize(&mut serializer)?;
         Ok(Self { serializer })
     }
-    
+
     pub fn copy_from<T: Serialize>(&mut self, value: &T) -> Result<()> {
         value.serialize(&mut self.serializer)
     }
@@ -43,6 +42,8 @@ impl<S: Storage<Output = O>, O> Frame<S> {
 
 impl<'a> Frame<Slice<'a>> {
     pub fn with_slice(buf: &'a mut [u8], cmd: Command, addr: u16) -> Result<Self> {
+        assert!(buf.len() >= 6, "Buffer too small");
+        assert!(buf.len() <= u8::MAX as usize, "Buffer too large");
         Self::new(
             Serializer {
                 output: Slice::new(buf),
@@ -56,6 +57,10 @@ impl<'a> Frame<Slice<'a>> {
 #[cfg(feature = "heapless")]
 impl<const N: usize> Frame<Vec<u8, N>> {
     pub fn with_hvec(cmd: Command, addr: u16) -> Result<Self> {
+        const {
+            assert!(N >= 6, "Buffer too small");
+            assert!(N <= u8::MAX as usize, "Buffer too large");
+        };
         Self::new(Serializer { output: Vec::new() }, cmd, addr)
     }
 }

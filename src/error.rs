@@ -3,7 +3,6 @@ use core::fmt::{Display, Formatter};
 /// Error type used by serde_dgus
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-//#[non_exhaustive]
 pub enum Error {
     /// This is a feature that serde_dgus will never implement
     WontImplement,

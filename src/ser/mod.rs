@@ -1,87 +1,63 @@
 pub(crate) mod serializer;
 pub mod storage;
 
+
 use crate::{
     error::Result,
     ser::{
         serializer::Serializer,
         storage::{Slice, Storage},
     },
-    Command, Config,
+    Command, CRC,
 };
 use serde::Serialize;
 
 #[cfg(feature = "heapless")]
 use heapless::Vec;
 
-/// Serialize given data to a slice, with the resulting slice containing serialized DGUS data packet.
-///
-/// ## Example
-///
-/// ```rust
-/// let buf = &mut [0u8; 20];
-/// let expected = &[0x5A, 0xA5, 9, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34, 0x0E, 0xB4];
-/// let data = 0x5A001234;
-/// let output = serde_dgus::to_slice(&data, buf, 0x00DE, serde_dgus::Command::Write, serde_dgus::Config::default()).unwrap();
-/// assert_eq!(output, expected);
-/// ```
-pub fn to_slice<'b, T>(
-    value: &T,
-    buf: &'b mut [u8],
-    addr: u16,
-    cmd: Command,
-    cfg: Config,
-) -> Result<&'b mut [u8]>
-where
-    T: Serialize,
-{
-    serialize_with_storage(value, Slice::new(buf), addr, cmd, cfg)
+pub struct Frame<S: Storage> {
+    pub serializer: Serializer<S>,
 }
 
-/// Serialize given data to a `heapless::Vec<u8>`, with the resulting `Vec` containing data in a serialized DGUS data packet.
-///
-/// ## Example
-///
-/// ```rust
-/// use heapless::Vec;
-/// let expected: Vec<u8, 12> = Vec::from_slice(&[0x5A, 0xA5, 9, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34, 0x0E, 0xB4]).unwrap();
-/// let data = 0x5A001234;
-/// let output: Vec<_, 12> = serde_dgus::to_hvec(&data, 0x00DE, serde_dgus::Command::Write, serde_dgus::Config::default()).unwrap();
-/// assert_eq!(output, expected);
-/// ```
+impl<S: Storage<Output = O>, O> Frame<S> {
+    pub fn new(mut serializer: Serializer<S>, cmd: Command, addr: u16) -> Result<Self> {
+        0x5AA5u16.serialize(&mut serializer)?;
+        (cmd as u16).serialize(&mut serializer)?;
+        addr.serialize(&mut serializer)?;
+        Ok(Self { serializer })
+    }
+    
+    pub fn copy_from<T: Serialize>(&mut self, value: &T) -> Result<()> {
+        value.serialize(&mut self.serializer)
+    }
+
+    pub fn finalize(mut self, crc: bool) -> Result<O> {
+        if crc {
+            let crc = CRC.checksum(&self.serializer.output[3..]).swap_bytes();
+            crc.serialize(&mut self.serializer)?;
+        }
+        self.serializer.output[2] = self.serializer.output.len() as u8 - 3;
+        Ok(self.serializer.output.finalize())
+    }
+}
+
+impl<'a> Frame<Slice<'a>> {
+    pub fn with_slice(buf: &'a mut [u8], cmd: Command, addr: u16) -> Result<Self> {
+        Self::new(
+            Serializer {
+                output: Slice::new(buf),
+            },
+            cmd,
+            addr,
+        )
+    }
+}
+
 #[cfg(feature = "heapless")]
-#[cfg_attr(docsrs, doc(cfg(feature = "heapless")))]
-pub fn to_hvec<const N: usize, T>(
-    value: &T,
-    addr: u16,
-    cmd: Command,
-    cfg: Config,
-) -> Result<Vec<u8, N>>
-where
-    T: Serialize,
-{
-    serialize_with_storage(value, Vec::new(), addr, cmd, cfg)
-}
-
-/// `serialize_with_storage()` has three generic parameters, `T, S, O`.
-///
-/// * `T`: This is the type that is being serialized
-/// * `S`: This is the Storage that is used during serialization
-/// * `O`: This is the resulting storage type that is returned containing the serialized data
-pub fn serialize_with_storage<T, S, O>(
-    value: &T,
-    storage: S,
-    addr: u16,
-    cmd: Command,
-    cfg: Config,
-) -> Result<O>
-where
-    T: Serialize,
-    S: Storage<Output = O>,
-{
-    let mut serializer = Serializer::new(storage, cfg.header, cmd, addr)?;
-    value.serialize(&mut serializer)?;
-    serializer.finalize(cfg.crc)
+impl<const N: usize> Frame<Vec<u8, N>> {
+    pub fn with_hvec(cmd: Command, addr: u16) -> Result<Self> {
+        Self::new(Serializer { output: Vec::new() }, cmd, addr)
+    }
 }
 
 #[cfg(test)]
@@ -104,11 +80,10 @@ mod tests {
             0x5A, 0xA5, 9, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34, 0x0E, 0xB4,
         ];
         let data = TestTuple::new();
-        let cfg = Config {
-            ..Default::default()
-        };
 
-        let output = to_slice(&data, buf, 0x00DE, Command::Write, cfg).unwrap();
+        let mut frame = Frame::with_slice(buf, Command::WriteVp, 0x00DE).unwrap();
+        frame.copy_from(&data).unwrap();
+        let output = frame.finalize(true).unwrap();
         assert_eq!(output, expected);
     }
 
@@ -117,12 +92,10 @@ mod tests {
         let buf = &mut [0u8; 20];
         let expected = &[0x5A, 0xA5, 7, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34];
         let data = TestTuple::new();
-        let cfg = Config {
-            crc: None,
-            ..Default::default()
-        };
 
-        let output = to_slice(&data, buf, 0x00DE, Command::Write, cfg).unwrap();
+        let mut frame = Frame::with_slice(buf, Command::WriteVp, 0x00DE).unwrap();
+        frame.copy_from(&data).unwrap();
+        let output = frame.finalize(false).unwrap();
         assert_eq!(output, expected);
     }
 
@@ -133,11 +106,10 @@ mod tests {
         ])
         .unwrap();
         let data = TestTuple::new();
-        let cfg = Config {
-            ..Default::default()
-        };
 
-        let output: Vec<_, 12> = to_hvec(&data, 0x00DE, Command::Write, cfg).unwrap();
+        let mut frame = Frame::with_hvec(Command::WriteVp, 0x00DE).unwrap();
+        frame.copy_from(&data).unwrap();
+        let output: Vec<u8, 12> = frame.finalize(true).unwrap();
         assert_eq!(output, expected);
     }
 
@@ -146,12 +118,10 @@ mod tests {
         let expected: Vec<u8, 10> =
             Vec::from_slice(&[0x5A, 0xA5, 7, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34]).unwrap();
         let data = TestTuple::new();
-        let cfg = Config {
-            crc: None,
-            ..Default::default()
-        };
 
-        let output: Vec<_, 10> = to_hvec(&data, 0x00DE, Command::Write, cfg).unwrap();
+        let mut frame = Frame::with_hvec(Command::WriteVp, 0x00DE).unwrap();
+        frame.copy_from(&data).unwrap();
+        let output: Vec<u8, 10> = frame.finalize(false).unwrap();
         assert_eq!(output, expected);
     }
 }

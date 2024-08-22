@@ -10,33 +10,20 @@ pub use de::deserializer::Deserializer;
 // pub use de::{from_bytes, from_bytes_cobs, take_from_bytes, take_from_bytes_cobs};
 pub use error::{Error, Result};
 pub use ser::storage as ser_storage;
-pub use ser::{serializer::Serializer, to_hvec, to_slice};
+pub use ser::serializer::Serializer;
 
-/// Serialization / Deserialization configuration for DGUS data packets
-#[derive(Clone)]
-pub struct Config {
-    pub header: u16,
-    pub crc: Option<crc::Digest<'static, u16>>,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        use crc::{Crc, CRC_16_MODBUS};
-        const CRC: crc::Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
-        Self {
-            header: 0x5AA5,
-            crc: Some(CRC.digest()),
-        }
-    }
-}
+use crc::{Crc, CRC_16_MODBUS};
+const CRC: crc::Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
 
 /// DGUS Commands
 #[repr(u8)]
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Command {
-    Write = 0x82,
-    Read,
+    WriteReg = 0x80,
+    ReadReg,
+    WriteVp,
+    ReadVp,
     // ToDo other cmds
     Undefined,
 }
@@ -45,8 +32,8 @@ impl From<u8> for Command {
     fn from(value: u8) -> Self {
         use Command::*;
         match value {
-            0x82 => Write,
-            0x83 => Read,
+            0x82 => WriteVp,
+            0x83 => ReadVp,
             _ => Undefined,
         }
     }

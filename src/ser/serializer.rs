@@ -1,7 +1,6 @@
 use crate::{
     error::{Error, Result},
     ser::storage::Storage,
-    Command,
 };
 use serde::{ser, Serialize};
 
@@ -10,28 +9,7 @@ use serde::{ser, Serialize};
 /// Serialization output type is generic and must implement the [`Storage`] trait.
 /// Unless you are implementing [`Storage`], you don't have to use this directly.
 pub struct Serializer<S: Storage> {
-    output: S,
-}
-
-impl<S: Storage> Serializer<S> {
-    /// Create a new serializer with the given output type, header, command and address
-    pub fn new(output: S, header: u16, cmd: Command, addr: u16) -> Result<Self> {
-        let mut this = Self { output };
-        ser::Serializer::serialize_u16(&mut this, header)?;
-        ser::Serializer::serialize_u16(&mut this, cmd as u16)?;
-        ser::Serializer::serialize_u16(&mut this, addr)?;
-        Ok(this)
-    }
-
-    /// Finalize the serialization process with optional CRC
-    pub fn finalize(mut self, crc: Option<crc::Digest<'_, u16>>) -> Result<S::Output> {
-        if let Some(mut digest) = crc {
-            digest.update(&self.output[3..]);
-            ser::Serializer::serialize_u16(&mut self, digest.finalize().swap_bytes())?;
-        }
-        self.output[2] = (self.output.len() - 3) as u8;
-        Ok(self.output.finalize())
-    }
+    pub output: S,
 }
 
 impl<S: Storage> ser::Serializer for &'_ mut Serializer<S> {

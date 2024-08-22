@@ -1,22 +1,9 @@
-use crate::{
-    error::{Error, Result},
-    Config,
-};
+use crate::error::{Error, Result};
 use serde::de::{self, DeserializeSeed, Visitor};
 
 /// `serde` compatible deserializer.
-pub struct Deserializer<'de>(&'de [u8]);
-
-impl<'de> Deserializer<'de> {
-    /// Obtain a Deserializer from an already parsed slice of bytes
-    pub fn from_bytes(s: &'de [u8]) -> Self {
-        Self(s)
-    }
-
-    /// Return the remaining (unused) bytes in the Deserializer
-    pub fn finalize(self) -> &'de [u8] {
-        self.0
-    }
+pub struct Deserializer<'de> {
+    pub input: &'de [u8],
 }
 
 // Generic trait for blanket impl of big endian deserialization
@@ -30,8 +17,8 @@ macro_rules! impl_deserialize_be{
         impl DeserializeBigEndian<$ty> for Deserializer<'_> {
             #[inline]
             fn deserialize_be(&mut self) -> Result<$ty> {
-                let (bytes, rest) = self.0.split_first_chunk().ok_or(Error::DeserializeUnexpectedEnd)?;
-                self.0 = rest;
+                let (bytes, rest) = self.input.split_first_chunk().ok_or(Error::DeserializeUnexpectedEnd)?;
+                self.input = rest;
                 Ok($ty::from_be_bytes(*bytes))
             }
         }
@@ -78,8 +65,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        let v = self.deserialize_be()?;
-        visitor.visit_i8(v)
+        visitor.visit_i8(self.deserialize_be()?)
     }
 
     #[inline]
@@ -87,8 +73,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        let v = self.deserialize_be()?;
-        visitor.visit_i16(v)
+        visitor.visit_i16(self.deserialize_be()?)
     }
 
     #[inline]
@@ -96,8 +81,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        let v = self.deserialize_be()?;
-        visitor.visit_i32(v)
+        visitor.visit_i32(self.deserialize_be()?)
     }
 
     #[inline]
@@ -105,8 +89,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        let v = self.deserialize_be()?;
-        visitor.visit_i64(v)
+        visitor.visit_i64(self.deserialize_be()?)
     }
 
     #[inline]
@@ -114,8 +97,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        let v = self.deserialize_be()?;
-        visitor.visit_i128(v)
+        visitor.visit_i128(self.deserialize_be()?)
     }
 
     #[inline]
@@ -123,8 +105,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        let v = self.deserialize_be()?;
-        visitor.visit_u8(v)
+        visitor.visit_u8(self.deserialize_be()?)
     }
 
     #[inline]
@@ -132,8 +113,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        let v = self.deserialize_be()?;
-        visitor.visit_u16(v)
+        visitor.visit_u16(self.deserialize_be()?)
     }
 
     #[inline]
@@ -141,8 +121,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        let v = self.deserialize_be()?;
-        visitor.visit_u32(v)
+        visitor.visit_u32(self.deserialize_be()?)
     }
 
     #[inline]
@@ -150,8 +129,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        let v = self.deserialize_be()?;
-        visitor.visit_u64(v)
+        visitor.visit_u64(self.deserialize_be()?)
     }
 
     #[inline]
@@ -159,8 +137,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        let v = self.deserialize_be()?;
-        visitor.visit_u128(v)
+        visitor.visit_u128(self.deserialize_be()?)
     }
 
     #[inline]
@@ -168,8 +145,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        let v = self.deserialize_be()?;
-        visitor.visit_f32(v)
+        visitor.visit_f32(self.deserialize_be()?)
     }
 
     #[inline]
@@ -177,8 +153,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        let v = self.deserialize_be()?;
-        visitor.visit_f64(v)
+        visitor.visit_f64(self.deserialize_be()?)
     }
 
     #[inline]

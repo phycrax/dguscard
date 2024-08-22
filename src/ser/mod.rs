@@ -14,11 +14,11 @@ use serde::Serialize;
 #[cfg(feature = "heapless")]
 use heapless::Vec;
 
-pub struct Frame<S: Storage> {
+pub struct TxFrame<S: Storage> {
     pub serializer: Serializer<S>,
 }
 
-impl<S: Storage<Output = O>, O> Frame<S> {
+impl<S: Storage<Output = O>, O> TxFrame<S> {
     pub fn new(mut serializer: Serializer<S>, cmd: Command, addr: u16) -> Result<Self> {
         0x5AA5u16.serialize(&mut serializer)?;
         (cmd as u16).serialize(&mut serializer)?;
@@ -40,7 +40,7 @@ impl<S: Storage<Output = O>, O> Frame<S> {
     }
 }
 
-impl<'a> Frame<Slice<'a>> {
+impl<'a> TxFrame<Slice<'a>> {
     pub fn with_slice(buf: &'a mut [u8], cmd: Command, addr: u16) -> Result<Self> {
         assert!(buf.len() >= 6, "Buffer too small");
         assert!(buf.len() <= u8::MAX as usize, "Buffer too large");
@@ -55,7 +55,7 @@ impl<'a> Frame<Slice<'a>> {
 }
 
 #[cfg(feature = "heapless")]
-impl<const N: usize> Frame<Vec<u8, N>> {
+impl<const N: usize> TxFrame<Vec<u8, N>> {
     pub fn with_hvec(cmd: Command, addr: u16) -> Result<Self> {
         const {
             assert!(N >= 6, "Buffer too small");
@@ -86,7 +86,7 @@ mod tests {
         ];
         let data = TestTuple::new();
 
-        let mut frame = Frame::with_slice(buf, Command::WriteVp, 0x00DE).unwrap();
+        let mut frame = TxFrame::with_slice(buf, Command::WriteVp, 0x00DE).unwrap();
         frame.copy_from(&data).unwrap();
         let output = frame.finalize(true).unwrap();
         assert_eq!(output, expected);
@@ -98,7 +98,7 @@ mod tests {
         let expected = &[0x5A, 0xA5, 7, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34];
         let data = TestTuple::new();
 
-        let mut frame = Frame::with_slice(buf, Command::WriteVp, 0x00DE).unwrap();
+        let mut frame = TxFrame::with_slice(buf, Command::WriteVp, 0x00DE).unwrap();
         frame.copy_from(&data).unwrap();
         let output = frame.finalize(false).unwrap();
         assert_eq!(output, expected);
@@ -112,7 +112,7 @@ mod tests {
         .unwrap();
         let data = TestTuple::new();
 
-        let mut frame = Frame::with_hvec(Command::WriteVp, 0x00DE).unwrap();
+        let mut frame = TxFrame::with_hvec(Command::WriteVp, 0x00DE).unwrap();
         frame.copy_from(&data).unwrap();
         let output: Vec<u8, 12> = frame.finalize(true).unwrap();
         assert_eq!(output, expected);
@@ -124,7 +124,7 @@ mod tests {
             Vec::from_slice(&[0x5A, 0xA5, 7, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34]).unwrap();
         let data = TestTuple::new();
 
-        let mut frame = Frame::with_hvec(Command::WriteVp, 0x00DE).unwrap();
+        let mut frame = TxFrame::with_hvec(Command::WriteVp, 0x00DE).unwrap();
         frame.copy_from(&data).unwrap();
         let output: Vec<u8, 10> = frame.finalize(false).unwrap();
         assert_eq!(output, expected);

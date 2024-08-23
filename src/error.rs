@@ -20,6 +20,13 @@ pub enum Error {
     DeserializeBadCommand,
     /// Bad CRC while deserializing
     DeserializeBadCrc,
+    /// Bad header found during accumulation
+    AccumulateBadHeader,
+    /// Bad length found during accumulation
+    AccumulateBadLen,
+    /// Bad CRC found during accumulation
+    AccumulateBadCrc,
+    AccumulateBufferFull,
     /// Serde Serialization Error
     SerdeSerCustom,
     /// Serde Deserialization Error
@@ -41,6 +48,10 @@ impl Display for Error {
                 DeserializeBadHeader => "Bad frame header found during deserialization",
                 DeserializeBadCommand => "Bad DGUS command found during deserialization",
                 DeserializeBadCrc => "Bad CRC while deserializing",
+                AccumulateBadHeader => "Bad frame header found during accumulation",
+                AccumulateBadLen => "Bad frame header found during accumulation",
+                AccumulateBadCrc => "Bad frame header found during accumulation",
+                AccumulateBufferFull => "Bad frame header found during accumulation",
                 SerdeSerCustom => "Serde Serialization Error",
                 SerdeDeCustom => "Serde Deserialization Error",
             }

@@ -7,7 +7,7 @@ use crate::{
         serializer::Serializer,
         storage::{Slice, Storage},
     },
-    Command, CRC,
+    Command, CRC, HEADER,
 };
 use serde::Serialize;
 
@@ -20,7 +20,7 @@ pub struct TxFrame<S: Storage> {
 
 impl<S: Storage<Output = O>, O> TxFrame<S> {
     pub fn new(mut serializer: Serializer<S>, cmd: Command, addr: u16) -> Result<Self> {
-        0x5AA5u16.serialize(&mut serializer)?;
+        HEADER.serialize(&mut serializer)?;
         (cmd as u16).serialize(&mut serializer)?;
         addr.serialize(&mut serializer)?;
         Ok(Self { serializer })

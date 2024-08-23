@@ -3,7 +3,7 @@ pub(crate) mod deserializer;
 use crate::{
     de::deserializer::Deserializer,
     error::{Error, Result},
-    Command, CRC,
+    Command, CRC, HEADER,
 };
 use serde::Deserialize;
 
@@ -54,7 +54,7 @@ impl<'de> RxFrame<'de> {
     fn extract_frame_bytes(input: &'de [u8], crc: bool) -> Result<(&'de [u8], &'de [u8])> {
         // Strip header from input
         let input = input
-            .strip_prefix(&u16::to_be_bytes(0x5AA5))
+            .strip_prefix(&u16::to_be_bytes(HEADER))
             .ok_or(Error::DeserializeBadHeader)?;
 
         // Strip length from input

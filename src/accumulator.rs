@@ -197,7 +197,7 @@ impl<const N: usize> Accumulator<N> {
 
         if let Data(0) = self.state {
             if self.crc {
-                let checksum = u16::from_be_bytes([self.buf[self.idx - 2], self.buf[self.idx - 1]]);
+                let checksum = u16::from_le_bytes([self.buf[self.idx - 2], self.buf[self.idx - 1]]);
                 if checksum != CRC.checksum(&self.buf[..self.idx - 2]) {
                     return Err(Error::AccumulateBadCrc);
                 }
@@ -212,7 +212,23 @@ impl<const N: usize> Accumulator<N> {
 
 #[cfg(test)]
 mod test {
+    use crate::Command;
     use super::*;
+
+    #[test]
+    fn crc() {
+        let mut buf: Accumulator<64> = Accumulator::new(true);
+        let ser = &[0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 0, 0, 0, 0];
+
+        if let FeedResult::Success(frame, remaining) = buf.feed(ser) {
+            assert_eq!(frame.cmd, Command::WriteVp);
+            assert_eq!(frame.addr, u16::from_be_bytes([b'O',b'K']));
+            assert_eq!(frame.wlen, 0);
+            assert_eq!(remaining.len(), 4);
+        } else {
+            panic!()
+        }
+    }
 
     #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
     struct Demo {
@@ -222,9 +238,8 @@ mod test {
     }
 
     #[test]
-    fn loop_test() {
+    fn demo() {
         let mut buf: Accumulator<64> = Accumulator::new(false);
-
         let ser = &[
             0x5A, 0xA5, 12, 0x83, 0x12, 0x34, 4, 0xAA, 0xBB, 0x00, 0x01, 0xCC, 0xDD, 0xEE, 0xFF,
         ];
@@ -245,9 +260,8 @@ mod test {
     }
 
     #[test]
-    fn double_loop_test() {
+    fn double_demo() {
         let mut buf: Accumulator<64> = Accumulator::new(false);
-
         let ser = &[
             0x5A, 0xA5, 12, 0x83, 0x12, 0x34, 4, 0xAA, 0xBB, 0x00, 0x01, 0xCC, 0xDD, 0xEE, 0xFF,
             0x5A, 0xA5, 12, 0x83, 0x12, 0x34, 4, 0xBB, 0xAA, 0x00, 0x00, 0xFF, 0xEE, 0xDD, 0xCC,

@@ -2,6 +2,7 @@ use crate::{
     error::{Error, Result},
     ser::storage::Storage,
 };
+use core::convert::TryInto;
 use serde::{ser, Serialize};
 
 /// `serde` compatible serializer.
@@ -108,21 +109,22 @@ impl<S: Storage> ser::Serializer for &'_ mut Serializer<S> {
     }
 
     #[inline]
-    fn serialize_bytes(self, _v: &[u8]) -> Result<()> {
-        Err(Error::NotYetImplemented)
+    fn serialize_bytes(self, v: &[u8]) -> Result<()> {
+        self.output.try_extend(v)
     }
 
     #[inline]
     fn serialize_none(self) -> Result<()> {
-        Err(Error::NotYetImplemented)
+        self.serialize_u16(0)
     }
 
     #[inline]
-    fn serialize_some<T>(self, _value: &T) -> Result<()>
+    fn serialize_some<T>(self, value: &T) -> Result<()>
     where
         T: ?Sized + Serialize,
     {
-        Err(Error::NotYetImplemented)
+        self.serialize_u16(1)?;
+        value.serialize(self)
     }
 
     #[inline]
@@ -142,7 +144,11 @@ impl<S: Storage> ser::Serializer for &'_ mut Serializer<S> {
         variant_index: u32,
         _variant: &'static str,
     ) -> Result<()> {
-        self.serialize_u16(variant_index as u16)
+        self.serialize_u16(
+            variant_index
+                .try_into()
+                .map_err(|_| Error::SerializeVariantIndexTooLarge)?,
+        )
     }
 
     #[inline]
@@ -164,7 +170,11 @@ impl<S: Storage> ser::Serializer for &'_ mut Serializer<S> {
     where
         T: ?Sized + Serialize,
     {
-        self.serialize_u16(variant_index as u16)?;
+        self.serialize_u16(
+            variant_index
+                .try_into()
+                .map_err(|_| Error::SerializeVariantIndexTooLarge)?,
+        )?;
         value.serialize(self)
     }
 
@@ -195,7 +205,11 @@ impl<S: Storage> ser::Serializer for &'_ mut Serializer<S> {
         _variant: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeTupleVariant> {
-        self.serialize_u16(variant_index as u16)?;
+        self.serialize_u16(
+            variant_index
+                .try_into()
+                .map_err(|_| Error::SerializeVariantIndexTooLarge)?,
+        )?;
         Ok(self)
     }
 
@@ -217,7 +231,11 @@ impl<S: Storage> ser::Serializer for &'_ mut Serializer<S> {
         _variant: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeStructVariant> {
-        self.serialize_u16(variant_index as u16)?;
+        self.serialize_u16(
+            variant_index
+                .try_into()
+                .map_err(|_| Error::SerializeVariantIndexTooLarge)?,
+        )?;
         Ok(self)
     }
 

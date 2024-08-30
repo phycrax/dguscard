@@ -10,6 +10,7 @@ pub enum Error {
     NotYetImplemented,
     /// The serialize buffer is full
     SerializeBufferFull,
+    SerializeVariantIndexTooLarge,
     /// Hit the end of buffer, expected more data
     DeserializeUnexpectedEnd,
     /// Found a bool that wasn't 0 or 1
@@ -44,6 +45,7 @@ impl Display for Error {
                 WontImplement => "This is a feature that serde-dgus will never implement",
                 NotYetImplemented => "Serde-dgus may support this, but does not yet",
                 SerializeBufferFull => "The serialize buffer is full",
+                SerializeVariantIndexTooLarge => "The serialize buffer is full",
                 DeserializeUnexpectedEnd => "Hit the end of buffer, expected more data",
                 DeserializeBadBool => "Found a bool that wasn't 0 or 1",
                 DeserializeBadOption => "Found a bool that wasn't 0 or 1",

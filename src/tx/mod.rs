@@ -93,7 +93,7 @@ mod tests {
         ];
         let data = TestTuple::new();
 
-        let mut frame = TxFrame::with_slice(buf, Command::WriteVp, 0x00DE).unwrap();
+        let mut frame = TxFrame::with_slice(buf, Command::WriteWord, 0x00DE).unwrap();
         frame.append(&data).unwrap();
         let output = frame.finalize(true).unwrap();
         assert_eq!(output, expected);
@@ -105,7 +105,7 @@ mod tests {
         let expected = &[0x5A, 0xA5, 7, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34];
         let data = TestTuple::new();
 
-        let mut frame = TxFrame::with_slice(buf, Command::WriteVp, 0x00DE).unwrap();
+        let mut frame = TxFrame::with_slice(buf, Command::WriteWord, 0x00DE).unwrap();
         frame.append(&data).unwrap();
         let output = frame.finalize(false).unwrap();
         assert_eq!(output, expected);
@@ -119,7 +119,7 @@ mod tests {
         .unwrap();
         let data = TestTuple::new();
 
-        let mut frame = TxFrame::with_hvec(Command::WriteVp, 0x00DE).unwrap();
+        let mut frame = TxFrame::with_hvec(Command::WriteWord, 0x00DE).unwrap();
         frame.append(&data).unwrap();
         let output: Vec<u8, 12> = frame.finalize(true).unwrap();
         assert_eq!(output, expected);
@@ -131,7 +131,7 @@ mod tests {
             Vec::from_slice(&[0x5A, 0xA5, 7, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34]).unwrap();
         let data = TestTuple::new();
 
-        let mut frame = TxFrame::with_hvec(Command::WriteVp, 0x00DE).unwrap();
+        let mut frame = TxFrame::with_hvec(Command::WriteWord, 0x00DE).unwrap();
         frame.append(&data).unwrap();
         let output: Vec<u8, 10> = frame.finalize(false).unwrap();
         assert_eq!(output, expected);

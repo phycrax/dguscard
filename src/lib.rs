@@ -19,19 +19,26 @@ const HEADER: u16 = 0x5AA5;
 pub enum Command {
     WriteReg = 0x80,
     ReadReg,
-    WriteVp,
-    ReadVp,
-    // ToDo other cmds
-    Undefined,
+    WriteWord,
+    ReadWord,
+    Curve,
+    Unknown,
+    WriteDword,
+    ReadDword,
 }
 
 impl From<u8> for Command {
     fn from(value: u8) -> Self {
         use Command::*;
         match value {
-            0x82 => WriteVp,
-            0x83 => ReadVp,
-            _ => Undefined,
+            0x80 => WriteReg,
+            0x81 => ReadReg,
+            0x82 => WriteWord,
+            0x83 => ReadWord,
+            0x84 => Curve,
+            0x86 => WriteDword,
+            0x87 => ReadDword,
+            _ => Unknown,
         }
     }
 }

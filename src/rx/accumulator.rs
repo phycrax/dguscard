@@ -220,7 +220,7 @@ mod test {
         let ser = &[0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 0, 0, 0, 0];
 
         if let FeedResult::Success(frame, remaining) = buf.feed(ser) {
-            assert_eq!(frame.cmd, Command::WriteVp);
+            assert_eq!(frame.cmd, Command::WriteWord);
             assert_eq!(frame.addr, u16::from_be_bytes([b'O',b'K']));
             assert_eq!(frame.wlen, 0);
             assert_eq!(remaining.len(), 4);

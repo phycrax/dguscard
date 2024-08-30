@@ -47,7 +47,7 @@ impl<'de> RxFrame<'de> {
         // Strip command from input
         let (&cmd, input) = input.split_first().unwrap();
         let cmd = Command::from(cmd);
-        if cmd == Command::Undefined {
+        if cmd == Command::Unknown {
             return Err(Error::DeserializeBadCommand);
         }
 
@@ -116,7 +116,7 @@ mod tests {
         struct Ack;
 
         let input = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 1, 2, 3, 4];
-        let expected = (Command::WriteVp, u16::from_be_bytes([b'O', b'K']), 0);
+        let expected = (Command::WriteWord, u16::from_be_bytes([b'O', b'K']), 0);
         let (mut frame, rest) = RxFrame::take_from_bytes(&input, true).unwrap();
         let ack: Ack = frame.split().unwrap();
         assert_eq!((frame.cmd, frame.addr, frame.wlen), expected);

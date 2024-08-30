@@ -100,8 +100,8 @@ impl<'de> RxFrame<'de> {
         Ok((input, rest))
     }
 
-    /// Splits and deserializes a value from the frame.
-    pub fn split_value<T: Deserialize<'de>>(&mut self) -> Result<T> {
+    /// Split and deserialize a value from the frame.
+    pub fn split<T: Deserialize<'de>>(&mut self) -> Result<T> {
         T::deserialize(&mut self.deserializer)
     }
 }
@@ -118,7 +118,7 @@ mod tests {
         let input = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 1, 2, 3, 4];
         let expected = (Command::WriteVp, u16::from_be_bytes([b'O', b'K']), 0);
         let (mut frame, rest) = RxFrame::take_from_bytes(&input, true).unwrap();
-        let ack: Ack = frame.split_value().unwrap();
+        let ack: Ack = frame.split().unwrap();
         assert_eq!((frame.cmd, frame.addr, frame.wlen), expected);
         assert_eq!(ack, Ack);
         assert_eq!(rest, &[1, 2, 3, 4]);

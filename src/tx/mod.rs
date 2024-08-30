@@ -56,8 +56,8 @@ impl<S: Storage<Output = O>, O> TxFrame<S> {
         Ok(Self { serializer })
     }
 
-    /// Copy and serialize a `T` into the frame
-    pub fn copy_from<T: Serialize>(&mut self, value: &T) -> Result<()> {
+    /// Serialize and append a `T` into the frame
+    pub fn append<T: Serialize>(&mut self, value: &T) -> Result<()> {
         value.serialize(&mut self.serializer)
     }
     
@@ -94,7 +94,7 @@ mod tests {
         let data = TestTuple::new();
 
         let mut frame = TxFrame::with_slice(buf, Command::WriteVp, 0x00DE).unwrap();
-        frame.copy_from(&data).unwrap();
+        frame.append(&data).unwrap();
         let output = frame.finalize(true).unwrap();
         assert_eq!(output, expected);
     }
@@ -106,7 +106,7 @@ mod tests {
         let data = TestTuple::new();
 
         let mut frame = TxFrame::with_slice(buf, Command::WriteVp, 0x00DE).unwrap();
-        frame.copy_from(&data).unwrap();
+        frame.append(&data).unwrap();
         let output = frame.finalize(false).unwrap();
         assert_eq!(output, expected);
     }
@@ -120,7 +120,7 @@ mod tests {
         let data = TestTuple::new();
 
         let mut frame = TxFrame::with_hvec(Command::WriteVp, 0x00DE).unwrap();
-        frame.copy_from(&data).unwrap();
+        frame.append(&data).unwrap();
         let output: Vec<u8, 12> = frame.finalize(true).unwrap();
         assert_eq!(output, expected);
     }
@@ -132,7 +132,7 @@ mod tests {
         let data = TestTuple::new();
 
         let mut frame = TxFrame::with_hvec(Command::WriteVp, 0x00DE).unwrap();
-        frame.copy_from(&data).unwrap();
+        frame.append(&data).unwrap();
         let output: Vec<u8, 10> = frame.finalize(false).unwrap();
         assert_eq!(output, expected);
     }

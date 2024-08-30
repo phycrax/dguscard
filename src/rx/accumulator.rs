@@ -250,7 +250,7 @@ mod test {
                     b: true,
                     c: 0xCCDDEEFF
                 },
-                data.split_value().unwrap()
+                data.split().unwrap()
             );
             assert_eq!(remaining.len(), 0);
         } else {
@@ -267,7 +267,7 @@ mod test {
         ];
 
         let (demo1, ser) = if let FeedResult::Success(mut frame, remaining) = buf.feed(ser) {
-            (frame.split_value().unwrap(), remaining)
+            (frame.split().unwrap(), remaining)
         } else {
             panic!()
         };
@@ -283,7 +283,7 @@ mod test {
 
         let demo2 = if let FeedResult::Success(mut frame, remaining) = buf.feed(ser) {
             assert_eq!(remaining.len(), 0);
-            frame.split_value().unwrap()
+            frame.split().unwrap()
         } else {
             panic!()
         };

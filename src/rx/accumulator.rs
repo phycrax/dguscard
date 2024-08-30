@@ -1,23 +1,21 @@
-//! An accumulator used to collect chunked DGUS data and deserialize it.
+//! An accumulator used to collect chunked DGUS RX frame.
 
 use crate::rx::RxFrame;
 use crate::error::{Error, Result};
 use crate::{CRC, HEADER};
 
-/// An accumulator used to collect chunked DGUS data and deserialize it.
+/// An accumulator used to collect chunked DGUS RX frame.
 ///
 /// This is often useful when you receive "parts" of the message at a time, for example when draining
 /// a serial port buffer that may not contain an entire uninterrupted message.
 ///
 /// # Examples
 ///
-/// Grab a frame by reading chunks from a [`Read`]er 
-/// and deserialize a struct from the frame
+/// Grab a frame by reading chunks and deserialize a struct from the frame
 ///
 /// ```rust
-/// use serde_dgus::rx::{Accumulator, FeedResult};
+/// use dguscard::rx::{Accumulator, FeedResult};
 /// use serde::Deserialize;
-/// use std::io::Read;
 ///
 /// # #[derive(serde::Deserialize, Debug, PartialEq, Eq)]
 /// # struct MyData {
@@ -64,7 +62,6 @@ use crate::{CRC, HEADER};
 /// }
 /// ```
 ///
-/// [`Read`]: std::io::Read
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Accumulator<const N: usize> {
     buf: [u8; N],

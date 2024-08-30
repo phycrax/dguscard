@@ -13,12 +13,12 @@ use serde::Serialize;
 #[cfg(feature = "heapless")]
 use heapless::Vec;
 
-/// TX frame builder
+/// A TX frame builder with the capability of serializing values into itself.
 /// 
 /// Serialization output type is generic and must implement the [`Storage`] trait.
 /// This trait is implemented for `[u8]` slice and `heapless::Vec`.
 pub struct TxFrame<S: Storage> {
-    pub serializer: Serializer<S>,
+    serializer: Serializer<S>,
 }
 
 impl<'a> TxFrame<Slice<'a>> {

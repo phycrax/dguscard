@@ -1,14 +1,14 @@
 [package]
-name = "serde_dgus"
+name = "dguscard"
 version = "0.1.0"
 authors = ["Süha ÜNÜVAR"]
 edition = "2018"
-repository = "https://github.com/phycrax/serde-dgus"
-description = "DWIN DGUS wire format for Serde"
+repository = "https://github.com/phycrax/dguscard"
+description = "A no_std + serde compatible DWIN DGUS2 T5L message library for Rust"
 license = "MIT OR Apache-2.0"
 categories = ["embedded", "no-std"]
 keywords = ["dwin", "dgus", "hmi", "serde"]
-documentation = "https://docs.rs/serde_dgus/"
+documentation = "https://docs.rs/dguscard/"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -16,7 +16,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 serde = { version = "1.0", default-features = false, features = ["derive"] }
-crc = { version = "3.0.1" }
+crc = { version = "3.0" }
 defmt = { version = "0.3", optional = true }
 heapless = { version = "0.8.0", default-features = false, features = ["serde"], optional = true }
 

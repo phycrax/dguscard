@@ -10,12 +10,15 @@ use crate::{
 };
 use serde::Deserialize;
 
-/// RX frame parser
-/// 
+/// A RX frame with the capability of deserializing values from itself.
 pub struct RxFrame<'de> {
+    /// Command of the received frame
     pub cmd: Command,
+    /// Address of the received frame
     pub addr: u16,
+    /// Word length of the received frame
     pub wlen: u8,
+    /// Deserializer for the data section of the frame
     deserializer: Deserializer<'de>,
 }
 

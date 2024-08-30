@@ -1,12 +1,12 @@
 use core::fmt::{Display, Formatter};
 
-/// Error type used by serde_dgus
+/// Error type used by dguscard
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
-    /// This is a feature that serde_dgus will never implement
+    /// This is a feature that dguscard will never implement
     WontImplement,
-    /// This is a feature that serde_dgus intends to support, but does not yet
+    /// This is a feature that dguscard intends to support, but does not yet
     NotYetImplemented,
     /// The serialize buffer is full
     SerializeBufferFull,
@@ -42,7 +42,7 @@ impl Display for Error {
             f,
             "{}",
             match self {
-                WontImplement => "This is a feature that serde-dgus will never implement",
+                WontImplement => "This is a feature that dguscard will never implement",
                 NotYetImplemented => "Serde-dgus may support this, but does not yet",
                 SerializeBufferFull => "The serialize buffer is full",
                 SerializeVariantIndexTooLarge => "The serialize buffer is full",
@@ -63,7 +63,7 @@ impl Display for Error {
     }
 }
 
-/// Result type used by serde-dgus.
+/// Result type used by dguscard.
 pub type Result<T> = ::core::result::Result<T, Error>;
 
 impl serde::ser::Error for Error {

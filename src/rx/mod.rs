@@ -1,32 +1,45 @@
-pub(crate) mod deserializer;
+mod accumulator;
+mod deserializer;
+
+pub use accumulator::{Accumulator, FeedResult};
 
 use crate::{
-    de::deserializer::Deserializer,
     error::{Error, Result},
+    rx::deserializer::Deserializer,
     Command, CRC, HEADER,
 };
 use serde::Deserialize;
 
+/// RX frame parser
+/// 
 pub struct RxFrame<'de> {
     pub cmd: Command,
     pub addr: u16,
     pub wlen: u8,
-    pub deserializer: Deserializer<'de>,
+    deserializer: Deserializer<'de>,
 }
 
 impl<'de> RxFrame<'de> {
-    /// Deserialize a message of type `T` from a data byte slice.
+    /// Try to grab a frame from a byte slice.
+    /// The byte slice is expected to contain full DGUS frame, including header, length, and CRC.
     /// The unused portion (if any) of the byte slice is not returned.
     pub fn from_bytes(input: &'de [u8], crc: bool) -> Result<Self> {
         let (frame, _) = Self::take_from_bytes(input, crc)?;
         Ok(frame)
     }
 
+    /// Try to take a frame from a byte slice.
+    /// The byte slice is expected to contain full DGUS frame, including header, length, and optional CRC.
+    /// The unused portion (if any) of the byte slice is returned for further usage.
     pub fn take_from_bytes(input: &'de [u8], crc: bool) -> Result<(Self, &'de [u8])> {
-        let (input, rest) = Self::extract_frame_bytes(input, crc)?;
+        let (input, rest) = Self::extract_data_bytes(input, crc)?;
         Ok((Self::from_data_bytes(input)?, rest))
     }
 
+    /// Try to grab a headless and tailless frame from a byte slice.
+    /// The byte slice is expected to contain headless and tailless DGUS frame, i.e. excluding header, length, and optional CRC.
+    /// The unused portion (if any) of the byte slice is not returned.
+    /// Intended to be used with an Accumulator.
     pub fn from_data_bytes(input: &'de [u8]) -> Result<Self> {
         // Strip command from input
         let (&cmd, input) = input.split_first().unwrap();
@@ -51,7 +64,9 @@ impl<'de> RxFrame<'de> {
         })
     }
 
-    fn extract_frame_bytes(input: &'de [u8], crc: bool) -> Result<(&'de [u8], &'de [u8])> {
+    /// Extracts the data part of the frame from a byte slice.
+    /// The byte slice is expected to contain full DGUS frame, including header, length, and optional CRC.
+    fn extract_data_bytes(input: &'de [u8], crc: bool) -> Result<(&'de [u8], &'de [u8])> {
         // Strip header from input
         let input = input
             .strip_prefix(&u16::to_be_bytes(HEADER))
@@ -82,7 +97,8 @@ impl<'de> RxFrame<'de> {
         Ok((input, rest))
     }
 
-    pub fn deserialize<T: Deserialize<'de>>(&mut self) -> Result<T> {
+    /// Splits and deserializes a value from the frame.
+    pub fn split_value<T: Deserialize<'de>>(&mut self) -> Result<T> {
         T::deserialize(&mut self.deserializer)
     }
 }
@@ -96,11 +112,12 @@ mod tests {
         #[derive(Deserialize, Debug, PartialEq)]
         struct Ack;
 
-        let input = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 0, 0, 0, 0];
+        let input = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 1, 2, 3, 4];
         let expected = (Command::WriteVp, u16::from_be_bytes([b'O', b'K']), 0);
-        let mut frame = RxFrame::from_bytes(&input, true).unwrap();
-        let ack: Ack = frame.deserialize().unwrap();
+        let (mut frame, rest) = RxFrame::take_from_bytes(&input, true).unwrap();
+        let ack: Ack = frame.split_value().unwrap();
         assert_eq!((frame.cmd, frame.addr, frame.wlen), expected);
         assert_eq!(ack, Ack);
+        assert_eq!(rest, &[1, 2, 3, 4]);
     }
 }

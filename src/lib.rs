@@ -2,21 +2,14 @@
 #![cfg_attr(not(doctest), doc = include_str!("../README.md"))]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-mod de;
 mod error;
-mod ser;
-mod accumulator;
+pub mod rx;
+pub mod tx;
 
-pub use de::deserializer::Deserializer;
-// pub use de::{from_bytes, from_bytes_cobs, take_from_bytes, take_from_bytes_cobs};
 pub use error::{Error, Result};
-pub use ser::storage as ser_storage;
-pub use ser::serializer::Serializer;
-pub use accumulator::{Accumulator,FeedResult};
 
 use crc::{Crc, CRC_16_MODBUS};
 const CRC: crc::Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
-
 const HEADER: u16 = 0x5AA5;
 
 /// DGUS Commands

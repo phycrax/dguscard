@@ -1,6 +1,6 @@
 //! An accumulator used to collect chunked DGUS data and deserialize it.
 
-use crate::de::RxFrame;
+use crate::rx::RxFrame;
 use crate::error::{Error, Result};
 use crate::{CRC, HEADER};
 
@@ -11,10 +11,11 @@ use crate::{CRC, HEADER};
 ///
 /// # Examples
 ///
-/// Deserialize a struct by reading chunks from a [`Read`]er.
+/// Grab a frame by reading chunks from a [`Read`]er 
+/// and deserialize a struct from the frame
 ///
 /// ```rust
-/// use serde_dgus::{Accumulator, FeedResult};
+/// use serde_dgus::rx::{Accumulator, FeedResult};
 /// use serde::Deserialize;
 /// use std::io::Read;
 ///
@@ -94,13 +95,14 @@ enum FeedState {
 }
 
 impl<const N: usize> Default for Accumulator<N> {
+    /// Defaults to crc enabled.
     fn default() -> Self {
         Self::new(true)
     }
 }
 
 impl<const N: usize> Accumulator<N> {
-    /// Create a new accumulator.
+    /// Create a new accumulator with optional CRC.
     pub const fn new(crc: bool) -> Self {
         const {
             assert!(N >= 6, "Buffer too small");
@@ -120,7 +122,7 @@ impl<const N: usize> Accumulator<N> {
         self.state = FeedState::Empty;
     }
 
-    /// Appends data to the internal buffer and attempts to deserialize the accumulated data into [`RxFrame`].
+    /// Appends data to the internal buffer and attempts to grab a [`RxFrame`].
     pub fn feed<'de, 'a>(&'de mut self, mut input: &'a [u8]) -> FeedResult<'de, 'a> {
         loop {
             if input.is_empty() {
@@ -138,7 +140,7 @@ impl<const N: usize> Accumulator<N> {
                     self.reset();
                     FeedResult::Error(e, remaining)
                 }
-                // There is a frame ready to be deserialized
+                // There is a frame ready to be grabbed
                 Ok(Some(())) => {
                     let idx = self.idx;
                     self.reset();
@@ -251,7 +253,7 @@ mod test {
                     b: true,
                     c: 0xCCDDEEFF
                 },
-                data.deserialize().unwrap()
+                data.split_value().unwrap()
             );
             assert_eq!(remaining.len(), 0);
         } else {
@@ -268,7 +270,7 @@ mod test {
         ];
 
         let (demo1, ser) = if let FeedResult::Success(mut frame, remaining) = buf.feed(ser) {
-            (frame.deserialize().unwrap(), remaining)
+            (frame.split_value().unwrap(), remaining)
         } else {
             panic!()
         };
@@ -284,7 +286,7 @@ mod test {
 
         let demo2 = if let FeedResult::Success(mut frame, remaining) = buf.feed(ser) {
             assert_eq!(remaining.len(), 0);
-            frame.deserialize().unwrap()
+            frame.split_value().unwrap()
         } else {
             panic!()
         };

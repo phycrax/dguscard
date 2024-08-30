@@ -1,12 +1,11 @@
-pub(crate) mod serializer;
-pub mod storage;
+mod serializer;
+mod storage;
+
+pub use storage::Storage;
 
 use crate::{
     error::Result,
-    ser::{
-        serializer::Serializer,
-        storage::{Slice, Storage},
-    },
+    tx::{serializer::Serializer, storage::Slice},
     Command, CRC, HEADER,
 };
 use serde::Serialize;
@@ -14,22 +13,55 @@ use serde::Serialize;
 #[cfg(feature = "heapless")]
 use heapless::Vec;
 
+/// TX frame builder
+/// 
+/// Serialization output type is generic and must implement the [`Storage`] trait.
+/// This trait is implemented for `[u8]` slice and `heapless::Vec`.
 pub struct TxFrame<S: Storage> {
     pub serializer: Serializer<S>,
 }
 
+impl<'a> TxFrame<Slice<'a>> {
+    /// Create a new frame that uses a slice as a given backing buffer
+    /// The frame will be finalized as a slice
+    pub fn with_slice(buf: &'a mut [u8], cmd: Command, addr: u16) -> Result<Self> {
+        assert!(buf.len() >= 6, "Buffer too small");
+        assert!(buf.len() <= u8::MAX as usize, "Buffer too large");
+        Self::new(Slice::new(buf), cmd, addr)
+    }
+}
+
+#[cfg(feature = "heapless")]
+impl<const N: usize> TxFrame<Vec<u8, N>> {
+    /// Create a new frame that uses [heapless::Vec] as an output
+    /// The frame will be finalized as a [heapless::Vec]
+    pub fn with_hvec(cmd: Command, addr: u16) -> Result<Self> {
+        const {
+            assert!(N >= 6, "Buffer too small");
+            assert!(N <= u8::MAX as usize, "Buffer too large");
+        };
+        Self::new(Vec::new(), cmd, addr)
+    }
+}
+
 impl<S: Storage<Output = O>, O> TxFrame<S> {
-    pub fn new(mut serializer: Serializer<S>, cmd: Command, addr: u16) -> Result<Self> {
+    /// Create a new frame with an output type that implements [`Storage`] trait.
+    /// The frame will be finalized as the given output type.
+    /// It should rarely be necessary to directly use this type unless you implemented your own [`Storage`].
+    pub fn new(output: S, cmd: Command, addr: u16) -> Result<Self> {
+        let mut serializer = Serializer { output };
         HEADER.serialize(&mut serializer)?;
         (cmd as u16).serialize(&mut serializer)?;
         addr.serialize(&mut serializer)?;
         Ok(Self { serializer })
     }
 
+    /// Copy and serialize a `T` into the frame
     pub fn copy_from<T: Serialize>(&mut self, value: &T) -> Result<()> {
         value.serialize(&mut self.serializer)
     }
-
+    
+    /// Finalize the frame with optional crc and get the output
     pub fn finalize(mut self, crc: bool) -> Result<O> {
         if crc {
             let crc = CRC.checksum(&self.serializer.output[3..]).swap_bytes();
@@ -37,31 +69,6 @@ impl<S: Storage<Output = O>, O> TxFrame<S> {
         }
         self.serializer.output[2] = self.serializer.output.len() as u8 - 3;
         Ok(self.serializer.output.finalize())
-    }
-}
-
-impl<'a> TxFrame<Slice<'a>> {
-    pub fn with_slice(buf: &'a mut [u8], cmd: Command, addr: u16) -> Result<Self> {
-        assert!(buf.len() >= 6, "Buffer too small");
-        assert!(buf.len() <= u8::MAX as usize, "Buffer too large");
-        Self::new(
-            Serializer {
-                output: Slice::new(buf),
-            },
-            cmd,
-            addr,
-        )
-    }
-}
-
-#[cfg(feature = "heapless")]
-impl<const N: usize> TxFrame<Vec<u8, N>> {
-    pub fn with_hvec(cmd: Command, addr: u16) -> Result<Self> {
-        const {
-            assert!(N >= 6, "Buffer too small");
-            assert!(N <= u8::MAX as usize, "Buffer too large");
-        };
-        Self::new(Serializer { output: Vec::new() }, cmd, addr)
     }
 }
 

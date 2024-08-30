@@ -9,6 +9,8 @@ use serde::{ser, Serialize};
 /// Serialization output type is generic and must implement the [`Storage`] trait.
 /// Unless you are implementing [`Storage`], you don't have to use this directly.
 pub struct Serializer<S: Storage> {
+    /// This is the Storage that will be used to store any bytes generated
+    /// by serialization
     pub output: S,
 }
 

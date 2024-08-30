@@ -15,6 +15,7 @@ pub enum Error {
     /// Found a bool that wasn't 0 or 1
     DeserializeBadBool,
     /// Bad header found during deserialization
+    DeserializeBadOption,
     DeserializeBadHeader,
     /// Bad command found during deserialization
     DeserializeBadCommand,
@@ -45,6 +46,7 @@ impl Display for Error {
                 SerializeBufferFull => "The serialize buffer is full",
                 DeserializeUnexpectedEnd => "Hit the end of buffer, expected more data",
                 DeserializeBadBool => "Found a bool that wasn't 0 or 1",
+                DeserializeBadOption => "Found a bool that wasn't 0 or 1",
                 DeserializeBadHeader => "Bad frame header found during deserialization",
                 DeserializeBadCommand => "Bad DGUS command found during deserialization",
                 DeserializeBadCrc => "Bad CRC while deserializing",

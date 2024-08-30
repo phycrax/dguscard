@@ -1,5 +1,5 @@
 use crate::error::{Error, Result};
-use serde::de::{self, DeserializeSeed, Visitor};
+use serde::de::{self, DeserializeSeed, IntoDeserializer, Visitor};
 
 /// `serde` compatible deserializer.
 pub struct Deserializer<'de> {
@@ -197,11 +197,17 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_option<V>(self, _visitor: V) -> Result<V::Value>
+    fn deserialize_option<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        Err(Error::NotYetImplemented)
+        // Take a boolean encoded as u16
+        let v: u16 = self.deserialize_be()?;
+        match v {
+            0 => visitor.visit_none(),
+            1 => visitor.visit_some(self),
+            _ => Err(Error::DeserializeBadBool),
+        }
     }
 
     #[inline]
@@ -286,12 +292,12 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
         self,
         _name: &'static str,
         _variants: &'static [&'static str],
-        _visitor: V,
+        visitor: V,
     ) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        Err(Error::NotYetImplemented)
+        visitor.visit_enum(self)
     }
 
     #[inline]
@@ -308,6 +314,46 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
         V: Visitor<'de>,
     {
         Err(Error::WontImplement)
+    }
+}
+
+impl<'de> serde::de::VariantAccess<'de> for &'_ mut Deserializer<'de> {
+    type Error = Error;
+
+    #[inline]
+    fn unit_variant(self) -> Result<()> {
+        Ok(())
+    }
+
+    #[inline]
+    fn newtype_variant_seed<V: DeserializeSeed<'de>>(self, seed: V) -> Result<V::Value> {
+        DeserializeSeed::deserialize(seed, self)
+    }
+
+    #[inline]
+    fn tuple_variant<V: Visitor<'de>>(self, len: usize, visitor: V) -> Result<V::Value> {
+        serde::de::Deserializer::deserialize_tuple(self, len, visitor)
+    }
+
+    #[inline]
+    fn struct_variant<V: Visitor<'de>>(
+        self,
+        fields: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value> {
+        serde::de::Deserializer::deserialize_tuple(self, fields.len(), visitor)
+    }
+}
+
+impl<'de> serde::de::EnumAccess<'de> for &'_ mut Deserializer<'de> {
+    type Error = Error;
+    type Variant = Self;
+
+    #[inline]
+    fn variant_seed<V: DeserializeSeed<'de>>(self, seed: V) -> Result<(V::Value, Self)> {
+        let v: u16 = self.deserialize_be()?;
+        let v = DeserializeSeed::deserialize(seed, v.into_deserializer())?;
+        Ok((v, self))
     }
 }
 

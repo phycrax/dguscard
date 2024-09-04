@@ -1,7 +1,7 @@
 //! An accumulator used to collect chunked DGUS RX frame.
 
-use crate::rx::RxFrame;
 use crate::error::{Error, Result};
+use crate::rx::RxFrame;
 use crate::{CRC, HEADER};
 
 /// An accumulator used to collect chunked DGUS RX frame.
@@ -211,8 +211,8 @@ impl<const N: usize> Accumulator<N> {
 
 #[cfg(test)]
 mod test {
-    use crate::Command;
     use super::*;
+    use crate::Instruction;
 
     #[test]
     fn crc() {
@@ -220,9 +220,12 @@ mod test {
         let ser = &[0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 0, 0, 0, 0];
 
         if let FeedResult::Success(frame, remaining) = buf.feed(ser) {
-            assert_eq!(frame.cmd, Command::WriteWord);
-            assert_eq!(frame.addr, u16::from_be_bytes([b'O',b'K']));
-            assert_eq!(frame.wlen, 0);
+            assert_eq!(
+                frame.instr,
+                Instruction::WriteWord {
+                    addr: u16::from_be_bytes([b'O', b'K'])
+                }
+            );
             assert_eq!(remaining.len(), 4);
         } else {
             panic!()

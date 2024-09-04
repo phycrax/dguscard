@@ -10,6 +10,7 @@ pub enum Error {
     NotYetImplemented,
     /// The serialize buffer is full
     SerializeBufferFull,
+    /// TODO docs
     SerializeVariantIndexTooLarge,
     /// Hit the end of buffer, expected more data
     DeserializeUnexpectedEnd,
@@ -17,9 +18,12 @@ pub enum Error {
     DeserializeBadBool,
     /// Bad header found during deserialization
     DeserializeBadOption,
+    /// TODO docs
     DeserializeBadHeader,
     /// Bad command found during deserialization
     DeserializeBadCommand,
+    /// TODO docs
+    DeserializeBadInstruction,
     /// Bad CRC while deserializing
     DeserializeBadCrc,
     /// Bad header found during accumulation
@@ -28,6 +32,7 @@ pub enum Error {
     AccumulateBadLen,
     /// Bad CRC found during accumulation
     AccumulateBadCrc,
+    /// TODO docs
     AccumulateBufferFull,
     /// Serde Serialization Error
     SerdeSerCustom,
@@ -43,7 +48,7 @@ impl Display for Error {
             "{}",
             match self {
                 WontImplement => "This is a feature that dguscard will never implement",
-                NotYetImplemented => "Serde-dgus may support this, but does not yet",
+                NotYetImplemented => "dguscard may support this, but does not yet",
                 SerializeBufferFull => "The serialize buffer is full",
                 SerializeVariantIndexTooLarge => "The serialize buffer is full",
                 DeserializeUnexpectedEnd => "Hit the end of buffer, expected more data",
@@ -52,6 +57,7 @@ impl Display for Error {
                 DeserializeBadHeader => "Bad frame header found during deserialization",
                 DeserializeBadCommand => "Bad DGUS command found during deserialization",
                 DeserializeBadCrc => "Bad CRC while deserializing",
+                DeserializeBadInstruction => "Bad CRC while deserializing",
                 AccumulateBadHeader => "Bad frame header found during accumulation",
                 AccumulateBadLen => "Bad frame header found during accumulation",
                 AccumulateBadCrc => "Bad frame header found during accumulation",

@@ -6,18 +6,14 @@ pub use accumulator::{Accumulator, FeedResult};
 use crate::{
     error::{Error, Result},
     rx::deserializer::Deserializer,
-    Command, CRC, HEADER,
+    Instruction, CRC, HEADER,
 };
 use serde::Deserialize;
 
 /// A RX frame with the capability of deserializing values from itself.
 pub struct RxFrame<'de> {
-    /// Command of the received frame
-    pub cmd: Command,
-    /// Address of the received frame
-    pub addr: u16,
-    /// Word length of the received frame
-    pub wlen: u8,
+    /// Instruction of the received frame
+    pub instr: Instruction,
     /// Deserializer for the data section of the frame
     deserializer: Deserializer<'de>,
 }
@@ -44,25 +40,72 @@ impl<'de> RxFrame<'de> {
     /// The unused portion (if any) of the byte slice is not returned.
     /// Intended to be used with an Accumulator.
     pub fn from_data_bytes(input: &'de [u8]) -> Result<Self> {
-        // Strip command from input
-        let (&cmd, input) = input.split_first().unwrap();
-        let cmd = Command::from(cmd);
-        if cmd == Command::Unknown {
-            return Err(Error::DeserializeBadCommand);
-        }
+        // Strip instruction code from input
+        let (&instr_code, input) = input.split_first().unwrap();
 
-        // Strip address from input
-        let (&addr, input) = input.split_first_chunk().unwrap();
-        let addr = u16::from_be_bytes(addr);
+        // Strip instruction details from input and create the instruction
+        let (instr, input) = match instr_code {
+            0x80 => {
+                let (&page, input) = input.split_first().unwrap();
+                let (&addr, input) = input.split_first().unwrap();
+                (Instruction::WriteReg { page, addr }, input)
+            }
+            0x81 => {
+                let (&page, input) = input.split_first().unwrap();
+                let (&addr, input) = input.split_first().unwrap();
+                let (&len, input) = input.split_first().unwrap();
+                (Instruction::ReadReg { page, addr, len }, input)
+            }
+            0x82 => {
+                let (&addr, input) = input.split_first_chunk().unwrap();
+                (
+                    Instruction::WriteWord {
+                        addr: u16::from_be_bytes(addr),
+                    },
+                    input,
+                )
+            }
+            0x83 => {
+                let (&addr, input) = input.split_first_chunk().unwrap();
+                let (&len, input) = input.split_first().unwrap();
+                (
+                    Instruction::ReadWord {
+                        addr: u16::from_be_bytes(addr),
+                        len,
+                    },
+                    input,
+                )
+            }
+            0x84 => {
+                let (&ch, input) = input.split_first().unwrap();
+                (Instruction::WriteCurve { ch }, input)
+            }
+            0x86 => {
+                let (&addr, input) = input.split_first_chunk().unwrap();
+                (
+                    Instruction::WriteDword {
+                        addr: u32::from_be_bytes(addr),
+                    },
+                    input,
+                )
+            }
+            0x87 => {
+                let (&addr, input) = input.split_first_chunk().unwrap();
+                let (&len, input) = input.split_first().unwrap();
+                (
+                    Instruction::ReadDword {
+                        addr: u32::from_be_bytes(addr),
+                        len,
+                    },
+                    input,
+                )
+            }
+            _ => return Err(Error::DeserializeBadInstruction),
+        };
 
-        // Strip word length from input, if there is none (could be ACK), set to 0
-        let (&wlen, input) = input.split_first().unwrap_or((&0, input));
-
-        // Construct the frame
+        // Return the frame
         Ok(Self {
-            cmd,
-            addr,
-            wlen,
+            instr,
             deserializer: Deserializer { input },
         })
     }
@@ -116,10 +159,12 @@ mod tests {
         struct Ack;
 
         let input = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 1, 2, 3, 4];
-        let expected = (Command::WriteWord, u16::from_be_bytes([b'O', b'K']), 0);
+        let expected = Instruction::WriteWord {
+            addr: u16::from_be_bytes([b'O', b'K']),
+        };
         let (mut frame, rest) = RxFrame::take_from_bytes(&input, true).unwrap();
         let ack: Ack = frame.split().unwrap();
-        assert_eq!((frame.cmd, frame.addr, frame.wlen), expected);
+        assert_eq!(frame.instr, expected);
         assert_eq!(ack, Ack);
         assert_eq!(rest, &[1, 2, 3, 4]);
     }

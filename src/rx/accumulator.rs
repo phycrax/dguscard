@@ -11,22 +11,22 @@ use crate::{CRC, HEADER};
 ///
 /// # Examples
 ///
-/// Grab a frame by reading chunks and deserialize a struct from the frame
+/// Collect a frame by reading chunks then deserialize a struct from the frame.
 ///
 /// ```rust
 /// use dguscard::rx::{Accumulator, FeedResult};
-/// use serde::Deserialize;
-///
+/// use std::io::Read;
 /// # #[derive(serde::Deserialize, Debug, PartialEq, Eq)]
 /// # struct MyData {
 /// #     a: u16,
 /// #     b: bool,
 /// #     c: u32,
 /// # }
-/// let mut uart = /* Or it could be anything that implements the `Read` trait */
+/// let mut uart = /* Anything that implements the `Read` trait */
 /// # &[0x5A, 0xA5, 12, 0x83, 0x12, 0x34, 4, 0xAA, 0xBB, 0x00, 0x01, 0xCC, 0xDD, 0xEE, 0xFF][..];
-///
+/// 
 /// let mut raw_buf = [0u8; 32];
+/// // Create a new Accumulator with CRC check disabled.
 /// let mut dgus_buf: Accumulator<128> = Accumulator::new(false);
 ///
 /// while let Ok(ct) = uart.read(&mut raw_buf) {
@@ -51,7 +51,7 @@ use crate::{CRC, HEADER};
 ///             FeedResult::Success(mut frame, remaining) => {
 ///                 // Deserialize the content of `frame: RxFrame` here.
 ///                 
-///                 let data: MyData = frame.deserialize().unwrap();
+///                 let data: MyData = frame.take().unwrap();
 ///     
 ///                 dbg!(data);
 ///
@@ -62,6 +62,7 @@ use crate::{CRC, HEADER};
 /// }
 /// ```
 ///
+/// [`Read`]: std::io::Read
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Accumulator<const N: usize> {
     buf: [u8; N],
@@ -92,14 +93,14 @@ enum FeedState {
 }
 
 impl<const N: usize> Default for Accumulator<N> {
-    /// Defaults to crc enabled.
+    /// CRC check is enabled by default.
     fn default() -> Self {
         Self::new(true)
     }
 }
 
 impl<const N: usize> Accumulator<N> {
-    /// Create a new accumulator with optional CRC.
+    /// Create a new accumulator.
     pub const fn new(crc: bool) -> Self {
         const {
             assert!(N >= 6, "Buffer too small");
@@ -114,7 +115,7 @@ impl<const N: usize> Accumulator<N> {
     }
 
     /// Reset the accumulator.
-    pub fn reset(&mut self) {
+    fn reset(&mut self) {
         self.idx = 0;
         self.state = FeedState::Empty;
     }
@@ -151,6 +152,7 @@ impl<const N: usize> Accumulator<N> {
         }
     }
 
+    /// Feeds a single byte to the internal buffer.
     fn feed_byte(&mut self, byte: u8) -> Result<Option<()>> {
         use FeedState::*;
         self.state = match self.state {
@@ -253,7 +255,7 @@ mod test {
                     b: true,
                     c: 0xCCDDEEFF
                 },
-                data.split().unwrap()
+                data.take().unwrap()
             );
             assert_eq!(remaining.len(), 0);
         } else {
@@ -270,7 +272,7 @@ mod test {
         ];
 
         let (demo1, ser) = if let FeedResult::Success(mut frame, remaining) = buf.feed(ser) {
-            (frame.split().unwrap(), remaining)
+            (frame.take().unwrap(), remaining)
         } else {
             panic!()
         };
@@ -286,7 +288,7 @@ mod test {
 
         let demo2 = if let FeedResult::Success(mut frame, remaining) = buf.feed(ser) {
             assert_eq!(remaining.len(), 0);
-            frame.split().unwrap()
+            frame.take().unwrap()
         } else {
             panic!()
         };

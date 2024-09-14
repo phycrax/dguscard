@@ -10,7 +10,39 @@ use crate::{
 };
 use serde::Deserialize;
 
-/// A RX frame with the capability of deserializing values from itself.
+/// RX frame parser
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// use dguscard::{rx::RxFrame, Instruction};
+/// use std::io::Read;
+/// #[derive(serde::Deserialize)]
+/// struct MyData {
+///     a: u8,
+///     b: u16,
+///     c: u32,
+/// }
+/// let mut uart = /* Anything that implements the `Read` trait */
+/// # std::collections::VecDeque::from([
+/// # 0x5A, 0xA5, 14, 0x82, 0x12, 0x34, 0x11, 0x22, 0x22, 
+/// # 0x33, 0x33, 0x33, 0x33, 0x44, 0x44, 0x44, 0x44]);
+/// // Backing buffer for the UART.
+/// let buf = &mut [0u8; 50];
+/// // Await for a frame from UART.
+/// let _ = uart.read(buf).unwrap();
+/// // Look for a frame within the buffer.
+/// let mut frame = RxFrame::from_bytes(buf, false).unwrap();
+/// // Do something with the received instruction
+/// dbg!(frame.instr);
+/// // Take a MyData from the frame
+/// let data: MyData = frame.take().unwrap();
+/// // Take an u32 from the frame
+/// let integer: u32 = frame.take().unwrap();
+/// ```
+/// 
+/// [`Read`]: std::io::Read
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RxFrame<'de> {
     /// Instruction of the received frame
     pub instr: Instruction,
@@ -19,45 +51,46 @@ pub struct RxFrame<'de> {
 }
 
 impl<'de> RxFrame<'de> {
-    /// Try to grab a frame from a byte slice.
-    /// The byte slice is expected to contain full DGUS frame, including header, length, and CRC.
+    /// Looks for a frame within a byte slice.
     /// The unused portion (if any) of the byte slice is not returned.
+    /// The byte slice is expected to contain full DGUS frame, including header, length, and CRC if enabled.
     pub fn from_bytes(input: &'de [u8], crc: bool) -> Result<Self> {
         let (frame, _) = Self::take_from_bytes(input, crc)?;
         Ok(frame)
     }
 
-    /// Try to take a frame from a byte slice.
-    /// The byte slice is expected to contain full DGUS frame, including header, length, and optional CRC.
+    /// Looks for a frame within a byte slice.
     /// The unused portion (if any) of the byte slice is returned for further usage.
+    /// The byte slice is expected to contain full DGUS frame, including header, length, and CRC if enabled.
     pub fn take_from_bytes(input: &'de [u8], crc: bool) -> Result<(Self, &'de [u8])> {
         let (input, rest) = Self::extract_data_bytes(input, crc)?;
         Ok((Self::from_data_bytes(input)?, rest))
     }
 
-    /// Try to grab a headless and tailless frame from a byte slice.
-    /// The byte slice is expected to contain headless and tailless DGUS frame, i.e. excluding header, length, and optional CRC.
+    /// Looks for a frame within a byte slice.
     /// The unused portion (if any) of the byte slice is not returned.
+    /// The data byte slice is expected to contain instruction and data part of the DGUS frame,
+    /// i.e. excluding header, length, and CRC if enabled.
     /// Intended to be used with an Accumulator.
     pub fn from_data_bytes(input: &'de [u8]) -> Result<Self> {
         // Strip instruction code from input
-        let (&instr_code, input) = input.split_first().unwrap();
+        let (&instr_code, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
 
         // Strip instruction details from input and create the instruction
         let (instr, input) = match instr_code {
             0x80 => {
-                let (&page, input) = input.split_first().unwrap();
-                let (&addr, input) = input.split_first().unwrap();
+                let (&page, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
+                let (&addr, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
                 (Instruction::WriteReg { page, addr }, input)
             }
             0x81 => {
-                let (&page, input) = input.split_first().unwrap();
-                let (&addr, input) = input.split_first().unwrap();
-                let (&len, input) = input.split_first().unwrap();
+                let (&page, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
+                let (&addr, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
+                let (&len, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
                 (Instruction::ReadReg { page, addr, len }, input)
             }
             0x82 => {
-                let (&addr, input) = input.split_first_chunk().unwrap();
+                let (&addr, input) = input.split_first_chunk().ok_or(Error::DeserializeUnexpectedEnd)?;
                 (
                     Instruction::WriteWord {
                         addr: u16::from_be_bytes(addr),
@@ -66,8 +99,8 @@ impl<'de> RxFrame<'de> {
                 )
             }
             0x83 => {
-                let (&addr, input) = input.split_first_chunk().unwrap();
-                let (&len, input) = input.split_first().unwrap();
+                let (&addr, input) = input.split_first_chunk().ok_or(Error::DeserializeUnexpectedEnd)?;
+                let (&len, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
                 (
                     Instruction::ReadWord {
                         addr: u16::from_be_bytes(addr),
@@ -77,11 +110,11 @@ impl<'de> RxFrame<'de> {
                 )
             }
             0x84 => {
-                let (&ch, input) = input.split_first().unwrap();
+                let (&ch, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
                 (Instruction::WriteCurve { ch }, input)
             }
             0x86 => {
-                let (&addr, input) = input.split_first_chunk().unwrap();
+                let (&addr, input) = input.split_first_chunk().ok_or(Error::DeserializeUnexpectedEnd)?;
                 (
                     Instruction::WriteDword {
                         addr: u32::from_be_bytes(addr),
@@ -90,8 +123,8 @@ impl<'de> RxFrame<'de> {
                 )
             }
             0x87 => {
-                let (&addr, input) = input.split_first_chunk().unwrap();
-                let (&len, input) = input.split_first().unwrap();
+                let (&addr, input) = input.split_first_chunk().ok_or(Error::DeserializeUnexpectedEnd)?;
+                let (&len, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
                 (
                     Instruction::ReadDword {
                         addr: u32::from_be_bytes(addr),
@@ -143,9 +176,19 @@ impl<'de> RxFrame<'de> {
         Ok((input, rest))
     }
 
-    /// Split and deserialize a value from the frame.
-    pub fn split<T: Deserialize<'de>>(&mut self) -> Result<T> {
+    /// Removes a `T` from the frame and returns it.
+    pub fn take<T: Deserialize<'de>>(&mut self) -> Result<T> {
         T::deserialize(&mut self.deserializer)
+    }
+
+    /// Returns the number of remaining bytes in the frame.
+    pub fn len(&self) -> usize {
+        self.deserializer.input.len()
+    }
+
+    /// Returns true if the frame does not contain any remaining bytes.
+    pub fn is_empty(&self) -> bool {
+        self.deserializer.input.is_empty()
     }
 }
 
@@ -163,7 +206,7 @@ mod tests {
             addr: u16::from_be_bytes([b'O', b'K']),
         };
         let (mut frame, rest) = RxFrame::take_from_bytes(&input, true).unwrap();
-        let ack: Ack = frame.split().unwrap();
+        let ack: Ack = frame.take().unwrap();
         assert_eq!(frame.instr, expected);
         assert_eq!(ack, Ack);
         assert_eq!(rest, &[1, 2, 3, 4]);

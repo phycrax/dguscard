@@ -69,7 +69,7 @@ impl Display for Error {
     }
 }
 
-/// Result type used by dguscard.
+/// Result type used by dguscard
 pub type Result<T> = ::core::result::Result<T, Error>;
 
 impl serde::ser::Error for Error {

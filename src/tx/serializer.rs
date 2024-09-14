@@ -2,7 +2,6 @@ use crate::{
     error::{Error, Result},
     tx::storage::Storage,
 };
-use core::convert::TryInto;
 use serde::{ser, Serialize};
 
 /// `serde` compatible serializer.

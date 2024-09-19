@@ -7,7 +7,7 @@ It is intended to be a building block for higher level UI elements that can be s
 
 ## Examples
 
-Take a look at [`rx::RxFrame`] and [`tx::TxFrame`] examples.
+Take a look at [`rx::RxFrame`](https://docs.rs/dguscard/rx/struct.Accumulator.html), [`rx::Accumulator`](https://docs.rs/dguscard/rx/struct.RxFrame.html) and [`tx::TxFrame`](https://docs.rs/dguscard/tx/struct.TxFrame.html) examples.
 
 ## Setup - `Cargo.toml`
 
@@ -32,6 +32,12 @@ Licensed under either of
 - MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
 
 at your option.
+
+NOTE: This crate contains portions of [postcard](https://github.com/jamesmunns/postcard) code.
+Postcard copyright notice
+- [LICENSE-APACHE](postcard-LICENSE-APACHE) 
+- [LICENSE-MIT](postcard-LICENSE-MIT)
+
 
 ### Contribution
 

@@ -10,29 +10,23 @@ pub enum Error {
     NotYetImplemented,
     /// The serialize buffer is full
     SerializeBufferFull,
-    /// TODO docs
-    SerializeVariantIndexTooLarge,
+    /// Found an enum discriminant that was > u16::max_value()
+    SerializeBadEnum,
     /// Hit the end of buffer, expected more data
     DeserializeUnexpectedEnd,
     /// Found a bool that wasn't 0 or 1
     DeserializeBadBool,
-    /// Bad header found during deserialization
+    /// Found an Option discriminant that wasn't 0 or 1
     DeserializeBadOption,
-    /// TODO docs
+    /// Header mismatch found during frame deserialization
     DeserializeBadHeader,
-    /// Bad command found during deserialization
-    DeserializeBadCommand,
-    /// TODO docs
+    /// Frame length is larger than the buffer/input size or smaller than the minimum frame size
+    DeserializeBadLen,
+    /// Unknown frame instruction found during frame deserialization
     DeserializeBadInstruction,
-    /// Bad CRC while deserializing
+    /// CRC mismatch found during frame deserialization
     DeserializeBadCrc,
-    /// Bad header found during accumulation
-    AccumulateBadHeader,
-    /// Bad length found during accumulation
-    AccumulateBadLen,
-    /// Bad CRC found during accumulation
-    AccumulateBadCrc,
-    /// TODO docs
+    /// The accumulator buffer is full
     AccumulateBufferFull,
     /// Serde Serialization Error
     SerdeSerCustom,
@@ -50,18 +44,15 @@ impl Display for Error {
                 WontImplement => "This is a feature that dguscard will never implement",
                 NotYetImplemented => "dguscard may support this, but does not yet",
                 SerializeBufferFull => "The serialize buffer is full",
-                SerializeVariantIndexTooLarge => "The serialize buffer is full",
+                SerializeBadEnum => "Found an enum discriminant that was > u16::max_value()",
                 DeserializeUnexpectedEnd => "Hit the end of buffer, expected more data",
                 DeserializeBadBool => "Found a bool that wasn't 0 or 1",
-                DeserializeBadOption => "Found a bool that wasn't 0 or 1",
-                DeserializeBadHeader => "Bad frame header found during deserialization",
-                DeserializeBadCommand => "Bad DGUS command found during deserialization",
-                DeserializeBadCrc => "Bad CRC while deserializing",
-                DeserializeBadInstruction => "Bad CRC while deserializing",
-                AccumulateBadHeader => "Bad frame header found during accumulation",
-                AccumulateBadLen => "Bad frame header found during accumulation",
-                AccumulateBadCrc => "Bad frame header found during accumulation",
-                AccumulateBufferFull => "Bad frame header found during accumulation",
+                DeserializeBadOption => "Found an Option discriminant that wasn't 0 or 1",
+                DeserializeBadHeader => "Header mismatch found during frame deserialization",
+                DeserializeBadLen => "Frame length is larger than the buffer/input size or smaller than the minimum frame size",
+                DeserializeBadInstruction => "Unknown frame instruction found during frame deserialization",
+                DeserializeBadCrc => "CRC mismatch found during frame deserialization",
+                AccumulateBufferFull => "The accumulator buffer is full",
                 SerdeSerCustom => "Serde Serialization Error",
                 SerdeDeCustom => "Serde Deserialization Error",
             }
@@ -91,3 +82,5 @@ impl serde::de::Error for Error {
 }
 
 impl serde::ser::StdError for Error {}
+
+impl core::error::Error for Error {}

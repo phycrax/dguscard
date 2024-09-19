@@ -145,7 +145,7 @@ impl<S: Storage> ser::Serializer for &'_ mut Serializer<S> {
         self.serialize_u16(
             variant_index
                 .try_into()
-                .map_err(|_| Error::SerializeVariantIndexTooLarge)?,
+                .map_err(|_| Error::SerializeBadEnum)?,
         )
     }
 
@@ -171,7 +171,7 @@ impl<S: Storage> ser::Serializer for &'_ mut Serializer<S> {
         self.serialize_u16(
             variant_index
                 .try_into()
-                .map_err(|_| Error::SerializeVariantIndexTooLarge)?,
+                .map_err(|_| Error::SerializeBadEnum)?,
         )?;
         value.serialize(self)
     }
@@ -206,7 +206,7 @@ impl<S: Storage> ser::Serializer for &'_ mut Serializer<S> {
         self.serialize_u16(
             variant_index
                 .try_into()
-                .map_err(|_| Error::SerializeVariantIndexTooLarge)?,
+                .map_err(|_| Error::SerializeBadEnum)?,
         )?;
         Ok(self)
     }
@@ -232,7 +232,7 @@ impl<S: Storage> ser::Serializer for &'_ mut Serializer<S> {
         self.serialize_u16(
             variant_index
                 .try_into()
-                .map_err(|_| Error::SerializeVariantIndexTooLarge)?,
+                .map_err(|_| Error::SerializeBadEnum)?,
         )?;
         Ok(self)
     }

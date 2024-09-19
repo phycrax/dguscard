@@ -29,11 +29,11 @@ use serde::Deserialize;
 /// # 0x33, 0x33, 0x33, 0x33, 0x44, 0x44, 0x44, 0x44]);
 /// // Backing buffer for the UART.
 /// let buf = &mut [0u8; 50];
-/// // Await for a frame from UART.
+/// // Read a frame from UART.
 /// let _ = uart.read(buf).unwrap();
 /// // Look for a frame within the buffer.
 /// let mut frame = RxFrame::from_bytes(buf, false).unwrap();
-/// // Do something with the received instruction
+/// // Do something with the received instruction.
 /// dbg!(frame.instr);
 /// // Take a MyData from the frame
 /// let data: MyData = frame.take().unwrap();
@@ -143,8 +143,9 @@ impl<'de> RxFrame<'de> {
         })
     }
 
-    /// Extracts the data part of the frame from a byte slice.
-    /// The byte slice is expected to contain full DGUS frame, including header, length, and optional CRC.
+    /// Extracts the instruction+data part of the frame from a byte slice.
+    /// The unused portion (if any) of the byte slice is returned for further usage.
+    /// The byte slice is expected to contain full DGUS frame, including header, length, and CRC if enabled.
     fn extract_data_bytes(input: &'de [u8], crc: bool) -> Result<(&'de [u8], &'de [u8])> {
         // Strip header from input
         let input = input
@@ -154,6 +155,10 @@ impl<'de> RxFrame<'de> {
         // Strip length from input
         let (len, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
         let len = *len as usize;
+        let min_len = if crc { 5 } else { 3 };
+        if len < min_len || len > input.len() {
+            return Err(Error::DeserializeBadLen);
+        }
 
         // Split input with the length
         let (input, rest) = input

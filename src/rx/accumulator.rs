@@ -6,8 +6,8 @@ use crate::{CRC, HEADER};
 
 /// An accumulator used to collect chunked DGUS RX frame.
 ///
-/// This is often useful when you receive "parts" of the message at a time, for example when draining
-/// a serial port buffer that may not contain an entire uninterrupted message.
+/// This is often useful when you receive "parts" of the frame at a time, for example when draining
+/// a serial port buffer that may not contain an entire uninterrupted frame.
 ///
 /// # Examples
 ///
@@ -160,22 +160,22 @@ impl<const N: usize> Accumulator<N> {
                 if byte == HEADER.to_be_bytes()[0] {
                     Header(false)
                 } else {
-                    return Err(Error::AccumulateBadHeader);
+                    return Err(Error::DeserializeBadHeader);
                 }
             }
             Header(false) => {
                 if byte == HEADER.to_be_bytes()[1] {
                     Header(true)
                 } else {
-                    return Err(Error::AccumulateBadHeader);
+                    return Err(Error::DeserializeBadHeader);
                 }
             }
             Header(true) => {
-                let min_len = if true { 5 } else { 3 };
-                if byte >= min_len && byte <= N as u8 {
+                let min_len = if self.crc { 5 } else { 3 };
+                if byte as usize >= min_len && byte as usize <= N {
                     Length(byte)
                 } else {
-                    return Err(Error::AccumulateBadLen);
+                    return Err(Error::DeserializeBadLen);
                 }
             }
             Length(length) => {
@@ -200,7 +200,7 @@ impl<const N: usize> Accumulator<N> {
             if self.crc {
                 let checksum = u16::from_le_bytes([self.buf[self.idx - 2], self.buf[self.idx - 1]]);
                 if checksum != CRC.checksum(&self.buf[..self.idx - 2]) {
-                    return Err(Error::AccumulateBadCrc);
+                    return Err(Error::DeserializeBadCrc);
                 }
                 self.idx -= 2;
             }

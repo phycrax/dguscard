@@ -206,7 +206,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
         match v {
             0 => visitor.visit_none(),
             1 => visitor.visit_some(self),
-            _ => Err(Error::DeserializeBadBool),
+            _ => Err(Error::DeserializeBadOption),
         }
     }
 

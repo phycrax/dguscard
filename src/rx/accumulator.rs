@@ -62,7 +62,6 @@ use crate::{CRC, HEADER};
 /// }
 /// ```
 ///
-/// [`Read`]: std::io::Read
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Accumulator<const N: usize> {
     buf: [u8; N],

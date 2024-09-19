@@ -49,7 +49,6 @@ use heapless::Vec;
 /// uart.write_all(tx_bytes).unwrap();
 /// ```
 /// 
-/// [`Write`]: std::io::Write
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TxFrame<S: Storage> {
     serializer: Serializer<S>,

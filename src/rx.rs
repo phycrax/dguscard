@@ -43,7 +43,6 @@ use serde::Deserialize;
 /// let integer: u32 = frame.take().unwrap();
 /// ```
 /// 
-/// [`Read`]: std::io::Read
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RxFrame<'de> {
     /// Instruction of the received frame

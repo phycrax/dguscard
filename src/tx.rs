@@ -1,3 +1,5 @@
+//! TX frame builder/serializer
+
 mod serializer;
 mod storage;
 

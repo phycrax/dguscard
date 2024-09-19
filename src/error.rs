@@ -34,6 +34,8 @@ pub enum Error {
     SerdeDeCustom,
 }
 
+impl core::error::Error for Error {}
+
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter) -> core::fmt::Result {
         use Error::*;
@@ -80,7 +82,3 @@ impl serde::de::Error for Error {
         Error::SerdeDeCustom
     }
 }
-
-impl serde::ser::StdError for Error {}
-
-impl core::error::Error for Error {}

@@ -5,7 +5,7 @@ authors = ["Süha ÜNÜVAR"]
 edition = "2021"
 rust-version = "1.81"
 repository = "https://github.com/phycrax/dguscard"
-description = "A no_std + serde compatible DWIN DGUS2 T5L message library for Rust"
+description = "DWIN T5L_DGUSII touchscreen wire format frame parser/builder with serde capability"
 license = "MIT OR Apache-2.0"
 categories = ["embedded", "no-std"]
 keywords = ["dwin", "dgus", "hmi", "serde"]
@@ -14,14 +14,18 @@ documentation = "https://docs.rs/dguscard/"
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+features = ["defmt", "heapless"]
 
 [dependencies]
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 crc = { version = "3.0" }
 defmt = { version = "0.3", optional = true }
 heapless = { version = "0.8.0", default-features = false, features = ["serde"], optional = true }
+document-features = "0.2.10"
 
 [features]
 default = ["heapless"]
+## Use [`defmt`](https://docs.rs/defmt/latest/defmt/) for logging
 defmt = ["dep:defmt"]
+## Support [`heapless::Vec`](https://docs.rs/heapless/latest/heapless/) as a frame deserialization output
 heapless = ["dep:heapless"]

@@ -1,3 +1,5 @@
+//! RX frame parser/deserializer/accumulator
+
 mod accumulator;
 mod deserializer;
 

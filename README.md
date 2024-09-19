@@ -1,13 +1,14 @@
 # dguscard
+[![docs.rs](https://docs.rs/dguscard/badge.svg)](https://docs.rs/dguscard)
+[![crates.io](https://img.shields.io/crates/d/dguscard.svg)](https://crates.io/crates/dguscard)
+[![crates.io](https://img.shields.io/crates/v/dguscard.svg)](https://crates.io/crates/dguscard)
 
-[![Documentation](https://docs.rs/dguscard/badge.svg)](https://docs.rs/dguscard)
-
-dguscard is a [postcard](https://github.com/jamesmunns/postcard)ish `#![no_std]` DWIN DGUS2 T5L touchscreen wire format frame parser/builder with `serde` capability.
+dguscard is a [postcard](https://github.com/jamesmunns/postcard)ish `#![no_std]` DWIN T5L_DGUSII touchscreen wire format frame parser/builder with `serde` capability.
 It is intended to be a building block for higher level UI elements that can be sent to or received with DWIN DGUS touchscreens.
 
 ## Examples
 
-Take a look at [`rx::RxFrame`](https://docs.rs/dguscard/rx/struct.Accumulator.html), [`rx::Accumulator`](https://docs.rs/dguscard/rx/struct.RxFrame.html) and [`tx::TxFrame`](https://docs.rs/dguscard/tx/struct.TxFrame.html) examples.
+Take a look at [`rx::RxFrame`](https://docs.rs/dguscard/rx/struct.RxFrame.html), [`rx::Accumulator`](https://docs.rs/dguscard/rx/struct.Accumulator.html) and [`tx::TxFrame`](https://docs.rs/dguscard/tx/struct.TxFrame.html) examples.
 
 ## Setup - `Cargo.toml`
 
@@ -34,9 +35,10 @@ Licensed under either of
 at your option.
 
 NOTE: This crate contains portions of [postcard](https://github.com/jamesmunns/postcard) code.
+
 Postcard copyright notice
-- [LICENSE-APACHE](postcard-LICENSE-APACHE) 
-- [LICENSE-MIT](postcard-LICENSE-MIT)
+- [LICENSE-APACHE](postcard/LICENSE-APACHE) 
+- [LICENSE-MIT](postcard/LICENSE-MIT)
 
 
 ### Contribution

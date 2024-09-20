@@ -372,3 +372,139 @@ impl<'a, 'b: 'a> serde::de::SeqAccess<'b> for SeqAccess<'a, 'b> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::Deserialize;
+
+    #[test]
+    fn u8() {
+        let input = &[0xDB];
+        let mut de = Deserializer { input };
+        assert_eq!(0xDB, u8::deserialize(&mut de).unwrap());
+    }
+
+    #[test]
+    fn u16() {
+        let input = &[0xDE, 0xBE];
+        let mut de = Deserializer { input };
+        assert_eq!(0xDEBE, u16::deserialize(&mut de).unwrap());
+    }
+
+    #[test]
+    fn u32() {
+        let input = &[0xDE, 0xAD, 0xBE, 0xEF];
+        let mut de = Deserializer { input };
+        assert_eq!(0xDEADBEEF, u32::deserialize(&mut de).unwrap());
+        assert!(de.input.is_empty());
+    }
+
+    #[test]
+    fn u64() {
+        let input = &[0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xEB, 0xDA, 0xED];
+        let mut de = Deserializer { input };
+        assert_eq!(0xDEADBEEFFEEBDAED, u64::deserialize(&mut de).unwrap());
+        assert!(de.input.is_empty());
+    }
+
+    #[test]
+    fn u128() {
+        let input = &[
+            0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xEB, 0xDA, 0xED, 0x12, 0x23, 0x34, 0x45, 0x56, 0x67,
+            0x78, 0x89,
+        ];
+        let mut de = Deserializer { input };
+        assert_eq!(
+            0xDEADBEEFFEEBDAED1223344556677889,
+            u128::deserialize(&mut de).unwrap()
+        );
+        assert!(de.input.is_empty());
+    }
+
+    #[test]
+    fn unsigned_tuple() {
+        let input = &[
+            0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xEB, 0xDA, 0xED, 0x12, 0x23, 0x34, 0x45, 0x56, 0x67,
+            0x78, 0x89, 0x10, 0x44, 0x33, 0x22, 0x11, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22,
+            0x11, 0xDE, 0xAD,
+        ];
+        let mut de = Deserializer { input };
+        type TestTuple = (u128, u8, u32, u64, u16);
+        assert_eq!(
+            (
+                0xDEADBEEFFEEBDAED1223344556677889u128,
+                0x10u8,
+                0x44332211u32,
+                0x8877665544332211u64,
+                0xDEADu16
+            ),
+            TestTuple::deserialize(&mut de).unwrap()
+        );
+        assert!(de.input.is_empty());
+    }
+
+    #[test]
+    fn u8_array() {
+        let input = &[0xDE, 0xAD, 0xBE, 0xEF];
+        let mut de = Deserializer { input };
+        type TestArray = [u8; 4];
+        assert_eq!(
+            [0xDE, 0xAD, 0xBE, 0xEF],
+            TestArray::deserialize(&mut de).unwrap()
+        );
+        assert!(de.input.is_empty());
+    }
+
+    #[test]
+    fn u16_array() {
+        let input = &[
+            0xDE, 0xAD, 0xBE, 0xEF, 0x12, 0x34, 0x56, 0x78, 0xFE, 0x12, 0xCD, 0x34,
+        ];
+        let mut de = Deserializer { input };
+        type TestArray = [u16; 6];
+        assert_eq!(
+            [0xDEAD, 0xBEEF, 0x1234, 0x5678, 0xFE12, 0xCD34],
+            TestArray::deserialize(&mut de).unwrap()
+        );
+        assert!(de.input.is_empty());
+    }
+
+    #[test]
+    fn u32_array() {
+        let input = &[
+            0xDE, 0xAD, 0xBE, 0xEF, 0x12, 0x34, 0x56, 0x78, 0xFE, 0x12, 0xCD, 0x34,
+        ];
+        let mut de = Deserializer { input };
+        type TestArray = [u32; 3];
+        assert_eq!(
+            [0xDEADBEEF, 0x12345678, 0xFE12CD34],
+            TestArray::deserialize(&mut de).unwrap()
+        );
+        assert!(de.input.is_empty());
+    }
+
+    #[test]
+    fn bool_true() {
+        let input = &[0x00, 0x01];
+        let mut de = Deserializer { input };
+        assert!(bool::deserialize(&mut de).unwrap());
+        assert!(de.input.is_empty());
+    }
+
+    #[test]
+    fn bool_false() {
+        let input = &[0x00, 0x00];
+        let mut de = Deserializer { input };
+        assert!(!bool::deserialize(&mut de).unwrap());
+        assert!(de.input.is_empty());
+    }
+
+    #[test]
+    fn bool_bad() {
+        let input = &[0x01, 0x00];
+        let mut de = Deserializer { input };
+        assert_eq!(Err(Error::DeserializeBadBool), bool::deserialize(&mut de));
+        assert!(de.input.is_empty());
+    }
+}

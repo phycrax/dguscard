@@ -113,16 +113,15 @@ impl<S: Storage> ser::Serializer for &'_ mut Serializer<S> {
 
     #[inline]
     fn serialize_none(self) -> Result<()> {
-        self.serialize_u16(0)
+        Err(Error::NotYetImplemented)
     }
 
     #[inline]
-    fn serialize_some<T>(self, value: &T) -> Result<()>
+    fn serialize_some<T>(self, _v: &T) -> Result<()>
     where
         T: ?Sized + Serialize,
     {
-        self.serialize_u16(1)?;
-        value.serialize(self)
+        Err(Error::NotYetImplemented)
     }
 
     #[inline]

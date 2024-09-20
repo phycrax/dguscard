@@ -197,17 +197,11 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_option<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_option<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        // Take a boolean encoded as u16
-        let v: u16 = self.deserialize_be()?;
-        match v {
-            0 => visitor.visit_none(),
-            1 => visitor.visit_some(self),
-            _ => Err(Error::DeserializeBadOption),
-        }
+        Err(Error::NotYetImplemented)
     }
 
     #[inline]

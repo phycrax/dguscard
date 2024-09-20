@@ -162,7 +162,7 @@ mod tests {
     }
 
     #[test]
-    fn tuple_to_slice() {
+    fn tuple_to_slice_crc() {
         let buf = &mut [0u8; 20];
         let expected = &[
             0x5A, 0xA5, 9, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34, 0x0E, 0xB4,

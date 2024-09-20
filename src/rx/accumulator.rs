@@ -24,7 +24,7 @@ use crate::{CRC, HEADER};
 /// # }
 /// let mut uart = /* Anything that implements the `Read` trait */
 /// # &[0x5A, 0xA5, 12, 0x83, 0x12, 0x34, 4, 0xAA, 0xBB, 0x00, 0x01, 0xCC, 0xDD, 0xEE, 0xFF][..];
-/// 
+///
 /// let mut raw_buf = [0u8; 32];
 /// // Create a new Accumulator with CRC check disabled.
 /// let mut dgus_buf: Accumulator<128> = Accumulator::new(false);
@@ -216,7 +216,7 @@ mod test {
     use crate::Instruction;
 
     #[test]
-    fn crc() {
+    fn ack_crc() {
         let mut buf: Accumulator<64> = Accumulator::new(true);
         let ser = &[0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 0, 0, 0, 0];
 
@@ -247,14 +247,22 @@ mod test {
             0x5A, 0xA5, 12, 0x83, 0x12, 0x34, 4, 0xAA, 0xBB, 0x00, 0x01, 0xCC, 0xDD, 0xEE, 0xFF,
         ];
 
-        if let FeedResult::Success(mut data, remaining) = buf.feed(ser) {
+        if let FeedResult::Success(mut frame, remaining) = buf.feed(ser) {
+            assert_eq!(
+                frame.instr,
+                Instruction::ReadWord {
+                    addr: 0x1234,
+                    len: 4
+                }
+            );
+
             assert_eq!(
                 Demo {
                     a: 0xAABB,
                     b: true,
                     c: 0xCCDDEEFF
                 },
-                data.take().unwrap()
+                frame.take().unwrap()
             );
             assert_eq!(remaining.len(), 0);
         } else {

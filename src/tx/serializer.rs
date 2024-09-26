@@ -379,3 +379,225 @@ impl<S: Storage> ser::SerializeStructVariant for &'_ mut Serializer<S> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tx::storage::Slice;
+    use serde::Serialize;
+
+    #[test]
+    fn u8_single() {
+        let buf = &mut [0xCDu8; 1];
+        let mut ser = Serializer {
+            output: Slice::new(buf),
+        };
+        0x12u8.serialize(&mut ser).unwrap();
+        assert_eq!(&[0x12], ser.output.finalize());
+    }
+
+    #[test]
+    fn u16_single() {
+        let buf = &mut [0xCDu8; 2];
+        let mut ser = Serializer {
+            output: Slice::new(buf),
+        };
+        0x1234u16.serialize(&mut ser).unwrap();
+        assert_eq!(&[0x12, 0x34], ser.output.finalize());
+    }
+
+    #[test]
+    fn u32_single() {
+        let buf = &mut [0xCDu8; 4];
+        let mut ser = Serializer {
+            output: Slice::new(buf),
+        };
+        0x12345678u32.serialize(&mut ser).unwrap();
+        assert_eq!(&[0x12, 0x34, 0x56, 0x78], ser.output.finalize());
+    }
+
+    #[test]
+    fn u64_single() {
+        let buf = &mut [0xCDu8; 8];
+        let mut ser = Serializer {
+            output: Slice::new(buf),
+        };
+        0x1234567890ABCDEFu64.serialize(&mut ser).unwrap();
+        assert_eq!(
+            &[0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF],
+            ser.output.finalize()
+        );
+    }
+
+    #[test]
+    fn u128_single() {
+        let buf = &mut [0xCDu8; 16];
+        let mut ser = Serializer {
+            output: Slice::new(buf),
+        };
+        0x1234567890ABCDEFFEDCBA0987654321u128
+            .serialize(&mut ser)
+            .unwrap();
+        assert_eq!(
+            &[
+                0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF, 0xFE, 0xDC, 0xBA, 0x09, 0x87, 0x65,
+                0x43, 0x21
+            ],
+            ser.output.finalize()
+        );
+    }
+
+    #[test]
+    fn unsigned_tuple() {
+        let buf = &mut [0xCDu8; 31];
+        let mut ser = Serializer {
+            output: Slice::new(buf),
+        };
+        (
+            0x12u8,
+            0x1234u16,
+            0x12345678u32,
+            0x1234567890ABCDEFu64,
+            0x1234567890ABCDEFFEDCBA0987654321u128,
+        )
+            .serialize(&mut ser)
+            .unwrap();
+        assert_eq!(
+            &[
+                0x12, 0x12, 0x34, 0x12, 0x34, 0x56, 0x78, 0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD,
+                0xEF, 0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF, 0xFE, 0xDC, 0xBA, 0x09, 0x87,
+                0x65, 0x43, 0x21
+            ],
+            ser.output.finalize()
+        );
+    }
+
+    #[test]
+    fn u8_array() {
+        let buf = &mut [0xCDu8; 4];
+        let mut ser = Serializer {
+            output: Slice::new(buf),
+        };
+        [0xDEu8, 0xAD, 0xBE, 0xEF].serialize(&mut ser).unwrap();
+        assert_eq!(&[0xDE, 0xAD, 0xBE, 0xEF], ser.output.finalize());
+    }
+
+    #[test]
+    fn u16_array() {
+        let buf = &mut [0xCDu8; 4];
+        let mut ser = Serializer {
+            output: Slice::new(buf),
+        };
+        [0xDEADu16, 0xBEEF].serialize(&mut ser).unwrap();
+        assert_eq!(&[0xDE, 0xAD, 0xBE, 0xEF], ser.output.finalize());
+    }
+
+    #[test]
+    fn u32_array() {
+        let buf = &mut [0xCDu8; 8];
+        let mut ser = Serializer {
+            output: Slice::new(buf),
+        };
+        [0xDEADBEEFu32, 0x12345678].serialize(&mut ser).unwrap();
+        assert_eq!(
+            &[0xDE, 0xAD, 0xBE, 0xEF, 0x12, 0x34, 0x56, 0x78],
+            ser.output.finalize()
+        );
+    }
+
+    #[test]
+    fn u64_array() {
+        let buf = &mut [0xCDu8; 16];
+        let mut ser = Serializer {
+            output: Slice::new(buf),
+        };
+        [0xDEADBEEF12345678u64, 0xABCDEF0011223344u64]
+            .serialize(&mut ser)
+            .unwrap();
+        assert_eq!(
+            &[
+                0xDE, 0xAD, 0xBE, 0xEF, 0x12, 0x34, 0x56, 0x78, 0xAB, 0xCD, 0xEF, 0x00, 0x11, 0x22,
+                0x33, 0x44
+            ],
+            ser.output.finalize()
+        );
+    }
+
+    #[test]
+    fn u128_array() {
+        let buf = &mut [0xCDu8; 32];
+        let mut ser = Serializer {
+            output: Slice::new(buf),
+        };
+        [
+            0xDEADBEEF12345678ABCDEF0011223344u128,
+            0xABCDEF0011223344DEADBEEF12345678,
+        ]
+        .serialize(&mut ser)
+        .unwrap();
+        assert_eq!(
+            &[
+                0xDE, 0xAD, 0xBE, 0xEF, 0x12, 0x34, 0x56, 0x78, 0xAB, 0xCD, 0xEF, 0x00, 0x11, 0x22,
+                0x33, 0x44, 0xAB, 0xCD, 0xEF, 0x00, 0x11, 0x22, 0x33, 0x44, 0xDE, 0xAD, 0xBE, 0xEF,
+                0x12, 0x34, 0x56, 0x78,
+            ],
+            ser.output.finalize()
+        );
+    }
+
+    #[test]
+    fn bool_true() {
+        let buf = &mut [0xCDu8; 2];
+        let mut ser = Serializer {
+            output: Slice::new(buf),
+        };
+        true.serialize(&mut ser).unwrap();
+        assert_eq!(&[0x00, 0x01], ser.output.finalize());
+    }
+
+    #[test]
+    fn bool_false() {
+        let buf = &mut [0xCDu8; 2];
+        let mut ser = Serializer {
+            output: Slice::new(buf),
+        };
+        false.serialize(&mut ser).unwrap();
+        assert_eq!(&[0x00, 0x00], ser.output.finalize());
+    }
+
+    #[test]
+    fn unit_variant() {
+        let buf = &mut [0xCDu8; 2];
+        let mut ser = Serializer {
+            output: Slice::new(buf),
+        };
+
+        #[derive(Serialize, Debug, PartialEq)]
+        enum Test {
+            _Zero,
+            _One,
+            Two,
+        }
+
+        Test::Two.serialize(&mut ser).unwrap();
+        assert_eq!(&[0x00, 0x02], ser.output.finalize());
+    }
+
+    #[test]
+    fn newtype_variant() {
+        let buf = &mut [0xCDu8; 4];
+        let mut ser = Serializer {
+            output: Slice::new(buf),
+        };
+
+        #[derive(Serialize, Debug, PartialEq)]
+        enum Test {
+            _Zero(u16),
+            One(u16),
+            _Two(u16),
+        }
+
+        Test::One(0x1234).serialize(&mut ser).unwrap();
+        assert_eq!(&[0x00, 0x01, 0x12, 0x34], ser.output.finalize());
+    }
+}

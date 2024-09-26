@@ -379,21 +379,21 @@ mod tests {
     use serde::Deserialize;
 
     #[test]
-    fn u8() {
+    fn u8_single() {
         let input = &[0xDB];
         let mut de = Deserializer { input };
         assert_eq!(0xDB, u8::deserialize(&mut de).unwrap());
     }
 
     #[test]
-    fn u16() {
+    fn u16_single() {
         let input = &[0xDE, 0xBE];
         let mut de = Deserializer { input };
         assert_eq!(0xDEBE, u16::deserialize(&mut de).unwrap());
     }
 
     #[test]
-    fn u32() {
+    fn u32_single() {
         let input = &[0xDE, 0xAD, 0xBE, 0xEF];
         let mut de = Deserializer { input };
         assert_eq!(0xDEADBEEF, u32::deserialize(&mut de).unwrap());
@@ -401,7 +401,7 @@ mod tests {
     }
 
     #[test]
-    fn u64() {
+    fn u64_single() {
         let input = &[0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xEB, 0xDA, 0xED];
         let mut de = Deserializer { input };
         assert_eq!(0xDEADBEEFFEEBDAED, u64::deserialize(&mut de).unwrap());
@@ -409,7 +409,7 @@ mod tests {
     }
 
     #[test]
-    fn u128() {
+    fn u128_single() {
         let input = &[
             0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xEB, 0xDA, 0xED, 0x12, 0x23, 0x34, 0x45, 0x56, 0x67,
             0x78, 0x89,
@@ -505,6 +505,36 @@ mod tests {
         let input = &[0x01, 0x00];
         let mut de = Deserializer { input };
         assert_eq!(Err(Error::DeserializeBadBool), bool::deserialize(&mut de));
+        assert!(de.input.is_empty());
+    }
+
+    #[test]
+    fn unit_variant() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        enum Test {
+            Zero,
+            One,
+            Two,
+        }
+
+        let input = &[0x00, 0x02];
+        let mut de = Deserializer { input };
+        assert_eq!(Ok(Test::Two), Test::deserialize(&mut de));
+        assert!(de.input.is_empty());
+    }
+
+    #[test]
+    fn newtype_variant() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        enum Test {
+            Zero(u16),
+            One(u16),
+            Two(u16),
+        }
+
+        let input = &[0x00, 0x01, 0x12, 0x34];
+        let mut de = Deserializer { input };
+        assert_eq!(Ok(Test::One(0x1234)), Test::deserialize(&mut de));
         assert!(de.input.is_empty());
     }
 }

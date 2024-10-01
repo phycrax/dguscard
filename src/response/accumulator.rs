@@ -1,7 +1,7 @@
 //! An accumulator used to collect chunked DGUS RX frame.
 
-use crate::error::{Error, Result};
 use super::Frame;
+use crate::error::{Error, Result};
 use crate::{CRC, HEADER};
 
 /// An accumulator used to collect chunked DGUS RX frame.

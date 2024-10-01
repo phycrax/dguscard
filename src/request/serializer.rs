@@ -1,7 +1,5 @@
-use crate::{
-    error::{Error, Result},
-    request::storage::Storage,
-};
+use super::storage::Storage;
+use crate::error::{Error, Result};
 use serde::{ser, Serialize};
 
 /// `serde` compatible serializer.

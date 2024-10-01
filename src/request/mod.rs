@@ -5,12 +5,10 @@ mod storage;
 
 pub use storage::Storage;
 
-use crate::{
-    error::Result,
-    request::{serializer::Serializer, storage::Slice},
-    Instruction, CRC, HEADER,
-};
+use crate::{error::Result, Instruction, CRC, HEADER};
 use serde::Serialize;
+use serializer::Serializer;
+use storage::Slice;
 
 #[cfg(feature = "heapless")]
 use heapless::Vec;
@@ -19,9 +17,9 @@ use heapless::Vec;
 ///
 /// Serialization output type is generic and must implement the [`Storage`] trait.
 /// This trait is implemented for [`u8`] slice and [`heapless::Vec`].
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```rust
 /// use dguscard::{RequestFrame, Instruction};
 /// # use std::io::Write;
@@ -48,7 +46,7 @@ use heapless::Vec;
 /// // Transmit the frame
 /// uart.write_all(tx_bytes).unwrap();
 /// ```
-/// 
+///
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Frame<S: Storage> {
     serializer: Serializer<S>,
@@ -57,9 +55,9 @@ pub struct Frame<S: Storage> {
 impl<'a> Frame<Slice<'a>> {
     /// Constructs a new frame that uses a slice as a given backing buffer.
     /// The frame will be finalized as a slice.
-    /// 
+    ///
     /// # Panics
-    /// 
+    ///
     /// Panics if the buffer is too small or too large to contain a frame
     pub fn with_slice(buf: &'a mut [u8], instr: Instruction) -> Result<Self> {
         assert!(buf.len() >= 6, "Buffer too small");

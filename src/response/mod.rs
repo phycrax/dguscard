@@ -7,15 +7,15 @@ pub use accumulator::{Accumulator, FeedResult};
 
 use crate::{
     error::{Error, Result},
-    response::deserializer::Deserializer,
     Instruction, CRC, HEADER,
 };
+use deserializer::Deserializer;
 use serde::Deserialize;
 
 /// Response frame parser
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```rust
 /// use dguscard::{ResponseFrame, Instruction};
 /// use std::io::Read;
@@ -27,7 +27,7 @@ use serde::Deserialize;
 /// }
 /// let mut uart = /* Anything that implements the `Read` trait */
 /// # std::collections::VecDeque::from([
-/// # 0x5A, 0xA5, 14, 0x82, 0x12, 0x34, 0x11, 0x22, 0x22, 
+/// # 0x5A, 0xA5, 14, 0x82, 0x12, 0x34, 0x11, 0x22, 0x22,
 /// # 0x33, 0x33, 0x33, 0x33, 0x44, 0x44, 0x44, 0x44]);
 /// // Backing buffer for the UART.
 /// let buf = &mut [0u8; 50];
@@ -42,7 +42,7 @@ use serde::Deserialize;
 /// // Take an u32 from the frame
 /// let integer: u32 = frame.take().unwrap();
 /// ```
-/// 
+///
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Frame<'de> {
     /// Instruction of the received response
@@ -91,7 +91,9 @@ impl<'de> Frame<'de> {
                 (Instruction::ReadReg { page, addr, len }, input)
             }
             0x82 => {
-                let (&addr, input) = input.split_first_chunk().ok_or(Error::DeserializeUnexpectedEnd)?;
+                let (&addr, input) = input
+                    .split_first_chunk()
+                    .ok_or(Error::DeserializeUnexpectedEnd)?;
                 (
                     Instruction::WriteWord {
                         addr: u16::from_be_bytes(addr),
@@ -100,7 +102,9 @@ impl<'de> Frame<'de> {
                 )
             }
             0x83 => {
-                let (&addr, input) = input.split_first_chunk().ok_or(Error::DeserializeUnexpectedEnd)?;
+                let (&addr, input) = input
+                    .split_first_chunk()
+                    .ok_or(Error::DeserializeUnexpectedEnd)?;
                 let (&len, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
                 (
                     Instruction::ReadWord {
@@ -115,7 +119,9 @@ impl<'de> Frame<'de> {
                 (Instruction::WriteCurve { ch }, input)
             }
             0x86 => {
-                let (&addr, input) = input.split_first_chunk().ok_or(Error::DeserializeUnexpectedEnd)?;
+                let (&addr, input) = input
+                    .split_first_chunk()
+                    .ok_or(Error::DeserializeUnexpectedEnd)?;
                 (
                     Instruction::WriteDword {
                         addr: u32::from_be_bytes(addr),
@@ -124,7 +130,9 @@ impl<'de> Frame<'de> {
                 )
             }
             0x87 => {
-                let (&addr, input) = input.split_first_chunk().ok_or(Error::DeserializeUnexpectedEnd)?;
+                let (&addr, input) = input
+                    .split_first_chunk()
+                    .ok_or(Error::DeserializeUnexpectedEnd)?;
                 let (&len, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
                 (
                     Instruction::ReadDword {

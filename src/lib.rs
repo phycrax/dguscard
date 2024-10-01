@@ -7,8 +7,8 @@
 #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
 
 mod error;
-pub mod response;
 pub mod request;
+pub mod response;
 
 pub use error::{Error, Result};
 pub use request::Frame as RequestFrame;

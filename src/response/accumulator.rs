@@ -213,7 +213,7 @@ impl<const N: usize> Accumulator<N> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::Instruction;
+    use crate::ResponseInstruction;
 
     #[test]
     fn ack_crc() {
@@ -221,12 +221,7 @@ mod test {
         let ser = &[0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 0, 0, 0, 0];
 
         if let FeedResult::Success(frame, remaining) = buf.feed(ser) {
-            assert_eq!(
-                frame.instr,
-                Instruction::WriteWord {
-                    addr: u16::from_be_bytes([b'O', b'K'])
-                }
-            );
+            assert_eq!(frame.instr, ResponseInstruction::AckWriteWord);
             assert_eq!(remaining.len(), 4);
         } else {
             panic!()
@@ -250,7 +245,7 @@ mod test {
         if let FeedResult::Success(mut frame, remaining) = buf.feed(ser) {
             assert_eq!(
                 frame.instr,
-                Instruction::ReadWord {
+                ResponseInstruction::ReadWord {
                     addr: 0x1234,
                     len: 4
                 }

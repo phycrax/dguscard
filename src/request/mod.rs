@@ -5,13 +5,36 @@ mod storage;
 
 pub use storage::Storage;
 
-use crate::{error::Result, Instruction, CRC, HEADER};
+use crate::{error::Result, CRC, HEADER};
 use serde::Serialize;
 use serializer::Serializer;
 use storage::Slice;
 
 #[cfg(feature = "heapless")]
 use heapless::Vec;
+
+/// DGUS Request Instruction
+///
+/// Refer to T5L_DGUS2 DevGuide Section 4.2
+#[derive(PartialEq, Eq, Debug, Clone, Copy, Hash)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[allow(missing_docs)]
+pub enum Instruction {
+    /// Read data from register
+    ReadReg { page: u8, addr: u8, len: u8 },
+    /// Read word data from variable space, using word address
+    ReadWord { addr: u16, len: u8 },
+    /// Read double word data from variable space, using double word address
+    ReadDword { addr: u32, len: u8 },
+    /// Write data to register
+    WriteReg { page: u8, addr: u8 },
+    /// Write word data to variable space, using word address
+    WriteWord { addr: u16 },
+    /// Write double word data to variable space, using double word address
+    WriteDword { addr: u32 },
+    /// Write curve buffer data to variable space, using channel number
+    WriteCurve { ch: u8 },
+}
 
 /// Request frame builder
 ///
@@ -21,7 +44,7 @@ use heapless::Vec;
 /// # Examples
 ///
 /// ```rust
-/// use dguscard::{RequestFrame, Instruction};
+/// use dguscard::{RequestFrame, RequestInstruction};
 /// # use std::io::Write;
 /// #[derive(serde::Serialize)]
 /// struct MyData {
@@ -36,7 +59,7 @@ use heapless::Vec;
 /// // Backing buffer for the frame.
 /// let buf = &mut [0u8; 50];
 /// // Construct a frame with the slice buffer/output type and write data instruction.
-/// let mut frame = RequestFrame::with_slice(buf, Instruction::WriteWord { addr: 0x1234 }).unwrap();
+/// let mut frame = RequestFrame::with_slice(buf, RequestInstruction::WriteWord { addr: 0x1234 }).unwrap();
 /// // Push the data into the frame.
 /// frame.push(&data).unwrap();
 /// // It's possible to push multiple different data types into the frame.
@@ -92,39 +115,47 @@ impl<S: Storage<Output = O>, O> Frame<S> {
         // Push instruction
         use Instruction::*;
         match instr {
+
             WriteReg { page, addr } => {
                 serializer.output.try_push(0x80)?;
                 serializer.output.try_push(page)?;
                 serializer.output.try_push(addr)?;
             }
+
             ReadReg { page, addr, len } => {
                 serializer.output.try_push(0x81)?;
                 serializer.output.try_push(page)?;
                 serializer.output.try_push(addr)?;
                 serializer.output.try_push(len)?;
             }
+
             WriteWord { addr } => {
                 serializer.output.try_push(0x82)?;
                 addr.serialize(&mut serializer)?;
             }
+
             ReadWord { addr, len } => {
                 serializer.output.try_push(0x83)?;
                 addr.serialize(&mut serializer)?;
                 serializer.output.try_push(len)?;
             }
+
             WriteCurve { ch } => {
                 serializer.output.try_push(0x84)?;
                 serializer.output.try_push(ch)?;
             }
+
             WriteDword { addr } => {
                 serializer.output.try_push(0x86)?;
                 addr.serialize(&mut serializer)?;
             }
+
             ReadDword { addr, len } => {
                 serializer.output.try_push(0x87)?;
                 addr.serialize(&mut serializer)?;
                 serializer.output.try_push(len)?;
             }
+
         }
         // Return the frame
         Ok(Self { serializer })

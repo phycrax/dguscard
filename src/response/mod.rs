@@ -7,28 +7,52 @@ pub use accumulator::{Accumulator, FeedResult};
 
 use crate::{
     error::{Error, Result},
-    Instruction, CRC, HEADER,
+    CRC, HEADER,
 };
 use deserializer::Deserializer;
 use serde::Deserialize;
+
+/// DGUS Response Instruction
+///
+/// Refer to T5L_DGUS2 DevGuide Section 4.2
+#[derive(PartialEq, Eq, Debug, Clone, Copy, Hash)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[allow(missing_docs)]
+pub enum Instruction {
+    /// Read data from register
+    ReadReg { page: u8, addr: u8, len: u8 },
+    /// Read word data from variable space, using word address
+    ReadWord { addr: u16, len: u8 },
+    /// Read double word data from variable space, using double word address
+    ReadDword { addr: u32, len: u8 },
+    /// Write data to register acknowledged
+    AckWriteReg,
+    /// Write word data acknowledged
+    AckWriteWord,
+    /// Write double word acknowledged
+    AckWriteDword,
+    /// Write curve buffer data acknowledged
+    AckWriteCurve,
+}
 
 /// Response frame parser
 ///
 /// # Examples
 ///
 /// ```rust
-/// use dguscard::{ResponseFrame, Instruction};
+/// use dguscard::{ResponseFrame, ResponseInstruction};
 /// use std::io::Read;
 /// #[derive(serde::Deserialize)]
 /// struct MyData {
-///     a: u8,
+///     ah: u8,
+///     al: u8,
 ///     b: u16,
 ///     c: u32,
 /// }
 /// let mut uart = /* Anything that implements the `Read` trait */
 /// # std::collections::VecDeque::from([
-/// # 0x5A, 0xA5, 14, 0x82, 0x12, 0x34, 0x11, 0x22, 0x22,
-/// # 0x33, 0x33, 0x33, 0x33, 0x44, 0x44, 0x44, 0x44]);
+/// # 0x5A, 0xA5, 16, 0x83, 0x12, 0x34, 4, 0xAA, 0xBB, 0x11, 0x11, 
+/// # 0x22, 0x22, 0x22, 0x22, 0x33, 0x33, 0x33, 0x33]);
 /// // Backing buffer for the UART.
 /// let buf = &mut [0u8; 50];
 /// // Read a frame from UART.
@@ -79,28 +103,30 @@ impl<'de> Frame<'de> {
 
         // Strip instruction details from input and create the instruction
         let (instr, input) = match instr_code {
-            0x80 => {
-                let (&page, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
-                let (&addr, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
-                (Instruction::WriteReg { page, addr }, input)
+            0x80 | 0x82 | 0x84 | 0x86 => {
+                let (&ack, input) = input
+                    .split_first_chunk()
+                    .ok_or(Error::DeserializeUnexpectedEnd)?;
+                if ack == [b'O', b'K'] {
+                    match instr_code {
+                        0x80 => (Instruction::AckWriteReg, input),
+                        0x82 => (Instruction::AckWriteWord, input),
+                        0x84 => (Instruction::AckWriteCurve, input),
+                        0x86 => (Instruction::AckWriteDword, input),
+                        _ => return Err(Error::DeserializeBadAck),
+                    }
+                } else {
+                    return Err(Error::DeserializeBadAck);
+                }
             }
+
             0x81 => {
                 let (&page, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
                 let (&addr, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
                 let (&len, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
                 (Instruction::ReadReg { page, addr, len }, input)
             }
-            0x82 => {
-                let (&addr, input) = input
-                    .split_first_chunk()
-                    .ok_or(Error::DeserializeUnexpectedEnd)?;
-                (
-                    Instruction::WriteWord {
-                        addr: u16::from_be_bytes(addr),
-                    },
-                    input,
-                )
-            }
+
             0x83 => {
                 let (&addr, input) = input
                     .split_first_chunk()
@@ -114,21 +140,7 @@ impl<'de> Frame<'de> {
                     input,
                 )
             }
-            0x84 => {
-                let (&ch, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
-                (Instruction::WriteCurve { ch }, input)
-            }
-            0x86 => {
-                let (&addr, input) = input
-                    .split_first_chunk()
-                    .ok_or(Error::DeserializeUnexpectedEnd)?;
-                (
-                    Instruction::WriteDword {
-                        addr: u32::from_be_bytes(addr),
-                    },
-                    input,
-                )
-            }
+
             0x87 => {
                 let (&addr, input) = input
                     .split_first_chunk()
@@ -142,6 +154,7 @@ impl<'de> Frame<'de> {
                     input,
                 )
             }
+
             _ => return Err(Error::DeserializeBadInstruction),
         };
 
@@ -216,9 +229,7 @@ mod tests {
         struct Ack;
 
         let input = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 1, 2, 3, 4];
-        let expected = Instruction::WriteWord {
-            addr: u16::from_be_bytes([b'O', b'K']),
-        };
+        let expected = Instruction::AckWriteWord;
         let (mut frame, rest) = Frame::take_from_bytes(&input, true).unwrap();
         let ack: Ack = frame.take().unwrap();
         assert_eq!(frame.instr, expected);

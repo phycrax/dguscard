@@ -18,13 +18,15 @@ pub enum Error {
     DeserializeBadBool,
     /// Found an Option discriminant that wasn't 0 or 1
     DeserializeBadOption,
-    /// Header mismatch found during frame deserialization
+    /// Header mismatch during frame deserialization
     DeserializeBadHeader,
     /// Frame length is larger than the buffer/input size or smaller than the minimum frame size
     DeserializeBadLen,
     /// Unknown frame instruction found during frame deserialization
     DeserializeBadInstruction,
-    /// CRC mismatch found during frame deserialization
+    /// Ack response mismatch during frame deserialization
+    DeserializeBadAck,
+    /// CRC mismatch during frame deserialization
     DeserializeBadCrc,
     /// The accumulator buffer is full
     AccumulateBufferFull,
@@ -50,10 +52,11 @@ impl Display for Error {
                 DeserializeUnexpectedEnd => "Hit the end of buffer, expected more data",
                 DeserializeBadBool => "Found a bool that wasn't 0 or 1",
                 DeserializeBadOption => "Found an Option discriminant that wasn't 0 or 1",
-                DeserializeBadHeader => "Header mismatch found during frame deserialization",
+                DeserializeBadHeader => "Header mismatch during frame deserialization",
                 DeserializeBadLen => "Frame length is larger than the buffer/input size or smaller than the minimum frame size",
                 DeserializeBadInstruction => "Unknown frame instruction found during frame deserialization",
-                DeserializeBadCrc => "CRC mismatch found during frame deserialization",
+                DeserializeBadAck => "Ack response mismatch during frame deserialization",
+                DeserializeBadCrc => "CRC mismatch during frame deserialization",
                 AccumulateBufferFull => "The accumulator buffer is full",
                 SerdeSerCustom => "Serde Serialization Error",
                 SerdeDeCustom => "Serde Deserialization Error",

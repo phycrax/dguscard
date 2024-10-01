@@ -1,7 +1,7 @@
 //! An accumulator used to collect chunked DGUS RX frame.
 
 use crate::error::{Error, Result};
-use crate::rx::RxFrame;
+use super::Frame;
 use crate::{CRC, HEADER};
 
 /// An accumulator used to collect chunked DGUS RX frame.
@@ -14,7 +14,7 @@ use crate::{CRC, HEADER};
 /// Collect a frame by reading chunks then deserialize a struct from the frame.
 ///
 /// ```rust
-/// use dguscard::rx::{Accumulator, FeedResult};
+/// use dguscard::response::{Accumulator, FeedResult};
 /// use std::io::Read;
 /// # #[derive(serde::Deserialize, Debug, PartialEq, Eq)]
 /// # struct MyData {
@@ -49,7 +49,7 @@ use crate::{CRC, HEADER};
 ///                 remaining
 ///             },
 ///             FeedResult::Success(mut frame, remaining) => {
-///                 // Deserialize the content of `frame: RxFrame` here.
+///                 // Deserialize the content of `frame: ResponseFrame` here.
 ///                 
 ///                 let data: MyData = frame.take().unwrap();
 ///     
@@ -77,8 +77,8 @@ pub enum FeedResult<'de, 'a> {
     Consumed,
     /// Accumulation failed. Contains remaining section of input, if any.
     Error(Error, &'a [u8]),
-    /// Accumulation successful. Contains a frame and remaining section of input, if any.
-    Success(RxFrame<'de>, &'a [u8]),
+    /// Accumulation successful. Contains a response frame and remaining section of input, if any.
+    Success(Frame<'de>, &'a [u8]),
 }
 
 /// The internal state of feeding the accumulator.
@@ -119,7 +119,7 @@ impl<const N: usize> Accumulator<N> {
         self.state = FeedState::Empty;
     }
 
-    /// Appends data to the internal buffer and attempts to grab a [`RxFrame`].
+    /// Appends data to the internal buffer and attempts to grab a [`ResponseFrame`].
     pub fn feed<'de, 'a>(&'de mut self, mut input: &'a [u8]) -> FeedResult<'de, 'a> {
         loop {
             if input.is_empty() {
@@ -142,7 +142,7 @@ impl<const N: usize> Accumulator<N> {
                     let idx = self.idx;
                     self.reset();
                     // Deserialize the frame
-                    match RxFrame::from_data_bytes(&self.buf[..idx]) {
+                    match Frame::from_data_bytes(&self.buf[..idx]) {
                         Ok(frame) => FeedResult::Success(frame, remaining),
                         Err(e) => FeedResult::Error(e, remaining),
                     }

@@ -7,10 +7,12 @@
 #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
 
 mod error;
-pub mod rx;
-pub mod tx;
+pub mod response;
+pub mod request;
 
 pub use error::{Error, Result};
+pub use request::Frame as RequestFrame;
+pub use response::Frame as ResponseFrame;
 
 use crc::{Crc, CRC_16_MODBUS};
 const CRC: crc::Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);

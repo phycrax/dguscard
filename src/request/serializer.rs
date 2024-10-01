@@ -1,6 +1,6 @@
 use crate::{
     error::{Error, Result},
-    tx::storage::Storage,
+    request::storage::Storage,
 };
 use serde::{ser, Serialize};
 
@@ -384,7 +384,7 @@ impl<S: Storage> ser::SerializeStructVariant for &'_ mut Serializer<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tx::storage::Slice;
+    use crate::request::storage::Slice;
     use serde::Serialize;
 
     #[test]

@@ -1,4 +1,4 @@
-//! TX frame builder/serializer
+//! Request frame builder/serializer
 
 mod serializer;
 mod storage;
@@ -7,7 +7,7 @@ pub use storage::Storage;
 
 use crate::{
     error::Result,
-    tx::{serializer::Serializer, storage::Slice},
+    request::{serializer::Serializer, storage::Slice},
     Instruction, CRC, HEADER,
 };
 use serde::Serialize;
@@ -15,7 +15,7 @@ use serde::Serialize;
 #[cfg(feature = "heapless")]
 use heapless::Vec;
 
-/// TX frame builder
+/// Request frame builder
 ///
 /// Serialization output type is generic and must implement the [`Storage`] trait.
 /// This trait is implemented for [`u8`] slice and [`heapless::Vec`].
@@ -23,7 +23,7 @@ use heapless::Vec;
 /// # Examples
 /// 
 /// ```rust
-/// use dguscard::{tx::TxFrame, Instruction};
+/// use dguscard::{RequestFrame, Instruction};
 /// # use std::io::Write;
 /// #[derive(serde::Serialize)]
 /// struct MyData {
@@ -38,7 +38,7 @@ use heapless::Vec;
 /// // Backing buffer for the frame.
 /// let buf = &mut [0u8; 50];
 /// // Construct a frame with the slice buffer/output type and write data instruction.
-/// let mut frame = TxFrame::with_slice(buf, Instruction::WriteWord { addr: 0x1234 }).unwrap();
+/// let mut frame = RequestFrame::with_slice(buf, Instruction::WriteWord { addr: 0x1234 }).unwrap();
 /// // Push the data into the frame.
 /// frame.push(&data).unwrap();
 /// // It's possible to push multiple different data types into the frame.
@@ -50,11 +50,11 @@ use heapless::Vec;
 /// ```
 /// 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct TxFrame<S: Storage> {
+pub struct Frame<S: Storage> {
     serializer: Serializer<S>,
 }
 
-impl<'a> TxFrame<Slice<'a>> {
+impl<'a> Frame<Slice<'a>> {
     /// Constructs a new frame that uses a slice as a given backing buffer.
     /// The frame will be finalized as a slice.
     /// 
@@ -69,7 +69,7 @@ impl<'a> TxFrame<Slice<'a>> {
 }
 
 #[cfg(feature = "heapless")]
-impl<const N: usize> TxFrame<Vec<u8, N>> {
+impl<const N: usize> Frame<Vec<u8, N>> {
     /// Constructs a new frame that uses [`heapless::Vec`] as an output.
     /// The frame will be finalized as a [`heapless::Vec`].
     pub fn with_hvec(instr: Instruction) -> Result<Self> {
@@ -81,7 +81,7 @@ impl<const N: usize> TxFrame<Vec<u8, N>> {
     }
 }
 
-impl<S: Storage<Output = O>, O> TxFrame<S> {
+impl<S: Storage<Output = O>, O> Frame<S> {
     /// Constructs a new frame with an output type that implements [`Storage`] trait.
     /// The frame will be finalized as the given output type.
     /// It should rarely be necessary to directly use this function unless you implemented your own [`Storage`].
@@ -169,7 +169,7 @@ mod tests {
         ];
         let data = TestTuple::new();
 
-        let mut frame = TxFrame::with_slice(buf, Instruction::WriteWord { addr: 0x00DE }).unwrap();
+        let mut frame = Frame::with_slice(buf, Instruction::WriteWord { addr: 0x00DE }).unwrap();
         frame.push(&data).unwrap();
         let output = frame.finalize(true).unwrap();
         assert_eq!(output, expected);
@@ -181,7 +181,7 @@ mod tests {
         let expected = &[0x5A, 0xA5, 7, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34];
         let data = TestTuple::new();
 
-        let mut frame = TxFrame::with_slice(buf, Instruction::WriteWord { addr: 0x00DE }).unwrap();
+        let mut frame = Frame::with_slice(buf, Instruction::WriteWord { addr: 0x00DE }).unwrap();
         frame.push(&data).unwrap();
         let output = frame.finalize(false).unwrap();
         assert_eq!(output, expected);
@@ -195,7 +195,7 @@ mod tests {
         .unwrap();
         let data = TestTuple::new();
 
-        let mut frame = TxFrame::with_hvec(Instruction::WriteWord { addr: 0x00DE }).unwrap();
+        let mut frame = Frame::with_hvec(Instruction::WriteWord { addr: 0x00DE }).unwrap();
         frame.push(&data).unwrap();
         let output: Vec<u8, 12> = frame.finalize(true).unwrap();
         assert_eq!(output, expected);
@@ -207,7 +207,7 @@ mod tests {
             Vec::from_slice(&[0x5A, 0xA5, 7, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34]).unwrap();
         let data = TestTuple::new();
 
-        let mut frame = TxFrame::with_hvec(Instruction::WriteWord { addr: 0x00DE }).unwrap();
+        let mut frame = Frame::with_hvec(Instruction::WriteWord { addr: 0x00DE }).unwrap();
         frame.push(&data).unwrap();
         let output: Vec<u8, 10> = frame.finalize(false).unwrap();
         assert_eq!(output, expected);

@@ -1,4 +1,4 @@
-//! RX frame parser/deserializer/accumulator
+//! Response frame parser/deserializer/accumulator
 
 mod accumulator;
 mod deserializer;
@@ -7,17 +7,17 @@ pub use accumulator::{Accumulator, FeedResult};
 
 use crate::{
     error::{Error, Result},
-    rx::deserializer::Deserializer,
+    response::deserializer::Deserializer,
     Instruction, CRC, HEADER,
 };
 use serde::Deserialize;
 
-/// RX frame parser
+/// Response frame parser
 /// 
 /// # Examples
 /// 
 /// ```rust
-/// use dguscard::{rx::RxFrame, Instruction};
+/// use dguscard::{ResponseFrame, Instruction};
 /// use std::io::Read;
 /// #[derive(serde::Deserialize)]
 /// struct MyData {
@@ -34,7 +34,7 @@ use serde::Deserialize;
 /// // Read a frame from UART.
 /// let _ = uart.read(buf).unwrap();
 /// // Look for a frame within the buffer.
-/// let mut frame = RxFrame::from_bytes(buf, false).unwrap();
+/// let mut frame = ResponseFrame::from_bytes(buf, false).unwrap();
 /// // Do something with the received instruction.
 /// dbg!(frame.instr);
 /// // Take a MyData from the frame
@@ -44,14 +44,14 @@ use serde::Deserialize;
 /// ```
 /// 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct RxFrame<'de> {
-    /// Instruction of the received frame
+pub struct Frame<'de> {
+    /// Instruction of the received response
     pub instr: Instruction,
     /// Deserializer for the data section of the frame
     deserializer: Deserializer<'de>,
 }
 
-impl<'de> RxFrame<'de> {
+impl<'de> Frame<'de> {
     /// Looks for a frame within a byte slice.
     /// The unused portion (if any) of the byte slice is not returned.
     /// The byte slice is expected to contain full DGUS frame, including header, length, and CRC if enabled.
@@ -211,7 +211,7 @@ mod tests {
         let expected = Instruction::WriteWord {
             addr: u16::from_be_bytes([b'O', b'K']),
         };
-        let (mut frame, rest) = RxFrame::take_from_bytes(&input, true).unwrap();
+        let (mut frame, rest) = Frame::take_from_bytes(&input, true).unwrap();
         let ack: Ack = frame.take().unwrap();
         assert_eq!(frame.instr, expected);
         assert_eq!(ack, Ack);

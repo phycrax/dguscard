@@ -19,7 +19,7 @@ const HEADER: u16 = 0x5AA5;
 /// DGUS Frame Instruction
 ///
 /// Refer to T5L_DGUS2 DevGuide Section 4.2
-#[derive(PartialEq, Eq, Debug, Clone, Copy)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy, Hash)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[allow(missing_docs)]
 pub enum Instruction {

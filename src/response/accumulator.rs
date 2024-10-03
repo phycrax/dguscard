@@ -1,10 +1,10 @@
-//! An accumulator used to collect chunked DGUS RX frame.
+//! An accumulator used to collect chunked DGUS response frame.
 
-use super::Frame;
+use super::ResponseFrame;
 use crate::error::{Error, Result};
 use crate::{CRC, HEADER};
 
-/// An accumulator used to collect chunked DGUS RX frame.
+/// An accumulator used to collect chunked DGUS response frame.
 ///
 /// This is often useful when you receive "parts" of the frame at a time, for example when draining
 /// a serial port buffer that may not contain an entire uninterrupted frame.
@@ -78,7 +78,7 @@ pub enum FeedResult<'de, 'a> {
     /// Accumulation failed. Contains remaining section of input, if any.
     Error(Error, &'a [u8]),
     /// Accumulation successful. Contains a response frame and remaining section of input, if any.
-    Success(Frame<'de>, &'a [u8]),
+    Success(ResponseFrame<'de>, &'a [u8]),
 }
 
 /// The internal state of feeding the accumulator.
@@ -142,7 +142,7 @@ impl<const N: usize> Accumulator<N> {
                     let idx = self.idx;
                     self.reset();
                     // Deserialize the frame
-                    match Frame::from_data_bytes(&self.buf[..idx]) {
+                    match ResponseFrame::from_data_bytes(&self.buf[..idx]) {
                         Ok(frame) => FeedResult::Success(frame, remaining),
                         Err(e) => FeedResult::Error(e, remaining),
                     }
@@ -213,7 +213,7 @@ impl<const N: usize> Accumulator<N> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::ResponseInstruction;
+    use super::super::*;
 
     #[test]
     fn ack_crc() {

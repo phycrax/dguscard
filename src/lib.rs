@@ -11,8 +11,6 @@ pub mod request;
 pub mod response;
 
 pub use error::{Error, Result};
-pub use request::{Frame as RequestFrame, Instruction as RequestInstruction};
-pub use response::{Frame as ResponseFrame, Instruction as ResponseInstruction};
 
 use crc::{Crc, CRC_16_MODBUS};
 const CRC: crc::Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);

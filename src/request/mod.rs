@@ -13,13 +13,13 @@ use storage::Slice;
 #[cfg(feature = "heapless")]
 use heapless::Vec;
 
-/// DGUS Request Instruction
+/// Request Instruction
 ///
 /// Refer to T5L_DGUS2 DevGuide Section 4.2
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Hash)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[allow(missing_docs)]
-pub enum Instruction {
+pub enum RequestInstruction {
     /// Read data from register
     ReadReg { page: u8, addr: u8, len: u8 },
     /// Read word data from variable space, using word address
@@ -44,7 +44,7 @@ pub enum Instruction {
 /// # Examples
 ///
 /// ```rust
-/// use dguscard::{RequestFrame, RequestInstruction};
+/// use dguscard::request::{RequestFrame, RequestInstruction};
 /// # use std::io::Write;
 /// #[derive(serde::Serialize)]
 /// struct MyData {
@@ -71,18 +71,18 @@ pub enum Instruction {
 /// ```
 ///
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Frame<S: Storage> {
+pub struct RequestFrame<S: Storage> {
     serializer: Serializer<S>,
 }
 
-impl<'a> Frame<Slice<'a>> {
+impl<'a> RequestFrame<Slice<'a>> {
     /// Constructs a new frame that uses a slice as a given backing buffer.
     /// The frame will be finalized as a slice.
     ///
     /// # Panics
     ///
     /// Panics if the buffer is too small or too large to contain a frame
-    pub fn with_slice(buf: &'a mut [u8], instr: Instruction) -> Result<Self> {
+    pub fn with_slice(buf: &'a mut [u8], instr: RequestInstruction) -> Result<Self> {
         assert!(buf.len() >= 6, "Buffer too small");
         assert!(buf.len() <= u8::MAX as usize, "Buffer too large");
         Self::new(Slice::new(buf), instr)
@@ -90,10 +90,10 @@ impl<'a> Frame<Slice<'a>> {
 }
 
 #[cfg(feature = "heapless")]
-impl<const N: usize> Frame<Vec<u8, N>> {
+impl<const N: usize> RequestFrame<Vec<u8, N>> {
     /// Constructs a new frame that uses [`heapless::Vec`] as an output.
     /// The frame will be finalized as a [`heapless::Vec`].
-    pub fn with_hvec(instr: Instruction) -> Result<Self> {
+    pub fn with_hvec(instr: RequestInstruction) -> Result<Self> {
         const {
             assert!(N >= 6, "Buffer too small");
             assert!(N <= u8::MAX as usize, "Buffer too large");
@@ -102,20 +102,19 @@ impl<const N: usize> Frame<Vec<u8, N>> {
     }
 }
 
-impl<S: Storage<Output = O>, O> Frame<S> {
+impl<S: Storage<Output = O>, O> RequestFrame<S> {
     /// Constructs a new frame with an output type that implements [`Storage`] trait.
     /// The frame will be finalized as the given output type.
     /// It should rarely be necessary to directly use this function unless you implemented your own [`Storage`].
-    pub fn new(output: S, instr: Instruction) -> Result<Self> {
+    pub fn new(output: S, instr: RequestInstruction) -> Result<Self> {
         let mut serializer = Serializer { output };
         // Push header
         HEADER.serialize(&mut serializer)?;
         // Push length placeholder
         serializer.output.try_push(0u8)?;
         // Push instruction
-        use Instruction::*;
+        use RequestInstruction::*;
         match instr {
-
             WriteReg { page, addr } => {
                 serializer.output.try_push(0x80)?;
                 serializer.output.try_push(page)?;
@@ -155,7 +154,6 @@ impl<S: Storage<Output = O>, O> Frame<S> {
                 addr.serialize(&mut serializer)?;
                 serializer.output.try_push(len)?;
             }
-
         }
         // Return the frame
         Ok(Self { serializer })
@@ -198,7 +196,8 @@ mod tests {
         ];
         let data = TestTuple::new();
 
-        let mut frame = Frame::with_slice(buf, Instruction::WriteWord { addr: 0x00DE }).unwrap();
+        let mut frame =
+            RequestFrame::with_slice(buf, RequestInstruction::WriteWord { addr: 0x00DE }).unwrap();
         frame.push(&data).unwrap();
         let output = frame.finalize(true).unwrap();
         assert_eq!(output, expected);
@@ -210,7 +209,8 @@ mod tests {
         let expected = &[0x5A, 0xA5, 7, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34];
         let data = TestTuple::new();
 
-        let mut frame = Frame::with_slice(buf, Instruction::WriteWord { addr: 0x00DE }).unwrap();
+        let mut frame =
+            RequestFrame::with_slice(buf, RequestInstruction::WriteWord { addr: 0x00DE }).unwrap();
         frame.push(&data).unwrap();
         let output = frame.finalize(false).unwrap();
         assert_eq!(output, expected);
@@ -224,7 +224,8 @@ mod tests {
         .unwrap();
         let data = TestTuple::new();
 
-        let mut frame = Frame::with_hvec(Instruction::WriteWord { addr: 0x00DE }).unwrap();
+        let mut frame =
+            RequestFrame::with_hvec(RequestInstruction::WriteWord { addr: 0x00DE }).unwrap();
         frame.push(&data).unwrap();
         let output: Vec<u8, 12> = frame.finalize(true).unwrap();
         assert_eq!(output, expected);
@@ -236,7 +237,8 @@ mod tests {
             Vec::from_slice(&[0x5A, 0xA5, 7, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34]).unwrap();
         let data = TestTuple::new();
 
-        let mut frame = Frame::with_hvec(Instruction::WriteWord { addr: 0x00DE }).unwrap();
+        let mut frame =
+            RequestFrame::with_hvec(RequestInstruction::WriteWord { addr: 0x00DE }).unwrap();
         frame.push(&data).unwrap();
         let output: Vec<u8, 10> = frame.finalize(false).unwrap();
         assert_eq!(output, expected);

@@ -12,13 +12,13 @@ use crate::{
 use deserializer::Deserializer;
 use serde::Deserialize;
 
-/// DGUS Response Instruction
+/// Response Instruction
 ///
 /// Refer to T5L_DGUS2 DevGuide Section 4.2
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Hash)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[allow(missing_docs)]
-pub enum Instruction {
+pub enum ResponseInstruction {
     /// Read data from register
     ReadReg { page: u8, addr: u8, len: u8 },
     /// Read word data from variable space, using word address
@@ -40,7 +40,7 @@ pub enum Instruction {
 /// # Examples
 ///
 /// ```rust
-/// use dguscard::{ResponseFrame, ResponseInstruction};
+/// use dguscard::response::{ResponseFrame, ResponseInstruction};
 /// use std::io::Read;
 /// #[derive(serde::Deserialize)]
 /// struct MyData {
@@ -51,7 +51,7 @@ pub enum Instruction {
 /// }
 /// let mut uart = /* Anything that implements the `Read` trait */
 /// # std::collections::VecDeque::from([
-/// # 0x5A, 0xA5, 16, 0x83, 0x12, 0x34, 4, 0xAA, 0xBB, 0x11, 0x11, 
+/// # 0x5A, 0xA5, 16, 0x83, 0x12, 0x34, 4, 0xAA, 0xBB, 0x11, 0x11,
 /// # 0x22, 0x22, 0x22, 0x22, 0x33, 0x33, 0x33, 0x33]);
 /// // Backing buffer for the UART.
 /// let buf = &mut [0u8; 50];
@@ -68,14 +68,14 @@ pub enum Instruction {
 /// ```
 ///
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Frame<'de> {
+pub struct ResponseFrame<'de> {
     /// Instruction of the received response
-    pub instr: Instruction,
+    pub instr: ResponseInstruction,
     /// Deserializer for the data section of the frame
     deserializer: Deserializer<'de>,
 }
 
-impl<'de> Frame<'de> {
+impl<'de> ResponseFrame<'de> {
     /// Looks for a frame within a byte slice.
     /// The unused portion (if any) of the byte slice is not returned.
     /// The byte slice is expected to contain full DGUS frame, including header, length, and CRC if enabled.
@@ -109,10 +109,10 @@ impl<'de> Frame<'de> {
                     .ok_or(Error::DeserializeUnexpectedEnd)?;
                 if ack == [b'O', b'K'] {
                     match instr_code {
-                        0x80 => (Instruction::AckWriteReg, input),
-                        0x82 => (Instruction::AckWriteWord, input),
-                        0x84 => (Instruction::AckWriteCurve, input),
-                        0x86 => (Instruction::AckWriteDword, input),
+                        0x80 => (ResponseInstruction::AckWriteReg, input),
+                        0x82 => (ResponseInstruction::AckWriteWord, input),
+                        0x84 => (ResponseInstruction::AckWriteCurve, input),
+                        0x86 => (ResponseInstruction::AckWriteDword, input),
                         _ => return Err(Error::DeserializeBadAck),
                     }
                 } else {
@@ -124,7 +124,7 @@ impl<'de> Frame<'de> {
                 let (&page, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
                 let (&addr, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
                 let (&len, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
-                (Instruction::ReadReg { page, addr, len }, input)
+                (ResponseInstruction::ReadReg { page, addr, len }, input)
             }
 
             0x83 => {
@@ -133,7 +133,7 @@ impl<'de> Frame<'de> {
                     .ok_or(Error::DeserializeUnexpectedEnd)?;
                 let (&len, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
                 (
-                    Instruction::ReadWord {
+                    ResponseInstruction::ReadWord {
                         addr: u16::from_be_bytes(addr),
                         len,
                     },
@@ -147,7 +147,7 @@ impl<'de> Frame<'de> {
                     .ok_or(Error::DeserializeUnexpectedEnd)?;
                 let (&len, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
                 (
-                    Instruction::ReadDword {
+                    ResponseInstruction::ReadDword {
                         addr: u32::from_be_bytes(addr),
                         len,
                     },
@@ -229,8 +229,8 @@ mod tests {
         struct Ack;
 
         let input = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 1, 2, 3, 4];
-        let expected = Instruction::AckWriteWord;
-        let (mut frame, rest) = Frame::take_from_bytes(&input, true).unwrap();
+        let expected = ResponseInstruction::AckWriteWord;
+        let (mut frame, rest) = ResponseFrame::take_from_bytes(&input, true).unwrap();
         let ack: Ack = frame.take().unwrap();
         assert_eq!(frame.instr, expected);
         assert_eq!(ack, Ack);

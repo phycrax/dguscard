@@ -3,12 +3,11 @@
 [![crates.io](https://img.shields.io/crates/d/dguscard.svg)](https://crates.io/crates/dguscard)
 [![crates.io](https://img.shields.io/crates/v/dguscard.svg)](https://crates.io/crates/dguscard)
 
-dguscard is a [postcard](https://github.com/jamesmunns/postcard)ish `#![no_std]` DWIN T5L_DGUSII touchscreen wire format frame parser/builder with `serde` capability.
-It is intended to be a building block for higher level UI elements that can be sent to or received with DWIN DGUS touchscreens.
+dguscard is a `#![no_std]` [DWIN](https://www.dwin-global.com) T5L DGUS frame parser/builder with `serde` capability, inspired by [postcard](https://github.com/jamesmunns/postcard).
 
 ## Examples
 
-Take a look at [`rx::RxFrame`](https://docs.rs/dguscard/rx/struct.RxFrame.html), [`rx::Accumulator`](https://docs.rs/dguscard/rx/struct.Accumulator.html) and [`tx::TxFrame`](https://docs.rs/dguscard/tx/struct.TxFrame.html) examples.
+Take a look at [`request::RequestFrame`](https://docs.rs/dguscard/request/struct.RequestFrame.html), [`response::ResponseFrame`](https://docs.rs/dguscard/response/struct.ResponseFrame.html) and [`response::Accumulator`](https://docs.rs/dguscard/response/struct.Accumulator.html) examples.
 
 ## Setup - `Cargo.toml`
 

@@ -3,12 +3,11 @@
 mod serializer;
 mod storage;
 
-pub use storage::Storage;
+pub use storage::{Slice, Storage};
 
 use crate::{error::Result, CRC, HEADER};
 use serde::Serialize;
 use serializer::Serializer;
-use storage::Slice;
 
 #[cfg(feature = "heapless")]
 use heapless::Vec;
@@ -39,7 +38,7 @@ pub enum RequestInstruction {
 /// Request frame builder
 ///
 /// Serialization output type is generic and must implement the [`Storage`] trait.
-/// This trait is implemented for [`u8`] slice and [`heapless::Vec`].
+/// This trait is implemented for [`u8`] slice and [`heapless::Vec<u8>`].
 ///
 /// # Examples
 ///

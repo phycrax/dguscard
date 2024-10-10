@@ -28,6 +28,8 @@ pub trait Storage: Deref<Target = [u8]> + DerefMut<Target = [u8]> {
     fn finalize(self) -> Self::Output;
 }
 
+/// A storage type that uses plain `[u8]` slice
+/// 
 /// The `Slice` type is a storage type, storing the serialized bytes into a plain `[u8]` slice.
 /// The `Slice` type resolves into a sub-slice of the original slice buffer.
 pub struct Slice<'a> {

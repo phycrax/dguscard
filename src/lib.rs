@@ -8,9 +8,10 @@
 
 mod error;
 pub mod request;
-pub mod response;
+mod response;
 
 pub use error::{Error, Result};
+pub use response::{Accumulator, FeedResult, Response, ResponseData};
 
 use crc::{Crc, CRC_16_MODBUS};
 const CRC: crc::Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);

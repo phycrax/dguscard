@@ -1,30 +1,31 @@
-//! An accumulator used to collect chunked DGUS response frame.
+//! An accumulator used to collect chunked DGUS response.
 
-use super::ResponseFrame;
+use super::Response;
 use crate::error::{Error, Result};
 use crate::{CRC, HEADER};
 
-/// An accumulator used to collect chunked DGUS response frame.
+/// An accumulator used to collect chunked DGUS response.
 ///
-/// This is often useful when you receive "parts" of the frame at a time, for example when draining
-/// a serial port buffer that may not contain an entire uninterrupted frame.
+/// This is often useful when you receive "parts" of the response at a time, for example when draining
+/// a serial port buffer that may not contain an entire uninterrupted response.
 ///
 /// # Examples
 ///
-/// Collect a frame by reading chunks then deserialize a struct from the frame.
+/// Collect a response by reading chunks.
 ///
 /// ```rust
-/// use dguscard::response::{Accumulator, FeedResult};
-/// use std::io::Read;
-/// # #[derive(serde::Deserialize, Debug, PartialEq, Eq)]
-/// # struct MyData {
-/// #     a: u16,
-/// #     b: bool,
-/// #     c: u32,
-/// # }
-/// let mut uart = /* Anything that implements the `Read` trait */
-/// # &[0x5A, 0xA5, 12, 0x83, 0x12, 0x34, 4, 0xAA, 0xBB, 0x00, 0x01, 0xCC, 0xDD, 0xEE, 0xFF][..];
+/// use dguscard::{Accumulator, FeedResult};
+/// # use std::io::Read;
 ///
+/// #[derive(serde::Deserialize, Debug, PartialEq, Eq)]
+/// struct MyData {
+///     a: u16,
+///     b: bool,
+///     c: u32,
+/// }
+///
+/// let mut uart =
+/// # &[0x5A, 0xA5, 12, 0x83, 0x12, 0x34, 4, 0xAA, 0xBB, 0x00, 0x01, 0xCC, 0xDD, 0xEE, 0xFF][..];
 /// let mut raw_buf = [0u8; 32];
 /// // Create a new Accumulator with CRC check disabled.
 /// let mut dgus_buf: Accumulator<128> = Accumulator::new(false);
@@ -45,16 +46,16 @@ use crate::{CRC, HEADER};
 ///                 // Do something with the error here.
 ///
 ///                 dbg!(error);
-///
+///                 
+///                 // Set the remaining bytes as the new window
 ///                 remaining
 ///             },
-///             FeedResult::Success(mut frame, remaining) => {
-///                 // Deserialize the content of `frame: ResponseFrame` here.
-///                 
-///                 let data: MyData = frame.take().unwrap();
+///             FeedResult::Success(response, remaining) => {
+///                 // Do something with the response here.  
 ///     
-///                 dbg!(data);
-///
+///                 dbg!(response);
+///                 
+///                 // Set the remaining bytes as the new window
 ///                 remaining
 ///             }
 ///         };
@@ -77,8 +78,8 @@ pub enum FeedResult<'de, 'a> {
     Consumed,
     /// Accumulation failed. Contains remaining section of input, if any.
     Error(Error, &'a [u8]),
-    /// Accumulation successful. Contains a response frame and remaining section of input, if any.
-    Success(ResponseFrame<'de>, &'a [u8]),
+    /// Accumulation successful. Contains a response and remaining section of input, if any.
+    Success(Response<'de>, &'a [u8]),
 }
 
 /// The internal state of feeding the accumulator.
@@ -119,7 +120,7 @@ impl<const N: usize> Accumulator<N> {
         self.state = FeedState::Empty;
     }
 
-    /// Appends data to the internal buffer and attempts to grab a [`ResponseFrame`].
+    /// Appends data to the internal buffer and attempts to grab a [`Response`].
     pub fn feed<'de, 'a>(&'de mut self, mut input: &'a [u8]) -> FeedResult<'de, 'a> {
         loop {
             if input.is_empty() {
@@ -137,13 +138,13 @@ impl<const N: usize> Accumulator<N> {
                     self.reset();
                     FeedResult::Error(e, remaining)
                 }
-                // There is a frame ready to be grabbed
+                // There is a response ready to be grabbed
                 Ok(Some(())) => {
                     let idx = self.idx;
                     self.reset();
-                    // Deserialize the frame
-                    match ResponseFrame::from_data_bytes(&self.buf[..idx]) {
-                        Ok(frame) => FeedResult::Success(frame, remaining),
+                    // Construct the response
+                    match Response::from_content_bytes(&self.buf[..idx]) {
+                        Ok(response) => FeedResult::Success(response, remaining),
                         Err(e) => FeedResult::Error(e, remaining),
                     }
                 }
@@ -213,15 +214,14 @@ impl<const N: usize> Accumulator<N> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use super::super::*;
 
     #[test]
     fn ack_crc() {
         let mut buf: Accumulator<64> = Accumulator::new(true);
         let ser = &[0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 0, 0, 0, 0];
 
-        if let FeedResult::Success(frame, remaining) = buf.feed(ser) {
-            assert_eq!(frame.instr, ResponseInstruction::AckWriteWord);
+        if let FeedResult::Success(response, remaining) = buf.feed(ser) {
+            assert_eq!(response, Response::AckWriteWord);
             assert_eq!(remaining.len(), 4);
         } else {
             panic!()
@@ -242,14 +242,15 @@ mod test {
             0x5A, 0xA5, 12, 0x83, 0x12, 0x34, 4, 0xAA, 0xBB, 0x00, 0x01, 0xCC, 0xDD, 0xEE, 0xFF,
         ];
 
-        if let FeedResult::Success(mut frame, remaining) = buf.feed(ser) {
-            assert_eq!(
-                frame.instr,
-                ResponseInstruction::ReadWord {
-                    addr: 0x1234,
-                    len: 4
-                }
-            );
+        if let FeedResult::Success(response, remaining) = buf.feed(ser) {
+            let Response::ReadWord {
+                addr: 0x1234,
+                len: 4,
+                mut data,
+            } = response
+            else {
+                panic!("Expected ReadWord response, got {:?}", response);
+            };
 
             assert_eq!(
                 Demo {
@@ -257,7 +258,7 @@ mod test {
                     b: true,
                     c: 0xCCDDEEFF
                 },
-                frame.take().unwrap()
+                data.take().unwrap()
             );
             assert_eq!(remaining.len(), 0);
         } else {
@@ -273,10 +274,17 @@ mod test {
             0x5A, 0xA5, 12, 0x83, 0x12, 0x34, 4, 0xBB, 0xAA, 0x00, 0x00, 0xFF, 0xEE, 0xDD, 0xCC,
         ];
 
-        let (demo1, ser) = if let FeedResult::Success(mut frame, remaining) = buf.feed(ser) {
-            (frame.take().unwrap(), remaining)
-        } else {
-            panic!()
+        let FeedResult::Success(response, remaining) = buf.feed(ser) else {
+            panic!("Expected Success");
+        };
+
+        let Response::ReadWord {
+            addr: 0x1234,
+            len: 4,
+            mut data,
+        } = response
+        else {
+            panic!("Expected ReadWord response");
         };
 
         assert_eq!(
@@ -285,14 +293,20 @@ mod test {
                 b: true,
                 c: 0xCCDDEEFF
             },
-            demo1
+            data.take().unwrap()
         );
 
-        let demo2 = if let FeedResult::Success(mut frame, remaining) = buf.feed(ser) {
-            assert_eq!(remaining.len(), 0);
-            frame.take().unwrap()
-        } else {
-            panic!()
+        let FeedResult::Success(response, remaining) = buf.feed(remaining) else {
+            panic!("Expected Success");
+        };
+
+        let Response::ReadWord {
+            addr: 0x1234,
+            len: 4,
+            mut data,
+        } = response
+        else {
+            panic!("Expected ReadWord response");
         };
 
         assert_eq!(
@@ -301,7 +315,9 @@ mod test {
                 b: false,
                 c: 0xFFEEDDCC,
             },
-            demo2
+            data.take().unwrap()
         );
+
+        assert!(remaining.is_empty());
     }
 }

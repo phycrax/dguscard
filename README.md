@@ -7,7 +7,7 @@ dguscard is a `#![no_std]` [DWIN](https://www.dwin-global.com) T5L DGUS frame pa
 
 ## Examples
 
-Take a look at [`request::RequestFrame`](https://docs.rs/dguscard/request/struct.RequestFrame.html), [`response::ResponseFrame`](https://docs.rs/dguscard/response/struct.ResponseFrame.html) and [`response::Accumulator`](https://docs.rs/dguscard/response/struct.Accumulator.html) examples.
+Take a look at [`Request`](https://docs.rs/dguscard/request/struct.RequestFrame.html), [`Response`](https://docs.rs/dguscard/response/struct.Response.html) and [`Accumulator`](https://docs.rs/dguscard/response/struct.Accumulator.html) examples.
 
 ## Setup - `Cargo.toml`
 

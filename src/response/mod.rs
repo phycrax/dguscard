@@ -1,4 +1,4 @@
-//! Response frame parser/deserializer/accumulator
+//! Response parser/deserializer/accumulator
 
 mod accumulator;
 mod deserializer;
@@ -6,42 +6,43 @@ mod deserializer;
 pub use accumulator::{Accumulator, FeedResult};
 
 use crate::{
-    error::{Error, Result},
+    error::{Error::*, Result},
     CRC, HEADER,
 };
 use deserializer::Deserializer;
 use serde::Deserialize;
 
-/// Response Instruction
-///
-/// Refer to T5L_DGUS2 DevGuide Section 4.2
-#[derive(PartialEq, Eq, Debug, Clone, Copy, Hash)]
+/// Response data slice with deserialization capability
+#[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[allow(missing_docs)]
-pub enum ResponseInstruction {
-    /// Read data from register
-    ReadReg { page: u8, addr: u8, len: u8 },
-    /// Read word data from variable space, using word address
-    ReadWord { addr: u16, len: u8 },
-    /// Read double word data from variable space, using double word address
-    ReadDword { addr: u32, len: u8 },
-    /// Write data to register acknowledged
-    AckWriteReg,
-    /// Write word data acknowledged
-    AckWriteWord,
-    /// Write double word acknowledged
-    AckWriteDword,
-    /// Write curve buffer data acknowledged
-    AckWriteCurve,
+pub struct ResponseData<'de> {
+    deserializer: Deserializer<'de>,
 }
 
-/// Response frame parser
+impl<'de> ResponseData<'de> {
+    /// Removes a `T` from the slice and returns it.
+    pub fn take<T: Deserialize<'de>>(&mut self) -> Result<T> {
+        T::deserialize(&mut self.deserializer)
+    }
+
+    /// Returns the number of remaining bytes in the response.
+    pub fn len(&self) -> usize {
+        self.deserializer.input.len()
+    }
+
+    /// Returns true if the slice does not contain any remaining bytes.
+    pub fn is_empty(&self) -> bool {
+        self.deserializer.input.is_empty()
+    }
+}
+
+/// Response parser
 ///
 /// # Examples
 ///
 /// ```rust
-/// use dguscard::response::{ResponseFrame, ResponseInstruction};
-/// use std::io::Read;
+/// use dguscard::Response;
+/// # use std::io::Read;
 /// #[derive(serde::Deserialize)]
 /// struct MyData {
 ///     ah: u8,
@@ -49,151 +50,178 @@ pub enum ResponseInstruction {
 ///     b: u16,
 ///     c: u32,
 /// }
-/// let mut uart = /* Anything that implements the `Read` trait */
+///
+/// let mut uart =
 /// # std::collections::VecDeque::from([
 /// # 0x5A, 0xA5, 16, 0x83, 0x12, 0x34, 4, 0xAA, 0xBB, 0x11, 0x11,
 /// # 0x22, 0x22, 0x22, 0x22, 0x33, 0x33, 0x33, 0x33]);
 /// // Backing buffer for the UART.
 /// let buf = &mut [0u8; 50];
-/// // Read a frame from UART.
+/// // Read a response from UART.
 /// let _ = uart.read(buf).unwrap();
-/// // Look for a frame within the buffer.
-/// let mut frame = ResponseFrame::from_bytes(buf, false).unwrap();
-/// // Do something with the received instruction.
-/// dbg!(frame.instr);
-/// // Take a MyData from the frame
-/// let data: MyData = frame.take().unwrap();
-/// // Take an u32 from the frame
-/// let integer: u32 = frame.take().unwrap();
+/// // Look for a response within the buffer.
+/// let mut response = Response::from_bytes(buf, false).unwrap();
+/// // Do something with the response.
+/// match response {
+///     Response::ReadWord{addr, len, mut data} => {
+///         // Check the address and the length of the response
+///         dbg!(addr, len);
+///         // Take a MyData from the response data
+///         let my_data: MyData = data.take().unwrap();
+///         // Take an u32 from the response data
+///         let integer: u32 = data.take().unwrap();
+///     }
+///     _ => ()
+/// }
 /// ```
 ///
+#[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct ResponseFrame<'de> {
-    /// Instruction of the received response
-    pub instr: ResponseInstruction,
-    /// Deserializer for the data section of the frame
-    deserializer: Deserializer<'de>,
+#[allow(missing_docs)]
+pub enum Response<'de> {
+    ReadReg {
+        page: u8,
+        addr: u8,
+        len: u8,
+        data: ResponseData<'de>,
+    },
+    ReadWord {
+        addr: u16,
+        len: u8,
+        data: ResponseData<'de>,
+    },
+    ReadDword {
+        addr: u32,
+        len: u8,
+        data: ResponseData<'de>,
+    },
+    AckWriteReg,
+    AckWriteWord,
+    AckWriteDword,
+    AckWriteCurve,
 }
 
-impl<'de> ResponseFrame<'de> {
-    /// Looks for a frame within a byte slice.
+impl<'de> Response<'de> {
+    /// Looks for a response within a byte slice.
     /// The unused portion (if any) of the byte slice is not returned.
-    /// The byte slice is expected to contain full DGUS frame, including header, length, and CRC if enabled.
+    /// The byte slice is expected to contain full DGUS response, including header, length, and CRC if enabled.
     pub fn from_bytes(input: &'de [u8], crc: bool) -> Result<Self> {
-        let (frame, _) = Self::take_from_bytes(input, crc)?;
-        Ok(frame)
+        let (response, _) = Self::take_from_bytes(input, crc)?;
+        Ok(response)
     }
 
-    /// Looks for a frame within a byte slice.
+    /// Looks for a response within a byte slice.
     /// The unused portion (if any) of the byte slice is returned for further usage.
-    /// The byte slice is expected to contain full DGUS frame, including header, length, and CRC if enabled.
+    /// The byte slice is expected to contain full DGUS response, including header, length, and CRC if enabled.
     pub fn take_from_bytes(input: &'de [u8], crc: bool) -> Result<(Self, &'de [u8])> {
         let (input, rest) = Self::extract_data_bytes(input, crc)?;
-        Ok((Self::from_data_bytes(input)?, rest))
+        Ok((Self::from_content_bytes(input)?, rest))
     }
 
-    /// Looks for a frame within a byte slice.
+    /// Looks for a response within a byte slice.
     /// The unused portion (if any) of the byte slice is not returned.
-    /// The data byte slice is expected to contain instruction and data part of the DGUS frame,
+    /// The data byte slice is expected to contain instruction and data part of the DGUS response,
     /// i.e. excluding header, length, and CRC if enabled.
     /// Intended to be used with an Accumulator.
-    pub fn from_data_bytes(input: &'de [u8]) -> Result<Self> {
+    pub fn from_content_bytes(input: &'de [u8]) -> Result<Self> {
         // Strip instruction code from input
-        let (&instr_code, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
+        let (&instr_code, input) = input.split_first().ok_or(DeserializeUnexpectedEnd)?;
 
-        // Strip instruction details from input and create the instruction
-        let (instr, input) = match instr_code {
-            0x80 | 0x82 | 0x84 | 0x86 => {
-                let (&ack, input) = input
-                    .split_first_chunk()
-                    .ok_or(Error::DeserializeUnexpectedEnd)?;
-                if ack == [b'O', b'K'] {
-                    match instr_code {
-                        0x80 => (ResponseInstruction::AckWriteReg, input),
-                        0x82 => (ResponseInstruction::AckWriteWord, input),
-                        0x84 => (ResponseInstruction::AckWriteCurve, input),
-                        0x86 => (ResponseInstruction::AckWriteDword, input),
-                        _ => return Err(Error::DeserializeBadAck),
+        use Response::*;
+
+        // Is it ACK?
+        if instr_code % 2 == 0 {
+            let response = match instr_code {
+                0x80 => AckWriteReg,
+                0x82 => AckWriteWord,
+                0x84 => AckWriteCurve,
+                0x86 => AckWriteDword,
+                _ => return Err(DeserializeBadInstruction),
+            };
+            // Verify ACK message
+            input.strip_prefix(b"OK").ok_or(DeserializeBadAck)?;
+            Ok(response)
+        }
+        // Or is it data?
+        else {
+            let response = match instr_code {
+                0x81 => {
+                    let (&page, input) = input.split_first().ok_or(DeserializeUnexpectedEnd)?;
+                    let (&addr, input) = input.split_first().ok_or(DeserializeUnexpectedEnd)?;
+                    let (&len, input) = input.split_first().ok_or(DeserializeUnexpectedEnd)?;
+
+                    ReadReg {
+                        page,
+                        addr,
+                        len,
+                        data: ResponseData {
+                            deserializer: Deserializer { input },
+                        },
                     }
-                } else {
-                    return Err(Error::DeserializeBadAck);
                 }
-            }
 
-            0x81 => {
-                let (&page, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
-                let (&addr, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
-                let (&len, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
-                (ResponseInstruction::ReadReg { page, addr, len }, input)
-            }
+                0x83 => {
+                    let (&addr, input) =
+                        input.split_first_chunk().ok_or(DeserializeUnexpectedEnd)?;
+                    let (&len, input) = input.split_first().ok_or(DeserializeUnexpectedEnd)?;
 
-            0x83 => {
-                let (&addr, input) = input
-                    .split_first_chunk()
-                    .ok_or(Error::DeserializeUnexpectedEnd)?;
-                let (&len, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
-                (
-                    ResponseInstruction::ReadWord {
+                    ReadWord {
                         addr: u16::from_be_bytes(addr),
                         len,
-                    },
-                    input,
-                )
-            }
+                        data: ResponseData {
+                            deserializer: Deserializer { input },
+                        },
+                    }
+                }
 
-            0x87 => {
-                let (&addr, input) = input
-                    .split_first_chunk()
-                    .ok_or(Error::DeserializeUnexpectedEnd)?;
-                let (&len, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
-                (
-                    ResponseInstruction::ReadDword {
+                0x87 => {
+                    let (&addr, input) =
+                        input.split_first_chunk().ok_or(DeserializeUnexpectedEnd)?;
+                    let (&len, input) = input.split_first().ok_or(DeserializeUnexpectedEnd)?;
+
+                    ReadDword {
                         addr: u32::from_be_bytes(addr),
                         len,
-                    },
-                    input,
-                )
-            }
+                        data: ResponseData {
+                            deserializer: Deserializer { input },
+                        },
+                    }
+                }
 
-            _ => return Err(Error::DeserializeBadInstruction),
-        };
+                _ => return Err(DeserializeBadInstruction),
+            };
 
-        // Return the frame
-        Ok(Self {
-            instr,
-            deserializer: Deserializer { input },
-        })
+            Ok(response)
+        }
     }
 
-    /// Extracts the instruction+data part of the frame from a byte slice.
+    /// Extracts the instruction+data part of the response from a byte slice.
     /// The unused portion (if any) of the byte slice is returned for further usage.
-    /// The byte slice is expected to contain full DGUS frame, including header, length, and CRC if enabled.
+    /// The byte slice is expected to contain full DGUS response, including header, length, and CRC if enabled.
     fn extract_data_bytes(input: &'de [u8], crc: bool) -> Result<(&'de [u8], &'de [u8])> {
         // Strip header from input
         let input = input
             .strip_prefix(&u16::to_be_bytes(HEADER))
-            .ok_or(Error::DeserializeBadHeader)?;
+            .ok_or(DeserializeBadHeader)?;
 
         // Strip length from input
-        let (len, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
+        let (len, input) = input.split_first().ok_or(DeserializeUnexpectedEnd)?;
         let len = *len as usize;
         let min_len = if crc { 5 } else { 3 };
         if len < min_len || len > input.len() {
-            return Err(Error::DeserializeBadLen);
+            return Err(DeserializeBadLen);
         }
 
         // Split input with the length
         let (input, rest) = input
             .split_at_checked(len)
-            .ok_or(Error::DeserializeUnexpectedEnd)?;
+            .ok_or(DeserializeUnexpectedEnd)?;
 
         // Strip CRC from input
         let input = if crc {
-            let (input, crc) = input
-                .split_last_chunk()
-                .ok_or(Error::DeserializeUnexpectedEnd)?;
+            let (input, crc) = input.split_last_chunk().ok_or(DeserializeUnexpectedEnd)?;
             if u16::from_le_bytes(*crc) != CRC.checksum(input) {
-                return Err(Error::DeserializeBadCrc);
+                return Err(DeserializeBadCrc);
             }
             input
         } else {
@@ -201,21 +229,6 @@ impl<'de> ResponseFrame<'de> {
         };
 
         Ok((input, rest))
-    }
-
-    /// Removes a `T` from the frame and returns it.
-    pub fn take<T: Deserialize<'de>>(&mut self) -> Result<T> {
-        T::deserialize(&mut self.deserializer)
-    }
-
-    /// Returns the number of remaining bytes in the frame.
-    pub fn len(&self) -> usize {
-        self.deserializer.input.len()
-    }
-
-    /// Returns true if the frame does not contain any remaining bytes.
-    pub fn is_empty(&self) -> bool {
-        self.deserializer.input.is_empty()
     }
 }
 
@@ -225,15 +238,9 @@ mod tests {
 
     #[test]
     fn ack_crc() {
-        #[derive(Deserialize, Debug, PartialEq)]
-        struct Ack;
-
         let input = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 1, 2, 3, 4];
-        let expected = ResponseInstruction::AckWriteWord;
-        let (mut frame, rest) = ResponseFrame::take_from_bytes(&input, true).unwrap();
-        let ack: Ack = frame.take().unwrap();
-        assert_eq!(frame.instr, expected);
-        assert_eq!(ack, Ack);
+        let (response, rest) = Response::take_from_bytes(&input, true).unwrap();
+        assert_eq!(response, Response::AckWriteWord);
         assert_eq!(rest, &[1, 2, 3, 4]);
     }
 }

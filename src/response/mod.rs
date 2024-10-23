@@ -124,70 +124,47 @@ impl<'de> Response<'de> {
     /// i.e. excluding header, length, and CRC if enabled.
     /// Intended to be used with an Accumulator.
     pub fn from_content_bytes(input: &'de [u8]) -> Result<Self> {
+        let mut deserializer = Deserializer { input };
+
         // Strip instruction code from input
-        let (&instr_code, input) = input.split_first().ok_or(DeserializeUnexpectedEnd)?;
+        let opcode = u8::deserialize(&mut deserializer)?;
 
         use Response::*;
 
         // Is it ACK?
-        if instr_code % 2 == 0 {
-            let response = match instr_code {
+        if opcode % 2 == 0 {
+            let response = match opcode {
                 0x80 => AckWriteReg,
                 0x82 => AckWriteWord,
                 0x84 => AckWriteCurve,
                 0x86 => AckWriteDword,
                 _ => return Err(DeserializeBadInstruction),
             };
-            // Verify ACK message
-            input.strip_prefix(b"OK").ok_or(DeserializeBadAck)?;
+            // Verify ACK bytes
+            if u16::deserialize(&mut deserializer)? != u16::from_be_bytes([b'O', b'K']) {
+                return Err(DeserializeBadAck);
+            }
             Ok(response)
         }
         // Or is it data?
         else {
-            let response = match instr_code {
-                0x81 => {
-                    let (&page, input) = input.split_first().ok_or(DeserializeUnexpectedEnd)?;
-                    let (&addr, input) = input.split_first().ok_or(DeserializeUnexpectedEnd)?;
-                    let (&len, input) = input.split_first().ok_or(DeserializeUnexpectedEnd)?;
-
-                    ReadReg {
-                        page,
-                        addr,
-                        len,
-                        data: ResponseData {
-                            deserializer: Deserializer { input },
-                        },
-                    }
-                }
-
-                0x83 => {
-                    let (&addr, input) =
-                        input.split_first_chunk().ok_or(DeserializeUnexpectedEnd)?;
-                    let (&len, input) = input.split_first().ok_or(DeserializeUnexpectedEnd)?;
-
-                    ReadWord {
-                        addr: u16::from_be_bytes(addr),
-                        len,
-                        data: ResponseData {
-                            deserializer: Deserializer { input },
-                        },
-                    }
-                }
-
-                0x87 => {
-                    let (&addr, input) =
-                        input.split_first_chunk().ok_or(DeserializeUnexpectedEnd)?;
-                    let (&len, input) = input.split_first().ok_or(DeserializeUnexpectedEnd)?;
-
-                    ReadDword {
-                        addr: u32::from_be_bytes(addr),
-                        len,
-                        data: ResponseData {
-                            deserializer: Deserializer { input },
-                        },
-                    }
-                }
-
+            let response = match opcode {
+                0x81 => ReadReg {
+                    page: u8::deserialize(&mut deserializer)?,
+                    addr: u8::deserialize(&mut deserializer)?,
+                    len: u8::deserialize(&mut deserializer)?,
+                    data: ResponseData { deserializer },
+                },
+                0x83 => ReadWord {
+                    addr: u16::deserialize(&mut deserializer)?,
+                    len: u8::deserialize(&mut deserializer)?,
+                    data: ResponseData { deserializer },
+                },
+                0x87 => ReadDword {
+                    addr: u32::deserialize(&mut deserializer)?,
+                    len: u8::deserialize(&mut deserializer)?,
+                    data: ResponseData { deserializer },
+                },
                 _ => return Err(DeserializeBadInstruction),
             };
 

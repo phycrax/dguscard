@@ -8,11 +8,100 @@
 
 mod error;
 pub mod request;
-mod response;
+pub mod response;
 
 pub use error::{Error, Result};
-pub use response::{Accumulator, FeedResult, Response, ResponseData};
 
 use crc::{Crc, CRC_16_MODBUS};
+use serde::{Deserialize, Serialize};
+
 const CRC: crc::Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
 const HEADER: u16 = 0x5AA5;
+
+trait Instruction: Serialize {
+    const OPCODE: u8;
+}
+
+/// Write command
+///
+/// Use it with an instruction
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Write;
+
+/// Read command
+///
+/// Use it with an instruction
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Read {
+    /// Length
+    pub len: u8,
+}
+
+/// Register instruction
+///
+/// Generic over commands
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Register<T> {
+    /// Register page
+    pub page: u8,
+    /// Register address
+    pub addr: u8,
+    /// Command
+    pub cmd: T,
+}
+impl Instruction for Register<Write> {
+    const OPCODE: u8 = 0x80;
+}
+impl Instruction for Register<Read> {
+    const OPCODE: u8 = 0x81;
+}
+
+/// Word instruction
+///
+/// Generic over commands
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Word<T> {
+    /// Address
+    pub addr: u16,
+    /// Command
+    pub cmd: T,
+}
+impl Instruction for Word<Write> {
+    const OPCODE: u8 = 0x82;
+}
+impl Instruction for Word<Read> {
+    const OPCODE: u8 = 0x83;
+}
+
+/// Dword instruction
+///
+/// Generic over commands
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Dword<T> {
+    /// Address
+    pub addr: u32,
+    /// Command
+    pub cmd: T,
+}
+impl Instruction for Dword<Write> {
+    const OPCODE: u8 = 0x86;
+}
+impl Instruction for Dword<Read> {
+    const OPCODE: u8 = 0x87;
+}
+
+/// Curve instruction
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Curve {
+    /// Channel
+    pub ch: u8,
+}
+impl Instruction for Curve {
+    const OPCODE: u8 = 0x84;
+}

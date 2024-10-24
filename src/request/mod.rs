@@ -1,50 +1,28 @@
-//! Request frame builder/serializer
+//! Request building
 
 mod serializer;
 mod storage;
 
-pub use storage::{Slice, Storage};
+pub use self::storage::{Slice, Storage};
 
-use crate::{error::Result, CRC, HEADER};
+use self::serializer::Serializer;
+use crate::{Instruction, Result, Write, CRC, HEADER};
+use core::marker::PhantomData;
 use serde::Serialize;
-use serializer::Serializer;
 
 #[cfg(feature = "heapless")]
 use heapless::Vec;
 
-/// Request Instruction
+/// Request builder
 ///
-/// Refer to T5L_DGUS2 DevGuide Section 4.2
-#[derive(PartialEq, Eq, Debug, Clone, Copy, Hash)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[allow(missing_docs)]
-pub enum RequestInstruction {
-    /// Read data from register
-    ReadReg { page: u8, addr: u8, len: u8 },
-    /// Read word data from variable space, using word address
-    ReadWord { addr: u16, len: u8 },
-    /// Read double word data from variable space, using double word address
-    ReadDword { addr: u32, len: u8 },
-    /// Write data to register
-    WriteReg { page: u8, addr: u8 },
-    /// Write word data to variable space, using word address
-    WriteWord { addr: u16 },
-    /// Write double word data to variable space, using double word address
-    WriteDword { addr: u32 },
-    /// Write curve buffer data to variable space, using channel number
-    WriteCurve { ch: u8 },
-}
-
-/// Request frame builder
-///
-/// Serialization output type is generic and must implement the [`Storage`] trait.
+/// Output type is generic and must implement the [`Storage`] trait.
 /// This trait is implemented for [`u8`] slice and [`heapless::Vec<u8>`].
 ///
 /// # Examples
 ///
 /// ```rust
-/// use dguscard::request::{RequestFrame, RequestInstruction};
-/// # use std::io::Write;
+/// use dguscard::{request::Request, Word, Write};
+/// # use std::io::Write as IoWrite;
 /// #[derive(serde::Serialize)]
 /// struct MyData {
 ///     byte: u8,
@@ -58,7 +36,7 @@ pub enum RequestInstruction {
 /// // Backing buffer for the frame.
 /// let buf = &mut [0u8; 50];
 /// // Construct a frame with the slice buffer/output type and write data instruction.
-/// let mut frame = RequestFrame::with_slice(buf, RequestInstruction::WriteWord { addr: 0x1234 }).unwrap();
+/// let mut frame = Request::with_slice(buf, Word { addr: 0x1234, cmd: Write }).unwrap();
 /// // Push the data into the frame.
 /// frame.push(&data).unwrap();
 /// // It's possible to push multiple different data types into the frame.
@@ -70,97 +48,53 @@ pub enum RequestInstruction {
 /// ```
 ///
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct RequestFrame<S: Storage> {
+pub struct Request<C, S: Storage> {
     serializer: Serializer<S>,
+    cmd: PhantomData<C>,
 }
 
-impl<'a> RequestFrame<Slice<'a>> {
+impl<'a, C> Request<C, Slice<'a>> {
     /// Constructs a new frame that uses a slice as a given backing buffer.
     /// The frame will be finalized as a slice.
     ///
     /// # Panics
     ///
     /// Panics if the buffer is too small or too large to contain a frame
-    pub fn with_slice(buf: &'a mut [u8], instr: RequestInstruction) -> Result<Self> {
-        assert!(buf.len() >= 6, "Buffer too small");
-        assert!(buf.len() <= u8::MAX as usize, "Buffer too large");
-        Self::new(Slice::new(buf), instr)
+    pub fn with_slice(buf: &'a mut [u8], instr: impl Instruction) -> Result<Self> {
+        Self::new_inner(Slice::new(buf), instr)
     }
 }
 
 #[cfg(feature = "heapless")]
-impl<const N: usize> RequestFrame<Vec<u8, N>> {
+impl<C, const N: usize> Request<C, Vec<u8, N>> {
     /// Constructs a new frame that uses [`heapless::Vec`] as an output.
     /// The frame will be finalized as a [`heapless::Vec`].
-    pub fn with_hvec(instr: RequestInstruction) -> Result<Self> {
-        const {
-            assert!(N >= 6, "Buffer too small");
-            assert!(N <= u8::MAX as usize, "Buffer too large");
-        };
-        Self::new(Vec::new(), instr)
+    pub fn with_hvec(instr: impl Instruction) -> Result<Self> {
+        Self::new_inner(Vec::new(), instr)
     }
 }
 
-impl<S: Storage<Output = O>, O> RequestFrame<S> {
+impl<C, S, O> Request<C, S>
+where
+    S: Storage<Output = O>,
+{
     /// Constructs a new frame with an output type that implements [`Storage`] trait.
     /// The frame will be finalized as the given output type.
     /// It should rarely be necessary to directly use this function unless you implemented your own [`Storage`].
-    pub fn new(output: S, instr: RequestInstruction) -> Result<Self> {
+    fn new_inner<I: Instruction>(output: S, instr: I) -> Result<Self> {
         let mut serializer = Serializer { output };
         // Push header
         HEADER.serialize(&mut serializer)?;
         // Push length placeholder
-        serializer.output.try_push(0u8)?;
+        0u8.serialize(&mut serializer)?;
         // Push instruction
-        use RequestInstruction::*;
-        match instr {
-            WriteReg { page, addr } => {
-                serializer.output.try_push(0x80)?;
-                serializer.output.try_push(page)?;
-                serializer.output.try_push(addr)?;
-            }
-
-            ReadReg { page, addr, len } => {
-                serializer.output.try_push(0x81)?;
-                serializer.output.try_push(page)?;
-                serializer.output.try_push(addr)?;
-                serializer.output.try_push(len)?;
-            }
-
-            WriteWord { addr } => {
-                serializer.output.try_push(0x82)?;
-                addr.serialize(&mut serializer)?;
-            }
-
-            ReadWord { addr, len } => {
-                serializer.output.try_push(0x83)?;
-                addr.serialize(&mut serializer)?;
-                serializer.output.try_push(len)?;
-            }
-
-            WriteCurve { ch } => {
-                serializer.output.try_push(0x84)?;
-                serializer.output.try_push(ch)?;
-            }
-
-            WriteDword { addr } => {
-                serializer.output.try_push(0x86)?;
-                addr.serialize(&mut serializer)?;
-            }
-
-            ReadDword { addr, len } => {
-                serializer.output.try_push(0x87)?;
-                addr.serialize(&mut serializer)?;
-                serializer.output.try_push(len)?;
-            }
-        }
+        I::OPCODE.serialize(&mut serializer)?;
+        instr.serialize(&mut serializer)?;
         // Return the frame
-        Ok(Self { serializer })
-    }
-
-    /// Appends a `T` into the frame
-    pub fn push<T: Serialize>(&mut self, value: &T) -> Result<()> {
-        value.serialize(&mut self.serializer)
+        Ok(Self {
+            serializer,
+            cmd: PhantomData,
+        })
     }
 
     /// Finalizes the frame with optional CRC and returns the output
@@ -174,8 +108,20 @@ impl<S: Storage<Output = O>, O> RequestFrame<S> {
     }
 }
 
+impl<S, O> Request<Write, S>
+where
+    S: Storage<Output = O>,
+{
+    /// Appends a `T` into the frame
+    pub fn push<T: Serialize>(&mut self, value: &T) -> Result<()> {
+        value.serialize(&mut self.serializer)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use crate::Word;
+
     use super::*;
 
     #[derive(Serialize)]
@@ -195,8 +141,14 @@ mod tests {
         ];
         let data = TestTuple::new();
 
-        let mut frame =
-            RequestFrame::with_slice(buf, RequestInstruction::WriteWord { addr: 0x00DE }).unwrap();
+        let mut frame = Request::with_slice(
+            buf,
+            Word {
+                addr: 0x00DE,
+                cmd: Write,
+            },
+        )
+        .unwrap();
         frame.push(&data).unwrap();
         let output = frame.finalize(true).unwrap();
         assert_eq!(output, expected);
@@ -208,8 +160,14 @@ mod tests {
         let expected = &[0x5A, 0xA5, 7, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34];
         let data = TestTuple::new();
 
-        let mut frame =
-            RequestFrame::with_slice(buf, RequestInstruction::WriteWord { addr: 0x00DE }).unwrap();
+        let mut frame = Request::with_slice(
+            buf,
+            Word {
+                addr: 0x00DE,
+                cmd: Write,
+            },
+        )
+        .unwrap();
         frame.push(&data).unwrap();
         let output = frame.finalize(false).unwrap();
         assert_eq!(output, expected);
@@ -223,8 +181,11 @@ mod tests {
         .unwrap();
         let data = TestTuple::new();
 
-        let mut frame =
-            RequestFrame::with_hvec(RequestInstruction::WriteWord { addr: 0x00DE }).unwrap();
+        let mut frame = Request::with_hvec(Word {
+            addr: 0x00DE,
+            cmd: Write,
+        })
+        .unwrap();
         frame.push(&data).unwrap();
         let output: Vec<u8, 12> = frame.finalize(true).unwrap();
         assert_eq!(output, expected);
@@ -236,8 +197,11 @@ mod tests {
             Vec::from_slice(&[0x5A, 0xA5, 7, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34]).unwrap();
         let data = TestTuple::new();
 
-        let mut frame =
-            RequestFrame::with_hvec(RequestInstruction::WriteWord { addr: 0x00DE }).unwrap();
+        let mut frame = Request::with_hvec(Word {
+            addr: 0x00DE,
+            cmd: Write,
+        })
+        .unwrap();
         frame.push(&data).unwrap();
         let output: Vec<u8, 10> = frame.finalize(false).unwrap();
         assert_eq!(output, expected);

@@ -52,7 +52,7 @@ impl<'a> Storage for Slice<'a> {
         *self
             .buf
             .get_mut(self.index)
-            .ok_or(Error::SerializeBufferFull)? = b;
+            .ok_or(Error::RequestBufferFull)? = b;
         self.index += 1;
         Ok(())
     }
@@ -83,12 +83,12 @@ impl<const N: usize> Storage for heapless::Vec<u8, N> {
     #[inline(always)]
     fn try_extend(&mut self, data: &[u8]) -> Result<()> {
         self.extend_from_slice(data)
-            .map_err(|_| Error::SerializeBufferFull)
+            .map_err(|_| Error::RequestBufferFull)
     }
 
     #[inline(always)]
     fn try_push(&mut self, data: u8) -> Result<()> {
-        self.push(data).map_err(|_| Error::SerializeBufferFull)
+        self.push(data).map_err(|_| Error::RequestBufferFull)
     }
 
     fn finalize(self) -> Self::Output {

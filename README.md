@@ -3,7 +3,7 @@
 [![crates.io](https://img.shields.io/crates/d/dguscard.svg)](https://crates.io/crates/dguscard)
 [![crates.io](https://img.shields.io/crates/v/dguscard.svg)](https://crates.io/crates/dguscard)
 
-dguscard is a `#![no_std]` [DWIN](https://www.dwin-global.com) T5L DGUS frame parser/builder with `serde` capability, inspired by [postcard](https://github.com/jamesmunns/postcard).
+dguscard is a `#![no_std]` [DWIN](https://www.dwin-global.com) T5L DGUS request builder & response parser with `serde` capability, inspired by [postcard](https://github.com/jamesmunns/postcard).
 
 ## Examples
 

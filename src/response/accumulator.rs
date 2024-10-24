@@ -1,10 +1,8 @@
-//! An accumulator used to collect chunked DGUS response.
+//! An accumulator used to collect chunked response.
 
-use super::Response;
-use crate::error::{Error, Result};
-use crate::{CRC, HEADER};
+use crate::{response::Response, Error, Result, CRC, HEADER};
 
-/// An accumulator used to collect chunked DGUS response.
+/// An accumulator used to collect chunked response.
 ///
 /// This is often useful when you receive "parts" of the response at a time, for example when draining
 /// a serial port buffer that may not contain an entire uninterrupted response.
@@ -14,7 +12,7 @@ use crate::{CRC, HEADER};
 /// Collect a response by reading chunks.
 ///
 /// ```rust
-/// use dguscard::{Accumulator, FeedResult};
+/// use dguscard::response::{Response, Accumulator, FeedResult};
 /// # use std::io::Read;
 ///
 /// #[derive(serde::Deserialize, Debug, PartialEq, Eq)]
@@ -51,9 +49,16 @@ use crate::{CRC, HEADER};
 ///                 remaining
 ///             },
 ///             FeedResult::Success(response, remaining) => {
-///                 // Do something with the response here.  
-///     
-///                 dbg!(response);
+///                 // Handle response here.  
+///                 match response {
+///                     Response::WordData { instr, mut data } => {
+///                         // Check response instruction
+///                         dbg!(instr);
+///                         // Deserialize the response
+///                         let data: MyData = data.take().unwrap();
+///                     }
+///                     _ => ()
+///                 }
 ///                 
 ///                 // Set the remaining bytes as the new window
 ///                 remaining
@@ -83,7 +88,6 @@ pub enum FeedResult<'de, 'a> {
 }
 
 /// The internal state of feeding the accumulator.
-#[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 enum FeedState {
     Empty,
@@ -160,14 +164,14 @@ impl<const N: usize> Accumulator<N> {
                 if byte == HEADER.to_be_bytes()[0] {
                     Header(false)
                 } else {
-                    return Err(Error::DeserializeBadHeader);
+                    return Err(Error::ResponseBadHeader);
                 }
             }
             Header(false) => {
                 if byte == HEADER.to_be_bytes()[1] {
                     Header(true)
                 } else {
-                    return Err(Error::DeserializeBadHeader);
+                    return Err(Error::ResponseBadHeader);
                 }
             }
             Header(true) => {
@@ -175,7 +179,7 @@ impl<const N: usize> Accumulator<N> {
                 if byte as usize >= min_len && byte as usize <= N {
                     Length(byte)
                 } else {
-                    return Err(Error::DeserializeBadLen);
+                    return Err(Error::ResponseBadLen);
                 }
             }
             Length(length) => {
@@ -200,7 +204,7 @@ impl<const N: usize> Accumulator<N> {
             if self.crc {
                 let checksum = u16::from_le_bytes([self.buf[self.idx - 2], self.buf[self.idx - 1]]);
                 if checksum != CRC.checksum(&self.buf[..self.idx - 2]) {
-                    return Err(Error::DeserializeBadCrc);
+                    return Err(Error::ResponseBadCrc);
                 }
                 self.idx -= 2;
             }
@@ -214,6 +218,7 @@ impl<const N: usize> Accumulator<N> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::{Read, Word};
 
     #[test]
     fn ack_crc() {
@@ -221,7 +226,9 @@ mod test {
         let ser = &[0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 0, 0, 0, 0];
 
         if let FeedResult::Success(response, remaining) = buf.feed(ser) {
-            assert_eq!(response, Response::AckWriteWord);
+            let Response::WordAck = response else {
+                panic!()
+            };
             assert_eq!(remaining.len(), 4);
         } else {
             panic!()
@@ -243,13 +250,16 @@ mod test {
         ];
 
         if let FeedResult::Success(response, remaining) = buf.feed(ser) {
-            let Response::ReadWord {
-                addr: 0x1234,
-                len: 4,
+            let Response::WordData {
+                instr:
+                    Word {
+                        addr: 0x1234,
+                        cmd: Read { len: 4 },
+                    },
                 mut data,
             } = response
             else {
-                panic!("Expected ReadWord response, got {:?}", response);
+                panic!("Expected ReadWord response");
             };
 
             assert_eq!(
@@ -278,9 +288,12 @@ mod test {
             panic!("Expected Success");
         };
 
-        let Response::ReadWord {
-            addr: 0x1234,
-            len: 4,
+        let Response::WordData {
+            instr:
+                Word {
+                    addr: 0x1234,
+                    cmd: Read { len: 4 },
+                },
             mut data,
         } = response
         else {
@@ -300,9 +313,12 @@ mod test {
             panic!("Expected Success");
         };
 
-        let Response::ReadWord {
-            addr: 0x1234,
-            len: 4,
+        let Response::WordData {
+            instr:
+                Word {
+                    addr: 0x1234,
+                    cmd: Read { len: 4 },
+                },
             mut data,
         } = response
         else {
@@ -317,7 +333,6 @@ mod test {
             },
             data.take().unwrap()
         );
-
         assert!(remaining.is_empty());
     }
 }

@@ -3,17 +3,15 @@
 mod accumulator;
 mod deserializer;
 
-pub use accumulator::{Accumulator, FeedResult};
+pub use self::accumulator::{Accumulator, FeedResult};
 
+use self::deserializer::Deserializer;
 use crate::{
-    error::{Error::*, Result},
-    CRC, HEADER,
+    Curve, Dword, Error::*, Instruction, Read, Register, Result, Word, Write, CRC, HEADER,
 };
-use deserializer::Deserializer;
 use serde::Deserialize;
 
 /// Response data slice with deserialization capability
-#[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ResponseData<'de> {
     deserializer: Deserializer<'de>,
@@ -41,7 +39,7 @@ impl<'de> ResponseData<'de> {
 /// # Examples
 ///
 /// ```rust
-/// use dguscard::Response;
+/// use dguscard::response::Response;
 /// # use std::io::Read;
 /// #[derive(serde::Deserialize)]
 /// struct MyData {
@@ -63,42 +61,50 @@ impl<'de> ResponseData<'de> {
 /// let mut response = Response::from_bytes(buf, false).unwrap();
 /// // Do something with the response.
 /// match response {
-///     Response::ReadWord{addr, len, mut data} => {
-///         // Check the address and the length of the response
-///         dbg!(addr, len);
+///     Response::WordData{instr, mut data} => {
+///         // Check response instruction
+///         dbg!(instr);
 ///         // Take a MyData from the response data
 ///         let my_data: MyData = data.take().unwrap();
 ///         // Take an u32 from the response data
 ///         let integer: u32 = data.take().unwrap();
 ///     }
-///     _ => ()
+///     _ => (),
 /// }
 /// ```
 ///
-#[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[allow(missing_docs)]
 pub enum Response<'de> {
-    ReadReg {
-        page: u8,
-        addr: u8,
-        len: u8,
+    /// ACK Response for Register<Write> request
+    RegisterAck,
+    /// ACK Response for Word<Write> request
+    WordAck,
+    /// ACK Response for Dword<Write> request
+    DwordAck,
+    /// ACK Response for Curve request
+    CurveAck,
+
+    /// Data Response for Register<Read> request
+    RegisterData {
+        /// Instruction
+        instr: Register<Read>,
+        /// Data
         data: ResponseData<'de>,
     },
-    ReadWord {
-        addr: u16,
-        len: u8,
+    /// Data Response for Word<Read> request
+    WordData {
+        /// Instruction
+        instr: Word<Read>,
+        /// Data
         data: ResponseData<'de>,
     },
-    ReadDword {
-        addr: u32,
-        len: u8,
+    /// Data Response for Dword<Read> request
+    DwordData {
+        /// Instruction
+        instr: Dword<Read>,
+        /// Data
         data: ResponseData<'de>,
     },
-    AckWriteReg,
-    AckWriteWord,
-    AckWriteDword,
-    AckWriteCurve,
 }
 
 impl<'de> Response<'de> {
@@ -120,54 +126,46 @@ impl<'de> Response<'de> {
 
     /// Looks for a response within a byte slice.
     /// The unused portion (if any) of the byte slice is not returned.
-    /// The data byte slice is expected to contain instruction and data part of the DGUS response,
+    /// The data byte slice is expected to contain instruction and data section of the DGUS response,
     /// i.e. excluding header, length, and CRC if enabled.
     /// Intended to be used with an Accumulator.
     pub fn from_content_bytes(input: &'de [u8]) -> Result<Self> {
         let mut deserializer = Deserializer { input };
-
         // Strip instruction code from input
         let opcode = u8::deserialize(&mut deserializer)?;
-
         use Response::*;
-
         // Is it ACK?
         if opcode % 2 == 0 {
             let response = match opcode {
-                0x80 => AckWriteReg,
-                0x82 => AckWriteWord,
-                0x84 => AckWriteCurve,
-                0x86 => AckWriteDword,
-                _ => return Err(DeserializeBadInstruction),
+                Register::<Write>::OPCODE => RegisterAck,
+                Word::<Write>::OPCODE => WordAck,
+                Dword::<Write>::OPCODE => DwordAck,
+                Curve::OPCODE => CurveAck,
+                _ => return Err(ResponseUnknownInstr),
             };
             // Verify ACK bytes
             if u16::deserialize(&mut deserializer)? != u16::from_be_bytes([b'O', b'K']) {
-                return Err(DeserializeBadAck);
+                return Err(ResponseBadAck);
             }
             Ok(response)
         }
         // Or is it data?
         else {
             let response = match opcode {
-                0x81 => ReadReg {
-                    page: u8::deserialize(&mut deserializer)?,
-                    addr: u8::deserialize(&mut deserializer)?,
-                    len: u8::deserialize(&mut deserializer)?,
+                Register::<Read>::OPCODE => RegisterData {
+                    instr: Register::deserialize(&mut deserializer)?,
                     data: ResponseData { deserializer },
                 },
-                0x83 => ReadWord {
-                    addr: u16::deserialize(&mut deserializer)?,
-                    len: u8::deserialize(&mut deserializer)?,
+                Word::<Read>::OPCODE => WordData {
+                    instr: Word::deserialize(&mut deserializer)?,
                     data: ResponseData { deserializer },
                 },
-                0x87 => ReadDword {
-                    addr: u32::deserialize(&mut deserializer)?,
-                    len: u8::deserialize(&mut deserializer)?,
+                Dword::<Read>::OPCODE => DwordData {
+                    instr: Dword::deserialize(&mut deserializer)?,
                     data: ResponseData { deserializer },
                 },
-                _ => return Err(DeserializeBadInstruction),
+                _ => return Err(ResponseUnknownInstr),
             };
-
             Ok(response)
         }
     }
@@ -179,14 +177,14 @@ impl<'de> Response<'de> {
         // Strip header from input
         let input = input
             .strip_prefix(&u16::to_be_bytes(HEADER))
-            .ok_or(DeserializeBadHeader)?;
+            .ok_or(ResponseBadHeader)?;
 
         // Strip length from input
         let (len, input) = input.split_first().ok_or(DeserializeUnexpectedEnd)?;
         let len = *len as usize;
         let min_len = if crc { 5 } else { 3 };
         if len < min_len || len > input.len() {
-            return Err(DeserializeBadLen);
+            return Err(ResponseBadLen);
         }
 
         // Split input with the length
@@ -198,7 +196,7 @@ impl<'de> Response<'de> {
         let input = if crc {
             let (input, crc) = input.split_last_chunk().ok_or(DeserializeUnexpectedEnd)?;
             if u16::from_le_bytes(*crc) != CRC.checksum(input) {
-                return Err(DeserializeBadCrc);
+                return Err(ResponseBadCrc);
             }
             input
         } else {
@@ -217,7 +215,9 @@ mod tests {
     fn ack_crc() {
         let input = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 1, 2, 3, 4];
         let (response, rest) = Response::take_from_bytes(&input, true).unwrap();
-        assert_eq!(response, Response::AckWriteWord);
+        let Response::WordAck = response else {
+            panic!()
+        };
         assert_eq!(rest, &[1, 2, 3, 4]);
     }
 }

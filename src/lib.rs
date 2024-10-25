@@ -18,8 +18,17 @@ use serde::{Deserialize, Serialize};
 const CRC: crc::Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
 const HEADER: u16 = 0x5AA5;
 
-trait Instruction: Serialize {
-    const OPCODE: u8;
+trait Sealed {}
+
+/// Instruction trait (sealed)
+///
+/// Implemented by all instructions.
+/// - A `Request` with the instruction `Word<Read>` will get a `Response::WordData` which contains the exact instruction.
+/// - A `Request` with the instruction `Register<Write>` will get `Response::RegisterAck`.
+#[allow(private_bounds)]
+pub trait Instruction: Serialize + Sealed {
+    /// Instruction Code
+    const CODE: u8;
 }
 
 /// Write command
@@ -28,6 +37,7 @@ trait Instruction: Serialize {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Write;
+impl Sealed for Write {}
 
 /// Read command
 ///
@@ -38,25 +48,28 @@ pub struct Read {
     /// Length
     pub len: u8,
 }
+impl Sealed for Read {}
 
 /// Register instruction
 ///
 /// Generic over commands
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Register<T> {
+pub struct Register<C> {
     /// Register page
     pub page: u8,
     /// Register address
     pub addr: u8,
     /// Command
-    pub cmd: T,
+    pub cmd: C,
 }
+impl Sealed for Register<Write> {}
+impl Sealed for Register<Read> {}
 impl Instruction for Register<Write> {
-    const OPCODE: u8 = 0x80;
+    const CODE: u8 = 0x80;
 }
 impl Instruction for Register<Read> {
-    const OPCODE: u8 = 0x81;
+    const CODE: u8 = 0x81;
 }
 
 /// Word instruction
@@ -64,17 +77,19 @@ impl Instruction for Register<Read> {
 /// Generic over commands
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Word<T> {
+pub struct Word<C> {
     /// Address
     pub addr: u16,
     /// Command
-    pub cmd: T,
+    pub cmd: C,
 }
+impl Sealed for Word<Write> {}
+impl Sealed for Word<Read> {}
 impl Instruction for Word<Write> {
-    const OPCODE: u8 = 0x82;
+    const CODE: u8 = 0x82;
 }
 impl Instruction for Word<Read> {
-    const OPCODE: u8 = 0x83;
+    const CODE: u8 = 0x83;
 }
 
 /// Dword instruction
@@ -82,26 +97,31 @@ impl Instruction for Word<Read> {
 /// Generic over commands
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Dword<T> {
+pub struct Dword<C> {
     /// Address
     pub addr: u32,
     /// Command
-    pub cmd: T,
+    pub cmd: C,
 }
+impl Sealed for Dword<Write> {}
+impl Sealed for Dword<Read> {}
 impl Instruction for Dword<Write> {
-    const OPCODE: u8 = 0x86;
+    const CODE: u8 = 0x86;
 }
 impl Instruction for Dword<Read> {
-    const OPCODE: u8 = 0x87;
+    const CODE: u8 = 0x87;
 }
 
 /// Curve instruction
+///
+/// Write only
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Curve {
     /// Channel
     pub ch: u8,
 }
+impl Sealed for Curve {}
 impl Instruction for Curve {
-    const OPCODE: u8 = 0x84;
+    const CODE: u8 = 0x84;
 }

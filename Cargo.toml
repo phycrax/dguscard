@@ -25,7 +25,7 @@ document-features = "0.2.10"
 
 [features]
 default = ["heapless"]
+## Support [`heapless::Vec`] as a request serialization output
+heapless = ["dep:heapless"]
 ## Use [`defmt`](https://docs.rs/defmt/latest/defmt/) for logging
 defmt = ["dep:defmt"]
-## Support [`heapless::Vec`](https://docs.rs/heapless/latest/heapless/) as a frame deserialization output
-heapless = ["dep:heapless"]

@@ -11,7 +11,9 @@ pub enum Error {
     RequestBufferFull,
     /// Response header mismatch
     ResponseBadHeader,
-    /// Response length is larger than the buffer/input size or smaller than the minimum response length
+    /// Response length is more than the buffer size
+    ResponseTooLarge,
+    /// Response length is less than the minimum proper response length
     ResponseBadLen,
     /// Unknown response instruction
     ResponseUnknownInstr,
@@ -48,7 +50,8 @@ impl Display for Error {
             match self {
                 RequestBufferFull => "The request buffer is full",
                 ResponseBadHeader => "Response header mismatch",
-                ResponseBadLen => "Response length is larger than the buffer/input size or smaller than the minimum response length",
+                ResponseTooLarge => "Response length is more than the buffer size",
+                ResponseBadLen => "Response length is less than the minimum proper response length",
                 ResponseUnknownInstr => "Unknown response instruction",
                 ResponseBadAck => "Bad Ack response",
                 ResponseBadCrc => "Response CRC mismatch",

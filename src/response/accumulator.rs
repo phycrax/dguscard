@@ -1,8 +1,6 @@
-//! An accumulator used to collect chunked response.
-
 use crate::{response::Response, Error, Result, CRC, HEADER};
 
-/// An accumulator used to collect chunked response.
+/// An accumulator used to collect chunked response
 ///
 /// This is often useful when you receive "parts" of the response at a time, for example when draining
 /// a serial port buffer that may not contain an entire uninterrupted response.
@@ -41,11 +39,9 @@ use crate::{response::Response, Error, Result, CRC, HEADER};
 ///         window = match dgus_buf.feed(&window) {
 ///             FeedResult::Consumed => break 'dgus,
 ///             FeedResult::Error(error, remaining) => {
-///                 // Do something with the error here.
-///
+///                 // Handle error here.
 ///                 dbg!(error);
-///                 
-///                 // Set the remaining bytes as the new window
+///                 // Move the window
 ///                 remaining
 ///             },
 ///             FeedResult::Success(response, remaining) => {
@@ -54,13 +50,12 @@ use crate::{response::Response, Error, Result, CRC, HEADER};
 ///                     Response::WordData { instr, mut data } => {
 ///                         // Check response instruction
 ///                         dbg!(instr);
-///                         // Deserialize the response
+///                         // Take a MyData from the response data
 ///                         let data: MyData = data.take().unwrap();
 ///                     }
 ///                     _ => ()
 ///                 }
-///                 
-///                 // Set the remaining bytes as the new window
+///                 // Move the window
 ///                 remaining
 ///             }
 ///         };
@@ -76,7 +71,7 @@ pub struct Accumulator<const N: usize> {
     state: FeedState,
 }
 
-/// The result of feeding the accumulator.
+/// The result of feeding the accumulator
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FeedResult<'de, 'a> {
     /// Consumed all data, still pending.
@@ -107,8 +102,11 @@ impl<const N: usize> Accumulator<N> {
     /// Create a new accumulator.
     pub const fn new(crc: bool) -> Self {
         const {
-            assert!(N >= 6, "Buffer too small");
-            assert!(N <= u8::MAX as usize, "Buffer too large");
+            assert!(N >= 5, "Accumulator buffer size should be >= 5");
+            assert!(
+                N <= u8::MAX as usize,
+                "Accumulator buffer size should be <= 256"
+            );
         };
         Accumulator {
             buf: [0; N],
@@ -159,28 +157,31 @@ impl<const N: usize> Accumulator<N> {
     /// Feeds a single byte to the internal buffer.
     fn feed_byte(&mut self, byte: u8) -> Result<Option<()>> {
         use FeedState::*;
+        use Error::*;
         self.state = match self.state {
             Empty => {
                 if byte == HEADER.to_be_bytes()[0] {
                     Header(false)
                 } else {
-                    return Err(Error::ResponseBadHeader);
+                    return Err(ResponseBadHeader);
                 }
             }
             Header(false) => {
                 if byte == HEADER.to_be_bytes()[1] {
                     Header(true)
                 } else {
-                    return Err(Error::ResponseBadHeader);
+                    return Err(ResponseBadHeader);
                 }
             }
             Header(true) => {
                 let min_len = if self.crc { 5 } else { 3 };
-                if byte as usize >= min_len && byte as usize <= N {
-                    Length(byte)
-                } else {
-                    return Err(Error::ResponseBadLen);
+                if byte < min_len {
+                    return Err(ResponseBadLen);
                 }
+                if byte as usize >= N {
+                    return Err(ResponseTooLarge);
+                }
+                Length(byte)
             }
             Length(length) => {
                 *self
@@ -204,7 +205,7 @@ impl<const N: usize> Accumulator<N> {
             if self.crc {
                 let checksum = u16::from_le_bytes([self.buf[self.idx - 2], self.buf[self.idx - 1]]);
                 if checksum != CRC.checksum(&self.buf[..self.idx - 2]) {
-                    return Err(Error::ResponseBadCrc);
+                    return Err(ResponseBadCrc);
                 }
                 self.idx -= 2;
             }
@@ -219,6 +220,7 @@ impl<const N: usize> Accumulator<N> {
 mod test {
     use super::*;
     use crate::{Read, Word};
+    use serde::{Deserialize, Serialize};
 
     #[test]
     fn ack_crc() {
@@ -235,7 +237,7 @@ mod test {
         }
     }
 
-    #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+    #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
     struct Demo {
         a: u16,
         b: bool,

@@ -1,4 +1,4 @@
-//! Response parser/deserializer/accumulator
+//! Response parser
 
 mod accumulator;
 mod deserializer;
@@ -11,14 +11,14 @@ use crate::{
 };
 use serde::Deserialize;
 
-/// Response data slice with deserialization capability
+/// [`serde`] compatible deserializer wrapping over response data
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ResponseData<'de> {
     deserializer: Deserializer<'de>,
 }
 
 impl<'de> ResponseData<'de> {
-    /// Removes a `T` from the slice and returns it.
+    /// Removes a `T` from the response and returns it.
     pub fn take<T: Deserialize<'de>>(&mut self) -> Result<T> {
         T::deserialize(&mut self.deserializer)
     }
@@ -28,7 +28,7 @@ impl<'de> ResponseData<'de> {
         self.deserializer.input.len()
     }
 
-    /// Returns true if the slice does not contain any remaining bytes.
+    /// Returns true if the response does not contain any remaining bytes.
     pub fn is_empty(&self) -> bool {
         self.deserializer.input.is_empty()
     }
@@ -55,11 +55,12 @@ impl<'de> ResponseData<'de> {
 /// # 0x22, 0x22, 0x22, 0x22, 0x33, 0x33, 0x33, 0x33]);
 /// // Backing buffer for the UART.
 /// let buf = &mut [0u8; 50];
-/// // Read a response from UART.
+/// // Read a full response from UART with something like read_until_idle().
+/// // If this is not possible, take a look at the `Accumulator`.
 /// let _ = uart.read(buf).unwrap();
-/// // Look for a response within the buffer.
+/// // Look for a full response within the buffer.
 /// let mut response = Response::from_bytes(buf, false).unwrap();
-/// // Do something with the response.
+/// // Handle the response.
 /// match response {
 ///     Response::WordData{instr, mut data} => {
 ///         // Check response instruction
@@ -67,7 +68,7 @@ impl<'de> ResponseData<'de> {
 ///         // Take a MyData from the response data
 ///         let my_data: MyData = data.take().unwrap();
 ///         // Take an u32 from the response data
-///         let integer: u32 = data.take().unwrap();
+///         let dword_int: u32 = data.take().unwrap();
 ///     }
 ///     _ => (),
 /// }
@@ -75,30 +76,30 @@ impl<'de> ResponseData<'de> {
 ///
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Response<'de> {
-    /// ACK Response for Register<Write> request
+    /// Response for [`Register<Write>`] request
     RegisterAck,
-    /// ACK Response for Word<Write> request
+    /// Response for [`Word<Write>`] request
     WordAck,
-    /// ACK Response for Dword<Write> request
+    /// Response for [`Dword<Write>`] request
     DwordAck,
-    /// ACK Response for Curve request
+    /// Response for [`Curve`] request
     CurveAck,
 
-    /// Data Response for Register<Read> request
+    /// Response for [`Register<Read>`] request
     RegisterData {
         /// Instruction
         instr: Register<Read>,
         /// Data
         data: ResponseData<'de>,
     },
-    /// Data Response for Word<Read> request
+    /// Response for [`Word<Read>`] request
     WordData {
         /// Instruction
         instr: Word<Read>,
         /// Data
         data: ResponseData<'de>,
     },
-    /// Data Response for Dword<Read> request
+    /// Response for [`Dword<Read>`] request
     DwordData {
         /// Instruction
         instr: Dword<Read>,
@@ -110,7 +111,7 @@ pub enum Response<'de> {
 impl<'de> Response<'de> {
     /// Looks for a response within a byte slice.
     /// The unused portion (if any) of the byte slice is not returned.
-    /// The byte slice is expected to contain full DGUS response, including header, length, and CRC if enabled.
+    /// The byte slice is expected to contain full response, including header, length, and CRC if enabled.
     pub fn from_bytes(input: &'de [u8], crc: bool) -> Result<Self> {
         let (response, _) = Self::take_from_bytes(input, crc)?;
         Ok(response)
@@ -118,7 +119,7 @@ impl<'de> Response<'de> {
 
     /// Looks for a response within a byte slice.
     /// The unused portion (if any) of the byte slice is returned for further usage.
-    /// The byte slice is expected to contain full DGUS response, including header, length, and CRC if enabled.
+    /// The byte slice is expected to contain full response, including header, length, and CRC if enabled.
     pub fn take_from_bytes(input: &'de [u8], crc: bool) -> Result<(Self, &'de [u8])> {
         let (input, rest) = Self::extract_data_bytes(input, crc)?;
         Ok((Self::from_content_bytes(input)?, rest))
@@ -126,7 +127,7 @@ impl<'de> Response<'de> {
 
     /// Looks for a response within a byte slice.
     /// The unused portion (if any) of the byte slice is not returned.
-    /// The data byte slice is expected to contain instruction and data section of the DGUS response,
+    /// The data byte slice is expected to contain instruction and data section of the response,
     /// i.e. excluding header, length, and CRC if enabled.
     /// Intended to be used with an Accumulator.
     pub fn from_content_bytes(input: &'de [u8]) -> Result<Self> {
@@ -137,10 +138,10 @@ impl<'de> Response<'de> {
         // Is it ACK?
         if opcode % 2 == 0 {
             let response = match opcode {
-                Register::<Write>::OPCODE => RegisterAck,
-                Word::<Write>::OPCODE => WordAck,
-                Dword::<Write>::OPCODE => DwordAck,
-                Curve::OPCODE => CurveAck,
+                Register::<Write>::CODE => RegisterAck,
+                Word::<Write>::CODE => WordAck,
+                Dword::<Write>::CODE => DwordAck,
+                Curve::CODE => CurveAck,
                 _ => return Err(ResponseUnknownInstr),
             };
             // Verify ACK bytes
@@ -152,15 +153,15 @@ impl<'de> Response<'de> {
         // Or is it data?
         else {
             let response = match opcode {
-                Register::<Read>::OPCODE => RegisterData {
+                Register::<Read>::CODE => RegisterData {
                     instr: Register::deserialize(&mut deserializer)?,
                     data: ResponseData { deserializer },
                 },
-                Word::<Read>::OPCODE => WordData {
+                Word::<Read>::CODE => WordData {
                     instr: Word::deserialize(&mut deserializer)?,
                     data: ResponseData { deserializer },
                 },
-                Dword::<Read>::OPCODE => DwordData {
+                Dword::<Read>::CODE => DwordData {
                     instr: Dword::deserialize(&mut deserializer)?,
                     data: ResponseData { deserializer },
                 },
@@ -183,14 +184,14 @@ impl<'de> Response<'de> {
         let (len, input) = input.split_first().ok_or(DeserializeUnexpectedEnd)?;
         let len = *len as usize;
         let min_len = if crc { 5 } else { 3 };
-        if len < min_len || len > input.len() {
+        if len < min_len {
             return Err(ResponseBadLen);
         }
 
         // Split input with the length
         let (input, rest) = input
             .split_at_checked(len)
-            .ok_or(DeserializeUnexpectedEnd)?;
+            .ok_or(ResponseTooLarge)?;
 
         // Strip CRC from input
         let input = if crc {

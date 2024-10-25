@@ -1,5 +1,5 @@
-use super::storage::Storage;
-use crate::error::{Error, Result};
+use super::Storage;
+use crate::{Error, Result};
 use serde::{ser, Serialize};
 
 /// `serde` compatible serializer.
@@ -382,7 +382,7 @@ impl<S: Storage> ser::SerializeStructVariant for &'_ mut Serializer<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::request::storage::Slice;
+    use crate::request::Slice;
     use serde::Serialize;
 
     #[test]

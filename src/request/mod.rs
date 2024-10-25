@@ -1,22 +1,22 @@
-//! Request building
+//! Request builder
 
 mod serializer;
 mod storage;
 
 pub use self::storage::{Slice, Storage};
 
+#[cfg(feature = "heapless")]
+pub use self::storage::HVec;
+
 use self::serializer::Serializer;
 use crate::{Instruction, Result, Write, CRC, HEADER};
 use core::marker::PhantomData;
 use serde::Serialize;
 
-#[cfg(feature = "heapless")]
-use heapless::Vec;
-
 /// Request builder
 ///
 /// Output type is generic and must implement the [`Storage`] trait.
-/// This trait is implemented for [`u8`] slice and [`heapless::Vec<u8>`].
+/// This trait is implemented for [`u8`] slice and [`Vec<u8, N>`][heapless::Vec].
 ///
 /// # Examples
 ///
@@ -31,17 +31,18 @@ use heapless::Vec;
 /// }
 /// let data = MyData { byte: 11, word: 2222, dword: 333333 };
 ///
-/// let mut uart = /* Anything that implements the `Write` trait */
+/// let mut uart =
 /// # Vec::new();
-/// // Backing buffer for the frame.
+/// // Backing buffer for the request.
 /// let buf = &mut [0u8; 50];
-/// // Construct a frame with the slice buffer/output type and write data instruction.
+/// // Get a request builder with the slice buffer/output type and write data instruction.
 /// let mut frame = Request::with_slice(buf, Word { addr: 0x1234, cmd: Write }).unwrap();
-/// // Push the data into the frame.
+/// // Push your data into the request.
 /// frame.push(&data).unwrap();
-/// // It's possible to push multiple different data types into the frame.
+/// // It's possible to push multiple different data types into the request.
+/// // As long as they implement `Serialize` and are compatible with the data model.
 /// frame.push(&[1u8,2,3,4]).unwrap();
-/// // Finalize the frame with CRC and get the output.
+/// // Finalize the request with CRC and get the output.
 /// let tx_bytes = frame.finalize(true).unwrap();
 /// // Transmit the frame
 /// uart.write_all(tx_bytes).unwrap();
@@ -54,23 +55,29 @@ pub struct Request<C, S: Storage> {
 }
 
 impl<'a, C> Request<C, Slice<'a>> {
-    /// Constructs a new frame that uses a slice as a given backing buffer.
-    /// The frame will be finalized as a slice.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the buffer is too small or too large to contain a frame
+    /// Returns a new builder that uses a [`Slice`] as a given backing buffer.
+    /// The request will be finalized as [`u8`] slice.
     pub fn with_slice(buf: &'a mut [u8], instr: impl Instruction) -> Result<Self> {
-        Self::new_inner(Slice::new(buf), instr)
+        Self::new(Slice::new(buf), instr)
     }
 }
 
 #[cfg(feature = "heapless")]
-impl<C, const N: usize> Request<C, Vec<u8, N>> {
-    /// Constructs a new frame that uses [`heapless::Vec`] as an output.
-    /// The frame will be finalized as a [`heapless::Vec`].
+impl<C, const N: usize> Request<C, HVec<N>> {
+    /// Returns a new builder that uses [`HVec`] as a buffer.
+    /// The request will be finalized as [`Vec<u8, N>`][heapless::Vec].
     pub fn with_hvec(instr: impl Instruction) -> Result<Self> {
-        Self::new_inner(Vec::new(), instr)
+        Self::new(HVec::new(), instr)
+    }
+}
+
+impl<S, O> Request<Write, S>
+where
+    S: Storage<Output = O>,
+{
+    /// Appends a `T` into the [`Request<Write, S>`].
+    pub fn push<T: Serialize>(&mut self, value: &T) -> Result<()> {
+        value.serialize(&mut self.serializer)
     }
 }
 
@@ -78,26 +85,27 @@ impl<C, S, O> Request<C, S>
 where
     S: Storage<Output = O>,
 {
-    /// Constructs a new frame with an output type that implements [`Storage`] trait.
-    /// The frame will be finalized as the given output type.
+    /// Returns a new builder with an output type that implements [`Storage`] trait.
+    /// The request will be finalized as the given output type.
     /// It should rarely be necessary to directly use this function unless you implemented your own [`Storage`].
-    fn new_inner<I: Instruction>(output: S, instr: I) -> Result<Self> {
+    pub fn new<I: Instruction>(output: S, instr: I) -> Result<Self> {
         let mut serializer = Serializer { output };
         // Push header
         HEADER.serialize(&mut serializer)?;
         // Push length placeholder
         0u8.serialize(&mut serializer)?;
-        // Push instruction
-        I::OPCODE.serialize(&mut serializer)?;
+        // Push instruction code
+        I::CODE.serialize(&mut serializer)?;
+        // Push instruction data
         instr.serialize(&mut serializer)?;
-        // Return the frame
+        // Return the builder
         Ok(Self {
             serializer,
             cmd: PhantomData,
         })
     }
 
-    /// Finalizes the frame with optional CRC and returns the output
+    /// Finalizes the request with optional CRC and returns the output.
     pub fn finalize(mut self, crc: bool) -> Result<O> {
         if crc {
             let crc = CRC.checksum(&self.serializer.output[3..]).swap_bytes();
@@ -108,21 +116,12 @@ where
     }
 }
 
-impl<S, O> Request<Write, S>
-where
-    S: Storage<Output = O>,
-{
-    /// Appends a `T` into the frame
-    pub fn push<T: Serialize>(&mut self, value: &T) -> Result<()> {
-        value.serialize(&mut self.serializer)
-    }
-}
-
+#[cfg(feature = "heapless")]
 #[cfg(test)]
 mod tests {
-    use crate::Word;
-
     use super::*;
+    use crate::Word;
+    use heapless::Vec;
 
     #[derive(Serialize)]
     struct TestTuple(u16, u16);

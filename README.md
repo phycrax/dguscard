@@ -3,7 +3,7 @@
 [![crates.io](https://img.shields.io/crates/d/dguscard.svg)](https://crates.io/crates/dguscard)
 [![crates.io](https://img.shields.io/crates/v/dguscard.svg)](https://crates.io/crates/dguscard)
 
-dguscard is a `#![no_std]` [DWIN](https://www.dwin-global.com) T5L DGUS request builder & response parser with [serde](https://serde.rs/), inspired by [postcard](https://github.com/jamesmunns/postcard).
+dguscard is a `#![no_std]` [DWIN](https://www.dwin-global.com) T5L DGUS request builder & response parser with [serde](https://serde.rs/) support, inspired by [postcard](https://github.com/jamesmunns/postcard).
 
 ## Setup - `Cargo.toml`
 
@@ -55,7 +55,7 @@ struct MyData {
 }
 
 /// Send a 10 word read from address 0x1000 request
-let mut request = Request::with_slice(buf, Word { addr: 0x1000, cmd: Read {len: 10} }).unwrap();
+let mut request = Request::with_slice(buf, Word { addr: 0x1000, cmd: Read { len: 10 } }).unwrap();
 let frame = request.finalize(true).unwrap();
 uart.write(frame);
 
@@ -104,13 +104,13 @@ assert_eq!(my_data, [0x10, 0x06, 0x10, 0x07]);
 - [ ] option
 - [X] unit - not encoded
 - [X] unit_struct - not encoded
-- [ ] unit_variant
+- [x] unit_variant - index encoded as u16
 - [X] newtype_struct
 - [ ] newtype_variant
 - [ ] seq
 - [X] tuple
 - [X] tuple_struct
-- [X] tuple_variant
+- [ ] tuple_variant
 - [ ] map
 - [X] struct
 - [ ] struct_variant

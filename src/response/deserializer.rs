@@ -326,17 +326,17 @@ impl<'de> serde::de::VariantAccess<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn tuple_variant<V: Visitor<'de>>(self, len: usize, visitor: V) -> Result<V::Value> {
-        serde::de::Deserializer::deserialize_tuple(self, len, visitor)
+    fn tuple_variant<V: Visitor<'de>>(self, _len: usize, _visitor: V) -> Result<V::Value> {
+        Err(Error::NotYetImplemented)
     }
 
     #[inline]
     fn struct_variant<V: Visitor<'de>>(
         self,
-        fields: &'static [&'static str],
-        visitor: V,
+        _fields: &'static [&'static str],
+        _visitor: V,
     ) -> Result<V::Value> {
-        serde::de::Deserializer::deserialize_tuple(self, fields.len(), visitor)
+        Err(Error::NotYetImplemented)
     }
 }
 
@@ -521,21 +521,6 @@ mod tests {
         let input = &[0x00, 0x02];
         let mut de = Deserializer { input };
         assert_eq!(Ok(Test::Two), Test::deserialize(&mut de));
-        assert!(de.input.is_empty());
-    }
-
-    #[test]
-    fn newtype_variant() {
-        #[derive(Deserialize, Debug, PartialEq)]
-        enum Test {
-            Zero(u16),
-            One(u16),
-            Two(u16),
-        }
-
-        let input = &[0x00, 0x01, 0x12, 0x34];
-        let mut de = Deserializer { input };
-        assert_eq!(Ok(Test::One(0x1234)), Test::deserialize(&mut de));
         assert!(de.input.is_empty());
     }
 }

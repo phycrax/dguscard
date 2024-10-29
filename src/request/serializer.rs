@@ -159,19 +159,14 @@ impl<S: Storage> ser::Serializer for &'_ mut Serializer<S> {
     fn serialize_newtype_variant<T>(
         self,
         _name: &'static str,
-        variant_index: u32,
+        _variant_index: u32,
         _variant: &'static str,
-        value: &T,
+        _value: &T,
     ) -> Result<()>
     where
         T: ?Sized + Serialize,
     {
-        self.serialize_u16(
-            variant_index
-                .try_into()
-                .map_err(|_| Error::SerializeBadEnum)?,
-        )?;
-        value.serialize(self)
+        Err(Error::NotYetImplemented)
     }
 
     #[inline]
@@ -197,16 +192,11 @@ impl<S: Storage> ser::Serializer for &'_ mut Serializer<S> {
     fn serialize_tuple_variant(
         self,
         _name: &'static str,
-        variant_index: u32,
+        _variant_index: u32,
         _variant: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeTupleVariant> {
-        self.serialize_u16(
-            variant_index
-                .try_into()
-                .map_err(|_| Error::SerializeBadEnum)?,
-        )?;
-        Ok(self)
+        Err(Error::NotYetImplemented)
     }
 
     #[inline]
@@ -223,16 +213,11 @@ impl<S: Storage> ser::Serializer for &'_ mut Serializer<S> {
     fn serialize_struct_variant(
         self,
         _name: &'static str,
-        variant_index: u32,
+        _variant_index: u32,
         _variant: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeStructVariant> {
-        self.serialize_u16(
-            variant_index
-                .try_into()
-                .map_err(|_| Error::SerializeBadEnum)?,
-        )?;
-        Ok(self)
+        Err(Error::NotYetImplemented)
     }
 
     #[inline]
@@ -580,23 +565,5 @@ mod tests {
 
         Test::Two.serialize(&mut ser).unwrap();
         assert_eq!(&[0x00, 0x02], ser.output.finalize());
-    }
-
-    #[test]
-    fn newtype_variant() {
-        let buf = &mut [0xCDu8; 4];
-        let mut ser = Serializer {
-            output: Slice::new(buf),
-        };
-
-        #[derive(Serialize, Debug, PartialEq)]
-        enum Test {
-            _Zero(u16),
-            One(u16),
-            _Two(u16),
-        }
-
-        Test::One(0x1234).serialize(&mut ser).unwrap();
-        assert_eq!(&[0x00, 0x01, 0x12, 0x34], ser.output.finalize());
     }
 }

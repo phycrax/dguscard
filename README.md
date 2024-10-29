@@ -100,7 +100,7 @@ assert_eq!(my_data, [0x10, 0x06, 0x10, 0x07]);
 - [X] bool - encoded as u16
 - [ ] char
 - [ ] string
-- [X] byte array
+- [ ] byte array - serialization only
 - [ ] option
 - [X] unit - not encoded
 - [X] unit_struct - not encoded

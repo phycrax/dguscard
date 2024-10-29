@@ -16,7 +16,8 @@ use serde::Serialize;
 /// Request builder
 ///
 /// Output type is generic and must implement the [`Storage`] trait.
-/// This trait is implemented for [`u8`] slice and [`Vec<u8, N>`][heapless::Vec].
+/// This trait is implemented for [`Slice`]([`u8`] slice newtype) 
+/// and [`HVec`]([`Vec<u8, N>`][heapless::Vec] newtype).
 ///
 /// # Examples
 ///
@@ -28,8 +29,10 @@ use serde::Serialize;
 ///     byte: u8,
 ///     word: u16,
 ///     dword: u32,
+///     float: f32,
+///     double: f64,
 /// }
-/// let data = MyData { byte: 11, word: 2222, dword: 333333 };
+/// let data = MyData { byte: 1, word: 2, dword: 3, float: 4.0, double: 5.0 };
 ///
 /// let mut uart =
 /// # Vec::new();

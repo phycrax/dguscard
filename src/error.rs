@@ -31,9 +31,9 @@ pub enum Error {
     DeserializeBadOption,
     /// The accumulator buffer is full
     AccumulateBufferFull,
-    /// This is a feature that dguscard will never implement
+    /// dguscard will never implement this
     WontImplement,
-    /// This is a feature that dguscard intends to support, but does not yet
+    /// dguscard may support this
     NotYetImplemented,
     /// Serde Serialization Error
     SerdeSerCustom,
@@ -60,8 +60,8 @@ impl Display for Error {
                 DeserializeBadBool => "Found a bool that wasn't 0 or 1",
                 DeserializeBadOption => "Found an Option discriminant that wasn't 0 or 1",
                 AccumulateBufferFull => "The accumulator buffer is full",
-                WontImplement => "This is a feature that dguscard will never implement",
-                NotYetImplemented => "dguscard may support this, but does not yet",
+                WontImplement => "dguscard will never implement this",
+                NotYetImplemented => "dguscard may support this",
                 SerdeSerCustom => "Serde Serialization Error",
                 SerdeDeCustom => "Serde Deserialization Error",
             }

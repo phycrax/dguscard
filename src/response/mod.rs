@@ -43,16 +43,23 @@ impl<'de> ResponseData<'de> {
 /// # use std::io::Read;
 /// #[derive(serde::Deserialize)]
 /// struct MyData {
-///     ah: u8,
-///     al: u8,
-///     b: u16,
-///     c: u32,
+///     byte: u8,
+///     word: u16,
+///     dword: u32,
+///     float: f32,
+///     double: f64,
 /// }
 ///
 /// let mut uart =
 /// # std::collections::VecDeque::from([
-/// # 0x5A, 0xA5, 16, 0x83, 0x12, 0x34, 4, 0xAA, 0xBB, 0x11, 0x11,
-/// # 0x22, 0x22, 0x22, 0x22, 0x33, 0x33, 0x33, 0x33]);
+/// # 0x5A, 0xA5, 27, 0x83, 0x12, 0x34, 12, 
+/// # 0x00, // MyData.byte
+/// # 0x11, 0x11, // MyData.word
+/// # 0x22, 0x22, 0x22, 0x22, // MyData.dword
+/// # 0x33, 0x33, 0x33, 0x33, // MyData.float
+/// # 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, // MyData.double
+/// # 0x12, 0x34, 0x56, 0x78 // single u32
+/// # ]);
 /// // Backing buffer for the UART.
 /// let buf = &mut [0u8; 50];
 /// // Read a full response from UART with something like read_until_idle().

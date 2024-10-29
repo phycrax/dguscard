@@ -15,16 +15,16 @@ pub use error::{Error, Result};
 use crc::{Crc, CRC_16_MODBUS};
 use serde::{Deserialize, Serialize};
 
-const CRC: crc::Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
+const CRC: Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
 const HEADER: u16 = 0x5AA5;
 
 trait Sealed {}
 
 /// Instruction trait (sealed)
 ///
-/// Implemented by all instructions.
-/// - A `Request` with the instruction `Word<Read>` will get a `Response::WordData` which contains the exact instruction.
-/// - A `Request` with the instruction `Register<Write>` will get `Response::RegisterAck`.
+/// Implemented by all instructions. Users are responsible for valid instruction parameters such as address and length.
+/// - A [`Request`][request::Request] with the instruction [`Word<Read>`] will be responded with [`WordData`][response::Response] which contains the exact instruction.
+/// - A [`Request`][request::Request] with the instruction [`Register<Write>`] will responded with [`RegisterAck`][response::Response].
 #[allow(private_bounds)]
 pub trait Instruction: Serialize + Sealed {
     /// Instruction Code

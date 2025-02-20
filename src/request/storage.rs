@@ -66,7 +66,7 @@ impl<'a> Storage for Slice<'a> {
     }
 }
 
-impl<'a> Deref for Slice<'a> {
+impl Deref for Slice<'_> {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
@@ -74,7 +74,7 @@ impl<'a> Deref for Slice<'a> {
     }
 }
 
-impl<'a> DerefMut for Slice<'a> {
+impl DerefMut for Slice<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.buf[..self.index]
     }

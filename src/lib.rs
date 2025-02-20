@@ -45,8 +45,8 @@ impl Sealed for Write {}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Read {
-    /// Length
-    pub len: u8,
+    /// Word Length
+    pub wlen: u8,
 }
 impl Sealed for Read {}
 

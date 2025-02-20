@@ -11,6 +11,30 @@ use crate::{
 };
 use serde::Deserialize;
 
+/// Response Instruction
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct ResponseInstruction<T: Instruction> (T);
+
+// Implement addr() and wlen() for each instruction type
+macro_rules! impl_resp_instr {
+    ($($instr_type:ident =>$addr_type:ident),+) => {
+        $(
+            impl ResponseInstruction<$instr_type<Read>> {
+                /// Address of the response
+                pub fn addr(&self) -> $addr_type {
+                    self.0.addr
+                }
+                /// Word Length of the response
+                pub fn wlen(&self) -> u8 {
+                    self.0.cmd.wlen
+                }
+            }
+        )+
+    };
+}
+impl_resp_instr!(Register => u8, Word => u16, Dword => u32);
+
 /// [`serde`] compatible deserializer wrapping over response data
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ResponseData<'de> {
@@ -95,21 +119,21 @@ pub enum Response<'de> {
     /// Response for [`Register<Read>`] request
     RegisterData {
         /// Instruction
-        instr: Register<Read>,
+        instr: ResponseInstruction<Register<Read>>,
         /// Data
         data: ResponseData<'de>,
     },
     /// Response for [`Word<Read>`] request
     WordData {
         /// Instruction
-        instr: Word<Read>,
+        instr: ResponseInstruction<Word<Read>>,
         /// Data
         data: ResponseData<'de>,
     },
     /// Response for [`Dword<Read>`] request
     DwordData {
         /// Instruction
-        instr: Dword<Read>,
+        instr: ResponseInstruction<Dword<Read>>,
         /// Data
         data: ResponseData<'de>,
     },
@@ -161,15 +185,15 @@ impl<'de> Response<'de> {
         else {
             let response = match opcode {
                 Register::<Read>::CODE => RegisterData {
-                    instr: Register::deserialize(&mut deserializer)?,
+                    instr: ResponseInstruction(Register::deserialize(&mut deserializer)?),
                     data: ResponseData { deserializer },
                 },
                 Word::<Read>::CODE => WordData {
-                    instr: Word::deserialize(&mut deserializer)?,
+                    instr: ResponseInstruction(Word::deserialize(&mut deserializer)?),
                     data: ResponseData { deserializer },
                 },
                 Dword::<Read>::CODE => DwordData {
-                    instr: Dword::deserialize(&mut deserializer)?,
+                    instr: ResponseInstruction(Dword::deserialize(&mut deserializer)?),
                     data: ResponseData { deserializer },
                 },
                 _ => return Err(ResponseUnknownInstr),

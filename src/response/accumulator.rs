@@ -219,7 +219,6 @@ impl<const N: usize> Accumulator<N> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{Read, Word};
     use serde::{Deserialize, Serialize};
 
     #[test]
@@ -253,16 +252,15 @@ mod test {
 
         if let FeedResult::Success(response, remaining) = buf.feed(ser) {
             let Response::WordData {
-                instr:
-                    Word {
-                        addr: 0x1234,
-                        cmd: Read { len: 4 },
-                    },
+                instr,
                 mut data,
             } = response
             else {
                 panic!("Expected ReadWord response");
             };
+
+            assert_eq!(instr.addr(), 0x1234);
+            assert_eq!(instr.wlen(), 4);
 
             assert_eq!(
                 Demo {
@@ -291,16 +289,15 @@ mod test {
         };
 
         let Response::WordData {
-            instr:
-                Word {
-                    addr: 0x1234,
-                    cmd: Read { len: 4 },
-                },
+            instr,
             mut data,
         } = response
         else {
             panic!("Expected ReadWord response");
         };
+
+        assert_eq!(instr.addr(), 0x1234);
+        assert_eq!(instr.wlen(), 4);
 
         assert_eq!(
             Demo {
@@ -316,16 +313,15 @@ mod test {
         };
 
         let Response::WordData {
-            instr:
-                Word {
-                    addr: 0x1234,
-                    cmd: Read { len: 4 },
-                },
+            instr,
             mut data,
         } = response
         else {
             panic!("Expected ReadWord response");
         };
+
+        assert_eq!(instr.addr(), 0x1234);
+        assert_eq!(instr.wlen(), 4);
 
         assert_eq!(
             Demo {

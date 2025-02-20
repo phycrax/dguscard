@@ -22,11 +22,11 @@ macro_rules! impl_resp_instr {
         $(
             impl ResponseInstruction<$instr_type<Read>> {
                 /// Address of the response
-                pub fn addr(&self) -> $addr_type {
+                pub const fn addr(&self) -> $addr_type {
                     self.0.addr
                 }
                 /// Word Length of the response
-                pub fn wlen(&self) -> u8 {
+                pub const fn wlen(&self) -> u8 {
                     self.0.cmd.wlen
                 }
             }

@@ -7,14 +7,16 @@ pub use self::accumulator::{Accumulator, FeedResult};
 
 use self::deserializer::Deserializer;
 use crate::{
-    Curve, Dword, Error::*, Instruction, Read, Register, Result, Word, Write, CRC, HEADER,
+    instruction::{Curve, Dword, Instruction, Read, Register, Word, Write},
+    Error::*,
+    Result, CRC, HEADER,
 };
 use serde::Deserialize;
 
 /// Response Instruction
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct ResponseInstruction<T: Instruction> (T);
+pub struct ResponseInstruction<T: Instruction>(T);
 
 // Implement addr() and wlen() for each instruction type
 macro_rules! impl_resp_instr {
@@ -76,7 +78,7 @@ impl<'de> ResponseData<'de> {
 ///
 /// let mut uart =
 /// # std::collections::VecDeque::from([
-/// # 0x5A, 0xA5, 27, 0x83, 0x12, 0x34, 12, 
+/// # 0x5A, 0xA5, 27, 0x83, 0x12, 0x34, 12,
 /// # 0x00, // MyData.byte
 /// # 0x11, 0x11, // MyData.word
 /// # 0x22, 0x22, 0x22, 0x22, // MyData.dword
@@ -220,9 +222,7 @@ impl<'de> Response<'de> {
         }
 
         // Split input with the length
-        let (input, rest) = input
-            .split_at_checked(len)
-            .ok_or(ResponseTooLarge)?;
+        let (input, rest) = input.split_at_checked(len).ok_or(ResponseTooLarge)?;
 
         // Strip CRC from input
         let input = if crc {

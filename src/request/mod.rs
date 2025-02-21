@@ -9,7 +9,10 @@ pub use self::storage::{Slice, Storage};
 pub use self::storage::HVec;
 
 use self::serializer::Serializer;
-use crate::{Curve, Dword, Instruction, Read, Register, Result, Word, Write, CRC, HEADER};
+use crate::{
+    instruction::{Curve, Dword, Instruction, Read, Register, Word, Write},
+    Result, CRC, HEADER,
+};
 use core::marker::PhantomData;
 use serde::Serialize;
 
@@ -122,7 +125,10 @@ pub struct Request<C, S: Storage> {
 impl<'a, C> Request<C, Slice<'a>> {
     /// Returns a new builder that uses a [`Slice`] as a given backing buffer.
     /// The request will be finalized as [`u8`] slice.
-    pub fn with_slice(buf: &'a mut [u8], instr: RequestInstruction<impl Instruction>) -> Result<Self> {
+    pub fn with_slice(
+        buf: &'a mut [u8],
+        instr: RequestInstruction<impl Instruction>,
+    ) -> Result<Self> {
         Self::new(Slice::new(buf), instr)
     }
 }
@@ -204,11 +210,7 @@ mod tests {
         ];
         let data = TestTuple::new();
 
-        let mut frame = Request::with_slice(
-            buf,
-            RequestInstruction::w_word(0x00DE),
-        )
-        .unwrap();
+        let mut frame = Request::with_slice(buf, RequestInstruction::w_word(0x00DE)).unwrap();
         frame.push(&data).unwrap();
         let output = frame.finalize(true).unwrap();
         assert_eq!(output, expected);
@@ -220,10 +222,7 @@ mod tests {
         let expected = &[0x5A, 0xA5, 7, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34];
         let data = TestTuple::new();
 
-        let mut frame = Request::with_slice(
-            buf, RequestInstruction::w_word(0x00DE),
-        )
-        .unwrap();
+        let mut frame = Request::with_slice(buf, RequestInstruction::w_word(0x00DE)).unwrap();
         frame.push(&data).unwrap();
         let output = frame.finalize(false).unwrap();
         assert_eq!(output, expected);
@@ -237,8 +236,7 @@ mod tests {
         .unwrap();
         let data = TestTuple::new();
 
-        let mut frame = Request::with_hvec(RequestInstruction::w_word(0x00DE))
-        .unwrap();
+        let mut frame = Request::with_hvec(RequestInstruction::w_word(0x00DE)).unwrap();
         frame.push(&data).unwrap();
         let output: Vec<u8, 12> = frame.finalize(true).unwrap();
         assert_eq!(output, expected);
@@ -250,8 +248,7 @@ mod tests {
             Vec::from_slice(&[0x5A, 0xA5, 7, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34]).unwrap();
         let data = TestTuple::new();
 
-        let mut frame = Request::with_hvec(RequestInstruction::w_word(0x00DE))
-        .unwrap();
+        let mut frame = Request::with_hvec(RequestInstruction::w_word(0x00DE)).unwrap();
         frame.push(&data).unwrap();
         let output: Vec<u8, 10> = frame.finalize(false).unwrap();
         assert_eq!(output, expected);

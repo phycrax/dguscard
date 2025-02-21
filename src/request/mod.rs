@@ -9,7 +9,7 @@ pub use self::storage::{Slice, Storage};
 pub use self::storage::HVec;
 
 use self::serializer::Serializer;
-use crate::{Dword, Instruction, Read, Register, Result, Word, Write, CRC, HEADER};
+use crate::{Curve, Dword, Instruction, Read, Register, Result, Word, Write, CRC, HEADER};
 use core::marker::PhantomData;
 use serde::Serialize;
 
@@ -19,8 +19,8 @@ use serde::Serialize;
 pub struct RequestInstruction<T: Instruction>(T);
 
 impl RequestInstruction<Register<Write>> {
-    /// New register write instruction
-    pub const fn new_reg_w(page: u8, addr: u8) -> Self {
+    /// Write register instruction
+    pub const fn w_reg(page: u8, addr: u8) -> Self {
         Self(Register {
             page,
             addr,
@@ -28,23 +28,27 @@ impl RequestInstruction<Register<Write>> {
         })
     }
 }
-
 impl RequestInstruction<Word<Write>> {
-    /// New word write instruction
-    pub const fn new_word_w(addr: u16) -> Self {
+    /// Write word instruction
+    pub const fn w_word(addr: u16) -> Self {
         Self(Word { addr, cmd: Write })
     }
 }
-
 impl RequestInstruction<Dword<Write>> {
-    /// New dword write instruction
-    pub const fn new_dword_w(addr: u32) -> Self {
+    /// Write word instruction
+    pub const fn w_dword(addr: u32) -> Self {
         Self(Dword { addr, cmd: Write })
     }
 }
+impl RequestInstruction<Curve> {
+    /// Write curve instruction
+    pub const fn w_curve(ch: u8) -> Self {
+        Self(Curve { ch })
+    }
+}
 impl RequestInstruction<Register<Read>> {
-    /// New register read instruction
-    pub const fn new_reg_r(page: u8, addr: u8, wlen: u8) -> Self {
+    /// Read register instruction
+    pub const fn r_reg(page: u8, addr: u8, wlen: u8) -> Self {
         Self(Register {
             page,
             addr,
@@ -53,8 +57,8 @@ impl RequestInstruction<Register<Read>> {
     }
 }
 impl RequestInstruction<Word<Read>> {
-    /// New word read instruction
-    pub const fn new_word_r(addr: u16, wlen: u8) -> Self {
+    /// Read word instruction
+    pub const fn r_word(addr: u16, wlen: u8) -> Self {
         Self(Word {
             addr,
             cmd: Read { wlen },
@@ -62,8 +66,8 @@ impl RequestInstruction<Word<Read>> {
     }
 }
 impl RequestInstruction<Dword<Read>> {
-    /// New dword read instruction
-    pub const fn new_dword_r(addr: u32, wlen: u8) -> Self {
+    /// Read dword instruction
+    pub const fn r_dword(addr: u32, wlen: u8) -> Self {
         Self(Dword {
             addr,
             cmd: Read { wlen },
@@ -97,7 +101,7 @@ impl RequestInstruction<Dword<Read>> {
 /// // Backing buffer for the request.
 /// let buf = &mut [0u8; 50];
 /// // Get a request builder with the slice buffer/output type and write data instruction.
-/// let mut frame = Request::with_slice(buf, RequestInstruction::new_word_w(0x1234)).unwrap();
+/// let mut frame = Request::with_slice(buf, RequestInstruction::w_word(0x1234)).unwrap();
 /// // Push your data into the request.
 /// frame.push(&data).unwrap();
 /// // It's possible to push multiple different data types into the request.
@@ -202,7 +206,7 @@ mod tests {
 
         let mut frame = Request::with_slice(
             buf,
-            RequestInstruction::new_word_w(0x00DE),
+            RequestInstruction::w_word(0x00DE),
         )
         .unwrap();
         frame.push(&data).unwrap();
@@ -217,7 +221,7 @@ mod tests {
         let data = TestTuple::new();
 
         let mut frame = Request::with_slice(
-            buf, RequestInstruction::new_word_w(0x00DE),
+            buf, RequestInstruction::w_word(0x00DE),
         )
         .unwrap();
         frame.push(&data).unwrap();
@@ -233,7 +237,7 @@ mod tests {
         .unwrap();
         let data = TestTuple::new();
 
-        let mut frame = Request::with_hvec(RequestInstruction::new_word_w(0x00DE))
+        let mut frame = Request::with_hvec(RequestInstruction::w_word(0x00DE))
         .unwrap();
         frame.push(&data).unwrap();
         let output: Vec<u8, 12> = frame.finalize(true).unwrap();
@@ -246,7 +250,7 @@ mod tests {
             Vec::from_slice(&[0x5A, 0xA5, 7, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34]).unwrap();
         let data = TestTuple::new();
 
-        let mut frame = Request::with_hvec(RequestInstruction::new_word_w(0x00DE))
+        let mut frame = Request::with_hvec(RequestInstruction::w_word(0x00DE))
         .unwrap();
         frame.push(&data).unwrap();
         let output: Vec<u8, 10> = frame.finalize(false).unwrap();

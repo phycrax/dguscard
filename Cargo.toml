@@ -18,10 +18,10 @@ features = ["defmt", "heapless"]
 
 [dependencies]
 serde = { version = "1.0", default-features = false, features = ["derive"] }
-crc = { version = "3.0" }
+crc = { version = "3.2" }
 defmt = { version = "0.3", optional = true }
-heapless = { version = "0.8.0", default-features = false, features = ["serde"], optional = true }
-document-features = "0.2.10"
+heapless = { version = "0.8", default-features = false, features = ["serde"], optional = true }
+document-features = "0.2"
 
 [features]
 default = ["heapless"]

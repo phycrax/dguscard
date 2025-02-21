@@ -7,8 +7,8 @@ trait Sealed {}
 /// Instruction trait (sealed)
 ///
 /// Implemented by all instructions. Users are responsible for valid instruction parameters such as address and length.
-/// - A [`Request`][request::Request] with the instruction [`Word<Read>`] will be responded with [`WordData`][response::Response] which contains the exact instruction.
-/// - A [`Request`][request::Request] with the instruction [`Register<Write>`] will responded with [`RegisterAck`][response::Response].
+/// - A [`Request`][crate::request::Request] with the instruction [`Word<Read>`] will be responded with [`WordData`][crate::response::Response] which contains the exact instruction.
+/// - A [`Request`][crate::request::Request] with the instruction [`Register<Write>`] will responded with [`RegisterAck`][crate::response::Response].
 #[allow(private_bounds)]
 pub trait Instruction: Serialize + Sealed {
     /// Instruction Code

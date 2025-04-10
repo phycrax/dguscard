@@ -2,6 +2,7 @@ use crate::response::ResponseData;
 
 /// TODO
 pub trait Dispatch<Key> {
+    #[allow(async_fn_in_trait)]
     /// TODO
     async fn handle(&mut self, key: &Key, data: ResponseData);
 }

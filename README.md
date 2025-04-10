@@ -95,26 +95,26 @@ assert_eq!(my_data, [0x10, 0x06, 0x10, 0x07]);
 
 ## Serde Data Model Support
 
-- [X] i8, i16, i32, i64, i128 - encoded as big endian
-- [X] u8, u16, u32, u64, u128 - encoded as big endian
-- [X] f32, f64 - encoded as big endian
-- [X] bool - encoded as u16
-- [ ] char
-- [ ] string
-- [ ] byte array - serialization only
-- [ ] option
-- [X] unit - not encoded
-- [X] unit_struct - not encoded
-- [x] unit_variant - index encoded as u16
-- [X] newtype_struct
-- [ ] newtype_variant
-- [ ] seq
-- [X] tuple
-- [X] tuple_struct
-- [ ] tuple_variant
-- [ ] map
-- [X] struct
-- [ ] struct_variant
+- ✅ i8, i16, i32, i64, i128 - encoded as big endian
+- ✅ u8, u16, u32, u64, u128 - encoded as big endian
+- ✅ f32, f64 - encoded as big endian
+- ✅ bool - encoded as u16
+- ❌ char
+- ❌ string
+- ❌ byte array - serialization only
+- ❌ option
+- ✅ unit - not encoded
+- ✅ unit_struct - not encoded
+- ✅ unit_variant - index encoded as u16
+- ✅ newtype_struct
+- ❌ newtype_variant
+- ❌ seq
+- ✅ tuple
+- ✅ tuple_struct
+- ❌ tuple_variant
+- ❌ map
+- ✅ struct
+- ❌ struct_variant
 
 ## License
 

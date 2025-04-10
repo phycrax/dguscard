@@ -11,6 +11,10 @@ pub mod instruction;
 pub mod request;
 pub mod response;
 
+#[cfg(feature = "experimental")]
+/// Experimental features
+pub mod dispatch;
+
 use crc::{Crc, CRC_16_MODBUS};
 pub use error::{Error, Result};
 

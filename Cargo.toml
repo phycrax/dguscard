@@ -29,3 +29,4 @@ default = ["heapless"]
 heapless = ["dep:heapless"]
 ## Use [`defmt`](https://docs.rs/defmt/latest/defmt/) for logging
 defmt = ["dep:defmt"]
+experimental = []

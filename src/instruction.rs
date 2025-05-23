@@ -109,3 +109,27 @@ impl Sealed for Curve {}
 impl Instruction for Curve {
     const CODE: u8 = 0x84;
 }
+
+/// Response Instruction
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct ResponseInstruction<T: Instruction>(T);
+
+// Implement addr() and wlen() for each instruction type
+macro_rules! impl_resp_instr {
+    ($($instr_type:ident =>$addr_type:ident),+) => {
+        $(
+            impl $instr_type<Read> {
+                /// Address of the response
+                pub const fn addr(&self) -> $addr_type {
+                    self.addr
+                }
+                /// Word Length of the response
+                pub const fn wlen(&self) -> u8 {
+                    self.cmd.wlen
+                }
+            }
+        )+
+    };
+}
+impl_resp_instr!(Register => u8, Word => u16, Dword => u32);

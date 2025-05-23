@@ -10,73 +10,11 @@ pub use self::storage::HVec;
 
 use self::serializer::Serializer;
 use crate::{
-    instruction::{Curve, Dword, Instruction, Read, Register, Word, Write},
+    instruction::{Instruction, Write},
     Result, CRC, HEADER,
 };
 use core::marker::PhantomData;
 use serde::Serialize;
-
-/// Request Instruction
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct RequestInstruction<T: Instruction>(T);
-
-impl RequestInstruction<Register<Write>> {
-    /// Write register instruction
-    pub const fn w_reg(page: u8, addr: u8) -> Self {
-        Self(Register {
-            page,
-            addr,
-            cmd: Write,
-        })
-    }
-}
-impl RequestInstruction<Word<Write>> {
-    /// Write word instruction
-    pub const fn w_word(addr: u16) -> Self {
-        Self(Word { addr, cmd: Write })
-    }
-}
-impl RequestInstruction<Dword<Write>> {
-    /// Write word instruction
-    pub const fn w_dword(addr: u32) -> Self {
-        Self(Dword { addr, cmd: Write })
-    }
-}
-impl RequestInstruction<Curve> {
-    /// Write curve instruction
-    pub const fn w_curve(ch: u8) -> Self {
-        Self(Curve { ch })
-    }
-}
-impl RequestInstruction<Register<Read>> {
-    /// Read register instruction
-    pub const fn r_reg(page: u8, addr: u8, wlen: u8) -> Self {
-        Self(Register {
-            page,
-            addr,
-            cmd: Read { wlen },
-        })
-    }
-}
-impl RequestInstruction<Word<Read>> {
-    /// Read word instruction
-    pub const fn r_word(addr: u16, wlen: u8) -> Self {
-        Self(Word {
-            addr,
-            cmd: Read { wlen },
-        })
-    }
-}
-impl RequestInstruction<Dword<Read>> {
-    /// Read dword instruction
-    pub const fn r_dword(addr: u32, wlen: u8) -> Self {
-        Self(Dword {
-            addr,
-            cmd: Read { wlen },
-        })
-    }
-}
 
 /// Request builder
 ///
@@ -87,7 +25,7 @@ impl RequestInstruction<Dword<Read>> {
 /// # Examples
 ///
 /// ```rust
-/// use dguscard::request::{Request, RequestInstruction};
+/// use dguscard::{request::Request, instruction::{Word, Write}};
 /// # use std::io::Write as IoWrite;
 /// #[derive(serde::Serialize)]
 /// struct MyData {
@@ -103,8 +41,8 @@ impl RequestInstruction<Dword<Read>> {
 /// # Vec::new();
 /// // Backing buffer for the request.
 /// let buf = &mut [0u8; 50];
-/// // Get a request builder with the slice buffer/output type and write data instruction.
-/// let mut frame = Request::with_slice(buf, RequestInstruction::w_word(0x1234)).unwrap();
+/// // Get a request builder with the slice buffer/output type and write word instruction.
+/// let mut frame = Request::with_slice(buf, Word { addr: 0x1234, cmd: Write}).unwrap();
 /// // Push your data into the request.
 /// frame.push(&data).unwrap();
 /// // It's possible to push multiple different data types into the request.
@@ -125,10 +63,7 @@ pub struct Request<C, S: Storage> {
 impl<'a, C> Request<C, Slice<'a>> {
     /// Returns a new builder that uses a [`Slice`] as a given backing buffer.
     /// The request will be finalized as [`u8`] slice.
-    pub fn with_slice(
-        buf: &'a mut [u8],
-        instr: RequestInstruction<impl Instruction>,
-    ) -> Result<Self> {
+    pub fn with_slice(buf: &'a mut [u8], instr: impl Instruction) -> Result<Self> {
         Self::new(Slice::new(buf), instr)
     }
 }
@@ -137,7 +72,7 @@ impl<'a, C> Request<C, Slice<'a>> {
 impl<C, const N: usize> Request<C, HVec<N>> {
     /// Returns a new builder that uses [`HVec`] as a buffer.
     /// The request will be finalized as [`Vec<u8, N>`][heapless::Vec].
-    pub fn with_hvec(instr: RequestInstruction<impl Instruction>) -> Result<Self> {
+    pub fn with_hvec(instr: impl Instruction) -> Result<Self> {
         Self::new(HVec::new(), instr)
     }
 }
@@ -159,7 +94,7 @@ where
     /// Returns a new builder with an output type that implements [`Storage`] trait.
     /// The request will be finalized as the given output type.
     /// It should rarely be necessary to directly use this function unless you implemented your own [`Storage`].
-    pub fn new<I: Instruction>(output: S, instr: RequestInstruction<I>) -> Result<Self> {
+    pub fn new<I: Instruction>(output: S, instr: I) -> Result<Self> {
         let mut serializer = Serializer { output };
         // Push header
         HEADER.serialize(&mut serializer)?;
@@ -191,6 +126,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::instruction::Word;
     use heapless::Vec;
 
     #[derive(Serialize)]
@@ -210,7 +146,7 @@ mod tests {
         ];
         let data = TestTuple::new();
 
-        let mut frame = Request::with_slice(buf, RequestInstruction::w_word(0x00DE)).unwrap();
+        let mut frame = Request::with_slice(buf, Word { addr: 0x00DE, cmd: Write}).unwrap();
         frame.push(&data).unwrap();
         let output = frame.finalize(true).unwrap();
         assert_eq!(output, expected);
@@ -222,7 +158,7 @@ mod tests {
         let expected = &[0x5A, 0xA5, 7, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34];
         let data = TestTuple::new();
 
-        let mut frame = Request::with_slice(buf, RequestInstruction::w_word(0x00DE)).unwrap();
+        let mut frame = Request::with_slice(buf, Word { addr: 0x00DE, cmd: Write}).unwrap();
         frame.push(&data).unwrap();
         let output = frame.finalize(false).unwrap();
         assert_eq!(output, expected);
@@ -236,7 +172,7 @@ mod tests {
         .unwrap();
         let data = TestTuple::new();
 
-        let mut frame = Request::with_hvec(RequestInstruction::w_word(0x00DE)).unwrap();
+        let mut frame = Request::with_hvec(Word { addr: 0x00DE, cmd: Write}).unwrap();
         frame.push(&data).unwrap();
         let output: Vec<u8, 12> = frame.finalize(true).unwrap();
         assert_eq!(output, expected);
@@ -248,7 +184,7 @@ mod tests {
             Vec::from_slice(&[0x5A, 0xA5, 7, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34]).unwrap();
         let data = TestTuple::new();
 
-        let mut frame = Request::with_hvec(RequestInstruction::w_word(0x00DE)).unwrap();
+        let mut frame = Request::with_hvec(Word { addr: 0x00DE, cmd: Write}).unwrap();
         frame.push(&data).unwrap();
         let output: Vec<u8, 10> = frame.finalize(false).unwrap();
         assert_eq!(output, expected);

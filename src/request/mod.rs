@@ -146,7 +146,14 @@ mod tests {
         ];
         let data = TestTuple::new();
 
-        let mut frame = Request::with_slice(buf, Word { addr: 0x00DE, cmd: Write}).unwrap();
+        let mut frame = Request::with_slice(
+            buf,
+            Word {
+                addr: 0x00DE,
+                cmd: Write,
+            },
+        )
+        .unwrap();
         frame.push(&data).unwrap();
         let output = frame.finalize(true).unwrap();
         assert_eq!(output, expected);
@@ -158,7 +165,14 @@ mod tests {
         let expected = &[0x5A, 0xA5, 7, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34];
         let data = TestTuple::new();
 
-        let mut frame = Request::with_slice(buf, Word { addr: 0x00DE, cmd: Write}).unwrap();
+        let mut frame = Request::with_slice(
+            buf,
+            Word {
+                addr: 0x00DE,
+                cmd: Write,
+            },
+        )
+        .unwrap();
         frame.push(&data).unwrap();
         let output = frame.finalize(false).unwrap();
         assert_eq!(output, expected);
@@ -172,7 +186,11 @@ mod tests {
         .unwrap();
         let data = TestTuple::new();
 
-        let mut frame = Request::with_hvec(Word { addr: 0x00DE, cmd: Write}).unwrap();
+        let mut frame = Request::with_hvec(Word {
+            addr: 0x00DE,
+            cmd: Write,
+        })
+        .unwrap();
         frame.push(&data).unwrap();
         let output: Vec<u8, 12> = frame.finalize(true).unwrap();
         assert_eq!(output, expected);
@@ -184,7 +202,11 @@ mod tests {
             Vec::from_slice(&[0x5A, 0xA5, 7, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34]).unwrap();
         let data = TestTuple::new();
 
-        let mut frame = Request::with_hvec(Word { addr: 0x00DE, cmd: Write}).unwrap();
+        let mut frame = Request::with_hvec(Word {
+            addr: 0x00DE,
+            cmd: Write,
+        })
+        .unwrap();
         frame.push(&data).unwrap();
         let output: Vec<u8, 10> = frame.finalize(false).unwrap();
         assert_eq!(output, expected);

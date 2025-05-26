@@ -3,7 +3,7 @@
 [![crates.io](https://img.shields.io/crates/d/dguscard.svg)](https://crates.io/crates/dguscard)
 [![crates.io](https://img.shields.io/crates/v/dguscard.svg)](https://crates.io/crates/dguscard)
 
-dguscard is a `#![no_std]` [DWIN](https://www.dwin-global.com) T5L DGUS request builder & response parser with [serde](https://serde.rs/) support, inspired by [postcard](https://github.com/jamesmunns/postcard).
+dguscard is a [postcard](https://github.com/jamesmunns/postcard) style `#![no_std]` [DWIN](https://www.dwin-global.com) T5L DGUS request builder & response parser with [serde](https://serde.rs/).
 
 ## Setup - `Cargo.toml`
 
@@ -22,7 +22,7 @@ serde = { version = "1.0.*", default-features = false }
 ## Examples
 
 ```rust
-use dguscard::{to_slice, command::{Word, Write}};
+use dguscard::{request::to_slice, command::{Word, Write}};
 
 #[derive(serde::Serialize)]
 struct MyData {

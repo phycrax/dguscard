@@ -22,7 +22,7 @@ use serde::Serialize;
 /// # Example
 ///
 /// ```rust
-/// use dguscard::{to_slice, command::{Word, Write}};
+/// use dguscard::{request::to_slice, command::{Word, Write}};
 /// # use std::io::Write as IoWrite;
 /// #[derive(serde::Serialize)]
 /// struct MyData {
@@ -62,7 +62,7 @@ pub fn to_slice<'b, T: Serialize, C: Command>(
 /// # Example
 ///
 /// ```rust
-/// use dguscard::{to_hvec, command::{Word, Write}};
+/// use dguscard::{request::to_hvec, command::{Word, Write}};
 /// # use std::io::Write as IoWrite;
 /// #[derive(serde::Serialize)]
 /// struct MyData {

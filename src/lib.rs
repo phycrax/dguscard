@@ -18,11 +18,6 @@ pub mod dispatch;
 
 use crc::{Crc, CRC_16_MODBUS};
 pub use error::{Error, Result};
-pub use request::{to_slice, Request};
-pub use response::Response;
-
-#[cfg(feature = "heapless")]
-pub use request::to_hvec;
 
 const CRC: Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
 const HEADER: u16 = 0x5AA5;
@@ -31,7 +26,8 @@ const HEADER: u16 = 0x5AA5;
 mod tests {
     use crate::{
         command::{Word, Write, Read},
-        to_hvec, to_slice, Response,
+        request::{to_hvec, to_slice},
+        response::Response,
     };
     use serde::Serialize;
 

@@ -79,16 +79,18 @@ struct MyData {
 
 /// Build a request for reading 10 word address 0x1000 
 let mut request = Request::with_slice(buf, Word {addr: 0x1000, cmd: Read { wlen: 10 }}).unwrap();
+/// Finalize with CRC
 let frame = request.finalize(true).unwrap();
 uart.write(frame);
 
 /// Read the response
 let buf = &mut [0; 50];
 uart.read_until_idle(buf);
+/// Extract the response, expect CRC
 let mut response = Response::from_bytes(buf, true).unwrap();
 let Response::WordData {
     cmd
-    data: response_data,
+    content,
 } = response
 else {
     panic!("Unexpected response type");
@@ -97,10 +99,10 @@ else {
 assert_eq!(cmd.addr(), 0x1000);
 assert_eq!(cmd.wlen(), 10);
 
-let dword: u32 = response_data.take().unwrap();
+let dword: u32 = content.take().unwrap();
 assert_eq!(dword, 0x1000_1001_u32);
 
-let my_data: MyData = response_data.take().unwrap();
+let my_data: MyData = content.take().unwrap();
 assert_eq!(my_data, 
     MyData { 
         a_msb: 0x10_u8, 
@@ -110,7 +112,7 @@ assert_eq!(my_data,
     }
 );
 
-let bytes: [u8;4] = response_data.take().unwrap();
+let bytes: [u8;4] = content.take().unwrap();
 assert_eq!(my_data, [0x10, 0x06, 0x10, 0x07]);
 ```
 

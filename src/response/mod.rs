@@ -13,24 +13,24 @@ use crate::{
 };
 use serde::Deserialize;
 
-/// [`serde`] compatible deserializer wrapping over response data
+/// [`serde`] compatible deserializer wrapping over raw data part of the response
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct ResponseData<'de> {
+pub struct Content<'de> {
     deserializer: Deserializer<'de>,
 }
 
-impl<'de> ResponseData<'de> {
-    /// Removes a `T` from the response and returns it.
+impl<'de> Content<'de> {
+    /// Removes a `T` from content and returns it.
     pub fn take<T: Deserialize<'de>>(&mut self) -> Result<T> {
         T::deserialize(&mut self.deserializer)
     }
 
-    /// Returns the number of remaining bytes in the response.
+    /// Returns the number of remaining bytes in the content.
     pub fn len(&self) -> usize {
         self.deserializer.input.len()
     }
 
-    /// Returns true if the response does not contain any remaining bytes.
+    /// Returns true if the content does not contain any remaining bytes.
     pub fn is_empty(&self) -> bool {
         self.deserializer.input.is_empty()
     }
@@ -71,13 +71,13 @@ impl<'de> ResponseData<'de> {
 /// let mut response = Response::from_bytes(buf, false).unwrap();
 /// // Handle the response.
 /// match response {
-///     Response::WordData{cmd, mut data} => {
+///     Response::WordData{cmd, mut content} => {
 ///         // Check response command
 ///         dbg!(cmd);
-///         // Take a MyData from the response data
-///         let my_data: MyData = data.take().unwrap();
-///         // Take an u32 from the response data
-///         let dword_int: u32 = data.take().unwrap();
+///         // Take a MyData from the response content
+///         let my_data: MyData = content.take().unwrap();
+///         // Take an u32 from the response content
+///         let dword_int: u32 = content.take().unwrap();
 ///     }
 ///     _ => (),
 /// }
@@ -98,22 +98,22 @@ pub enum Response<'de> {
     RegisterData {
         /// Command
         cmd: Register<Read>,
-        /// Data
-        data: ResponseData<'de>,
+        /// Content
+        content: Content<'de>,
     },
     /// Response for [`Word<Read>`] request
     WordData {
         /// Command
         cmd: Word<Read>,
-        /// Data
-        data: ResponseData<'de>,
+        /// Content
+        content: Content<'de>,
     },
     /// Response for [`Dword<Read>`] request
     DwordData {
         /// Command
         cmd: Dword<Read>,
-        /// Data
-        data: ResponseData<'de>,
+        /// Content
+        content: Content<'de>,
     },
 }
 
@@ -130,7 +130,7 @@ impl<'de> Response<'de> {
     /// The unused portion (if any) of the byte slice is returned for further usage.
     /// The byte slice is expected to contain full response, including header, length, and CRC if enabled.
     pub fn take_from_bytes(input: &'de [u8], crc: bool) -> Result<(Self, &'de [u8])> {
-        let (input, rest) = Self::extract_data_bytes(input, crc)?;
+        let (input, rest) = Self::extract_content_bytes(input, crc)?;
         Ok((Self::from_content_bytes(input)?, rest))
     }
 
@@ -164,15 +164,15 @@ impl<'de> Response<'de> {
             let response = match opcode {
                 Register::<Read>::CMD => RegisterData {
                     cmd: Register::deserialize(&mut deserializer)?,
-                    data: ResponseData { deserializer },
+                    content: Content { deserializer },
                 },
                 Word::<Read>::CMD => WordData {
                     cmd: Word::deserialize(&mut deserializer)?,
-                    data: ResponseData { deserializer },
+                    content: Content { deserializer },
                 },
                 Dword::<Read>::CMD => DwordData {
                     cmd: Dword::deserialize(&mut deserializer)?,
-                    data: ResponseData { deserializer },
+                    content: Content { deserializer },
                 },
                 _ => return Err(ResponseUnknownCmd),
             };
@@ -183,7 +183,7 @@ impl<'de> Response<'de> {
     /// Extracts the command+data part of the response from a byte slice.
     /// The unused portion (if any) of the byte slice is returned for further usage.
     /// The byte slice is expected to contain full DGUS response, including header, length, and CRC if enabled.
-    fn extract_data_bytes(input: &'de [u8], crc: bool) -> Result<(&'de [u8], &'de [u8])> {
+    fn extract_content_bytes(input: &'de [u8], crc: bool) -> Result<(&'de [u8], &'de [u8])> {
         // Strip header from input
         let input = input
             .strip_prefix(&u16::to_be_bytes(HEADER))

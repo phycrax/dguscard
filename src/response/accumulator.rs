@@ -47,11 +47,11 @@ use crate::{response::Response, Error, Result, CRC, HEADER};
 ///             FeedResult::Success(response, remaining) => {
 ///                 // Handle response here.  
 ///                 match response {
-///                     Response::WordData { cmd, mut data } => {
+///                     Response::WordData { cmd, mut content } => {
 ///                         // Check response command
 ///                         dbg!(cmd);
-///                         // Take a MyData from the response data
-///                         let data: MyData = data.take().unwrap();
+///                         // Take a MyData from the response content
+///                         let data: MyData = content.take().unwrap();
 ///                     }
 ///                     _ => ()
 ///                 }
@@ -253,7 +253,7 @@ mod test {
         ];
 
         if let FeedResult::Success(response, remaining) = buf.feed(ser) {
-            let Response::WordData { cmd, mut data } = response else {
+            let Response::WordData { cmd, content: mut data } = response else {
                 panic!("Expected ReadWord response");
             };
 
@@ -291,7 +291,7 @@ mod test {
             panic!("Expected Success");
         };
 
-        let Response::WordData { cmd, mut data } = response else {
+        let Response::WordData { cmd, content: mut data } = response else {
             panic!("Expected ReadWord response");
         };
 
@@ -316,7 +316,7 @@ mod test {
             panic!("Expected Success");
         };
 
-        let Response::WordData { cmd, mut data } = response else {
+        let Response::WordData { cmd, content: mut data } = response else {
             panic!("Expected ReadWord response");
         };
 

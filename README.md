@@ -3,7 +3,7 @@
 [![crates.io](https://img.shields.io/crates/d/dguscard.svg)](https://crates.io/crates/dguscard)
 [![crates.io](https://img.shields.io/crates/v/dguscard.svg)](https://crates.io/crates/dguscard)
 
-dguscard is a [postcard](https://github.com/jamesmunns/postcard) style `#![no_std]` [DWIN](https://www.dwin-global.com) T5L DGUS request builder & response parser with [serde](https://serde.rs/).
+dguscard is a [postcard](https://github.com/jamesmunns/postcard) style `#![no_std]` [DWIN](https://www.dwin-global.com) T5L DGUS request builder & response parser with [serde](https://serde.rs/) support.
 
 ## Setup - `Cargo.toml`
 
@@ -20,27 +20,6 @@ serde = { version = "1.0.*", default-features = false }
 ```
 
 ## Examples
-
-```rust
-use dguscard::{request::to_slice, command::{Word, Write}};
-
-#[derive(serde::Serialize)]
-struct MyData {
-    byte_h: u8,
-    byte_l: u8,
-    word: u16,
-    dword: u32,
-    float: f32,
-    double: f64,
-}
-let data = MyData { byte_h: 0, byte_l: 1, word: 2, dword: 3, float: 4.0, double: 5.0 };
-// Backing buffer for the request.
-let buf = &mut [0u8; 50];
-// Serialize data to a slice buffer/output type with write word command and crc.
-let mut frame = to_slice(&data, buf, Word { addr: 0x1234, cmd: Write}, true).unwrap();
-// Transmit the frame
-uart.write_all(frame).unwrap();
-```
 
 Take a look at [`Request`](https://docs.rs/dguscard/request/struct.Request.html), [`Response`](https://docs.rs/dguscard/response/struct.Response.html) and [`Accumulator`](https://docs.rs/dguscard/response/struct.Accumulator.html) examples.
 

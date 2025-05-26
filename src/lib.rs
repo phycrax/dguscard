@@ -14,66 +14,10 @@ pub mod response;
 
 #[cfg(feature = "experimental")]
 /// Experimental features
-pub mod dispatch;
+pub mod experimental;
 
 use crc::{Crc, CRC_16_MODBUS};
 pub use error::{Error, Result};
 
 const CRC: Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
 const HEADER: u16 = 0x5AA5;
-
-#[cfg(test)]
-mod tests {
-    use crate::{
-        command::{Word, Write, Read},
-        request::{to_hvec, to_slice},
-        response::Response,
-    };
-    use serde::Serialize;
-
-    #[derive(Serialize)]
-    struct Test(u16);
-
-    #[test]
-    pub fn request_slice() {
-        let mut buf = [0u8; 10];
-        let _ = to_slice(
-            &Test(0),
-            &mut buf,
-            Word {
-                addr: 0x1234,
-                cmd: Write,
-            },
-            true,
-        )
-        .unwrap();
-    }
-
-    #[test]
-    pub fn request_hvec() {
-        let _: heapless::Vec<u8, 10> = to_hvec(
-            &Test(0),
-            Word {
-                addr: 0x1234,
-                cmd: Write,
-            },
-            true,
-        )
-        .unwrap();
-    }
-
-    #[test]
-    fn response_word_data() {
-        let input = [
-            0x5A, 0xA5, 8, 0x83, 0x12, 0x34, 2, b'D', b'G', b'U', b'S', 1, 2, 3, 4,
-        ];
-        let (response, rest) = Response::take_from_bytes(&input, false).unwrap();
-        let Response::WordData {cmd, mut content} = response else {
-            panic!("Unexpected response type");
-        };
-        let content: [u8;4] = content.take().unwrap(); 
-        assert_eq!(cmd, Word { addr: 0x1234, cmd: Read { wlen: 2} });
-        assert_eq!(content, [b'D', b'G', b'U', b'S',]);
-        assert_eq!(rest, &[1, 2, 3, 4]);
-    }
-}

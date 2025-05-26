@@ -253,7 +253,11 @@ mod test {
         ];
 
         if let FeedResult::Success(response, remaining) = buf.feed(ser) {
-            let Response::WordData { cmd, content: mut data } = response else {
+            let Response::WordData {
+                cmd,
+                content: mut data,
+            } = response
+            else {
                 panic!("Expected ReadWord response");
             };
 
@@ -291,7 +295,11 @@ mod test {
             panic!("Expected Success");
         };
 
-        let Response::WordData { cmd, content: mut data } = response else {
+        let Response::WordData {
+            cmd,
+            content: mut data,
+        } = response
+        else {
             panic!("Expected ReadWord response");
         };
 
@@ -316,7 +324,11 @@ mod test {
             panic!("Expected Success");
         };
 
-        let Response::WordData { cmd, content: mut data } = response else {
+        let Response::WordData {
+            cmd,
+            content: mut data,
+        } = response
+        else {
             panic!("Expected ReadWord response");
         };
 

@@ -115,7 +115,7 @@ pub fn to_hvec<T: Serialize, C: Command, const N: usize>(
 #[cfg(test)]
 mod tests {
     use crate::{
-        command::{Word, Write, Read},
+        command::{Read, Word, Write},
         request::{to_hvec, to_slice},
         response::Response,
     };
@@ -158,11 +158,17 @@ mod tests {
             0x5A, 0xA5, 8, 0x83, 0x12, 0x34, 2, b'D', b'G', b'U', b'S', 1, 2, 3, 4,
         ];
         let (response, rest) = Response::take_from_bytes(&input, false).unwrap();
-        let Response::WordData {cmd, mut content} = response else {
+        let Response::WordData { cmd, mut content } = response else {
             panic!("Unexpected response type");
         };
-        let content: [u8;4] = content.take().unwrap(); 
-        assert_eq!(cmd, Word { addr: 0x1234, cmd: Read { wlen: 2} });
+        let content: [u8; 4] = content.take().unwrap();
+        assert_eq!(
+            cmd,
+            Word {
+                addr: 0x1234,
+                cmd: Read { wlen: 2 }
+            }
+        );
         assert_eq!(content, [b'D', b'G', b'U', b'S',]);
         assert_eq!(rest, &[1, 2, 3, 4]);
     }

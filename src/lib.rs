@@ -7,7 +7,8 @@
 #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
 
 mod error;
-pub mod instruction;
+
+pub mod command;
 pub mod request;
 pub mod response;
 
@@ -17,54 +18,50 @@ pub mod dispatch;
 
 use crc::{Crc, CRC_16_MODBUS};
 pub use error::{Error, Result};
+pub use request::to_slice;
+
+#[cfg(feature = "heapless")]
+pub use request::to_hvec;
 
 const CRC: Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
 const HEADER: u16 = 0x5AA5;
 
-use instruction::Instruction;
-use request::Request;
-use serde::Serialize;
-
-/// ToRequest trait
-/// 
-/// Users can implement this trait on their types to be able to use to_x functions
-pub trait ToRequest<T: Instruction> {
-    /// Command to be assigned to the type
-    const CMD: T;
-}
-
-/// Serialize a `T` to the given slice, with the resulting slice containing
-/// data in a serialized format.
-pub fn to_slice<'b, I: Instruction, T: ToRequest<I> + Serialize>(
-    val: &T,
-    buf: &'b mut [u8],
-    crc: bool,
-) -> Result<&'b mut [u8]> {
-    let mut request = Request::with_slice(buf, T::CMD)?;
-    request.push(val)?;
-    request.finalize(crc)
-}
-
 #[cfg(test)]
 mod tests {
     use crate::{
-        instruction::{Word, Write},
-        to_slice, ToRequest,
+        command::{Word, Write},
+        to_hvec, to_slice,
     };
     use serde::Serialize;
 
     #[derive(Serialize)]
     struct Test(u16);
-    impl ToRequest<Word<Write>> for Test {
-        const CMD: Word<Write> = Word {
-            addr: 0x1234,
-            cmd: Write,
-        };
-    }
 
     #[test]
     pub fn slice() {
         let mut buf = [0u8; 10];
-        let _ = to_slice(&Test(0), &mut buf, true).unwrap();
+        let _ = to_slice(
+            &Test(0),
+            &mut buf,
+            Word {
+                addr: 0x1234,
+                cmd: Write,
+            },
+            true,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    pub fn hvec() {
+        let _: heapless::Vec<u8, 10> = to_hvec(
+            &Test(0),
+            Word {
+                addr: 0x1234,
+                cmd: Write,
+            },
+            true,
+        )
+        .unwrap();
     }
 }

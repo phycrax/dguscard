@@ -10,11 +10,89 @@ pub use self::storage::HVec;
 
 use self::serializer::Serializer;
 use crate::{
-    instruction::{Instruction, Write},
+    command::{Command, Write},
     Result, CRC, HEADER,
 };
 use core::marker::PhantomData;
 use serde::Serialize;
+
+/// Serialize a `T` as a request with the command to the given slice,
+/// with the resulting slice containing data in a serialized format.
+///
+/// # Example
+///
+/// ```rust
+/// use dguscard::{to_slice, command::{Word, Write}};
+/// # use std::io::Write as IoWrite;
+/// #[derive(serde::Serialize)]
+/// struct MyData {
+///     byte_h: u8,
+///     byte_l: u8,
+///     word: u16,
+///     dword: u32,
+///     float: f32,
+///     double: f64,
+/// }
+/// let data = MyData { byte_h: 0, byte_l: 1, word: 2, dword: 3, float: 4.0, double: 5.0 };
+///
+/// let mut uart =
+/// # Vec::new();
+/// // Backing buffer for the request.
+/// let buf = &mut [0u8; 50];
+/// // Serialize data to a slice buffer/output type with write word command and crc.
+/// let mut frame = to_slice(&data, buf, Word { addr: 0x1234, cmd: Write}, true).unwrap();
+/// // Transmit the frame
+/// uart.write_all(frame).unwrap();
+/// ```
+///
+pub fn to_slice<'b, T: Serialize, C: Command>(
+    val: &T,
+    buf: &'b mut [u8],
+    cmd: C,
+    crc: bool,
+) -> Result<&'b mut [u8]> {
+    let mut request = Request::with_slice(buf, cmd)?;
+    request.push(val)?;
+    request.finalize(crc)
+}
+
+/// Serialize a `T` as a request with the command to a [`Vec<u8, N>`][heapless::Vec],
+/// with the `Vec` containing data in a serialized format.
+///
+/// # Example
+///
+/// ```rust
+/// use dguscard::{to_hvec, command::{Word, Write}};
+/// # use std::io::Write as IoWrite;
+/// #[derive(serde::Serialize)]
+/// struct MyData {
+///     byte_h: u8,
+///     byte_l: u8,
+///     word: u16,
+///     dword: u32,
+///     float: f32,
+///     double: f64,
+/// }
+/// let data = MyData { byte_h: 0, byte_l: 1, word: 2, dword: 3, float: 4.0, double: 5.0 };
+///
+/// let mut uart =
+/// # Vec::new();
+/// // Serialize data as a [`Vec<u8, N>`][heapless::Vec] with write word command and crc.
+/// let mut frame: heapless::Vec<u8, 32> = to_hvec(&data, Word { addr: 0x1234, cmd: Write}, true).unwrap();
+/// // Transmit the frame
+/// uart.write_all(&frame).unwrap();
+/// ```
+///
+#[cfg(feature = "heapless")]
+pub fn to_hvec<T: Serialize, C: Command, const N: usize>(
+    val: &T,
+    cmd: C,
+    crc: bool,
+) -> Result<heapless::Vec<u8, N>> {
+    let mut request = Request::with_hvec(cmd)?;
+    request.push(val)?;
+    request.finalize(crc)
+}
 
 /// Request builder
 ///
@@ -22,26 +100,27 @@ use serde::Serialize;
 /// This trait is implemented for [`Slice`]([`u8`] slice newtype)
 /// and [`HVec`]([`Vec<u8, N>`][heapless::Vec] newtype).
 ///
-/// # Examples
+/// # Example
 ///
 /// ```rust
-/// use dguscard::{request::Request, instruction::{Word, Write}};
+/// use dguscard::{request::Request, command::{Word, Write}};
 /// # use std::io::Write as IoWrite;
 /// #[derive(serde::Serialize)]
 /// struct MyData {
-///     byte: u8,
+///     byte_h: u8,
+///     byte_l: u8,
 ///     word: u16,
 ///     dword: u32,
 ///     float: f32,
 ///     double: f64,
 /// }
-/// let data = MyData { byte: 1, word: 2, dword: 3, float: 4.0, double: 5.0 };
+/// let data = MyData { byte_h: 0, byte_l: 1, word: 2, dword: 3, float: 4.0, double: 5.0 };
 ///
 /// let mut uart =
 /// # Vec::new();
 /// // Backing buffer for the request.
 /// let buf = &mut [0u8; 50];
-/// // Get a request builder with the slice buffer/output type and write word instruction.
+/// // Get a request builder with the slice buffer/output type and write word command.
 /// let mut frame = Request::with_slice(buf, Word { addr: 0x1234, cmd: Write}).unwrap();
 /// // Push your data into the request.
 /// frame.push(&data).unwrap();
@@ -63,8 +142,8 @@ pub struct Request<C, S: Storage> {
 impl<'a, C> Request<C, Slice<'a>> {
     /// Returns a new builder that uses a [`Slice`] as a given backing buffer.
     /// The request will be finalized as [`u8`] slice.
-    pub fn with_slice(buf: &'a mut [u8], instr: impl Instruction) -> Result<Self> {
-        Self::new(Slice::new(buf), instr)
+    pub fn with_slice(buf: &'a mut [u8], cmd: impl Command) -> Result<Self> {
+        Self::new(Slice::new(buf), cmd)
     }
 }
 
@@ -72,8 +151,8 @@ impl<'a, C> Request<C, Slice<'a>> {
 impl<C, const N: usize> Request<C, HVec<N>> {
     /// Returns a new builder that uses [`HVec`] as a buffer.
     /// The request will be finalized as [`Vec<u8, N>`][heapless::Vec].
-    pub fn with_hvec(instr: impl Instruction) -> Result<Self> {
-        Self::new(HVec::new(), instr)
+    pub fn with_hvec(cmd: impl Command) -> Result<Self> {
+        Self::new(HVec::new(), cmd)
     }
 }
 
@@ -87,23 +166,23 @@ where
     }
 }
 
-impl<C, S, O> Request<C, S>
+impl<RW, S, O> Request<RW, S>
 where
     S: Storage<Output = O>,
 {
     /// Returns a new builder with an output type that implements [`Storage`] trait.
     /// The request will be finalized as the given output type.
     /// It should rarely be necessary to directly use this function unless you implemented your own [`Storage`].
-    pub fn new<I: Instruction>(output: S, instr: I) -> Result<Self> {
+    pub fn new<C: Command>(output: S, cmd: C) -> Result<Self> {
         let mut serializer = Serializer { output };
         // Push header
         HEADER.serialize(&mut serializer)?;
         // Push length placeholder
         0u8.serialize(&mut serializer)?;
-        // Push instruction code
-        I::CODE.serialize(&mut serializer)?;
-        // Push instruction data
-        instr.serialize(&mut serializer)?;
+        // Push command code
+        C::CMD.serialize(&mut serializer)?;
+        // Push command data
+        cmd.serialize(&mut serializer)?;
         // Return the builder
         Ok(Self {
             serializer,
@@ -126,7 +205,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::instruction::Word;
+    use crate::command::{Word, Write};
     use heapless::Vec;
 
     #[derive(Serialize)]

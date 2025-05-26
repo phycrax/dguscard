@@ -7,7 +7,7 @@ pub use self::accumulator::{Accumulator, FeedResult};
 
 use self::deserializer::Deserializer;
 use crate::{
-    instruction::{Curve, Dword, Instruction, Read, Register, Word, Write},
+    command::{Command, Curve, Dword, Read, Register, Word, Write},
     Error::*,
     Result, CRC, HEADER,
 };
@@ -71,9 +71,9 @@ impl<'de> ResponseData<'de> {
 /// let mut response = Response::from_bytes(buf, false).unwrap();
 /// // Handle the response.
 /// match response {
-///     Response::WordData{instr, mut data} => {
-///         // Check response instruction
-///         dbg!(instr);
+///     Response::WordData{cmd, mut data} => {
+///         // Check response command
+///         dbg!(cmd);
 ///         // Take a MyData from the response data
 ///         let my_data: MyData = data.take().unwrap();
 ///         // Take an u32 from the response data
@@ -96,22 +96,22 @@ pub enum Response<'de> {
 
     /// Response for [`Register<Read>`] request
     RegisterData {
-        /// Instruction
-        instr: Register<Read>,
+        /// Command
+        cmd: Register<Read>,
         /// Data
         data: ResponseData<'de>,
     },
     /// Response for [`Word<Read>`] request
     WordData {
-        /// Instruction
-        instr: Word<Read>,
+        /// Command
+        cmd: Word<Read>,
         /// Data
         data: ResponseData<'de>,
     },
     /// Response for [`Dword<Read>`] request
     DwordData {
-        /// Instruction
-        instr: Dword<Read>,
+        /// Command
+        cmd: Dword<Read>,
         /// Data
         data: ResponseData<'de>,
     },
@@ -136,22 +136,22 @@ impl<'de> Response<'de> {
 
     /// Looks for a response within a byte slice.
     /// The unused portion (if any) of the byte slice is not returned.
-    /// The data byte slice is expected to contain instruction and data section of the response,
+    /// The data byte slice is expected to contain command and data section of the response,
     /// i.e. excluding header, length, and CRC if enabled.
     /// Intended to be used with an Accumulator.
     pub fn from_content_bytes(input: &'de [u8]) -> Result<Self> {
         let mut deserializer = Deserializer { input };
-        // Strip instruction code from input
+        // Strip command code from input
         let opcode = u8::deserialize(&mut deserializer)?;
         use Response::*;
         // Is it ACK?
         if opcode % 2 == 0 {
             let response = match opcode {
-                Register::<Write>::CODE => RegisterAck,
-                Word::<Write>::CODE => WordAck,
-                Dword::<Write>::CODE => DwordAck,
-                Curve::CODE => CurveAck,
-                _ => return Err(ResponseUnknownInstr),
+                Register::<Write>::CMD => RegisterAck,
+                Word::<Write>::CMD => WordAck,
+                Dword::<Write>::CMD => DwordAck,
+                Curve::CMD => CurveAck,
+                _ => return Err(ResponseUnknownCmd),
             };
             // Verify ACK bytes
             if u16::deserialize(&mut deserializer)? != u16::from_be_bytes([b'O', b'K']) {
@@ -162,25 +162,25 @@ impl<'de> Response<'de> {
         // Or is it data?
         else {
             let response = match opcode {
-                Register::<Read>::CODE => RegisterData {
-                    instr: Register::deserialize(&mut deserializer)?,
+                Register::<Read>::CMD => RegisterData {
+                    cmd: Register::deserialize(&mut deserializer)?,
                     data: ResponseData { deserializer },
                 },
-                Word::<Read>::CODE => WordData {
-                    instr: Word::deserialize(&mut deserializer)?,
+                Word::<Read>::CMD => WordData {
+                    cmd: Word::deserialize(&mut deserializer)?,
                     data: ResponseData { deserializer },
                 },
-                Dword::<Read>::CODE => DwordData {
-                    instr: Dword::deserialize(&mut deserializer)?,
+                Dword::<Read>::CMD => DwordData {
+                    cmd: Dword::deserialize(&mut deserializer)?,
                     data: ResponseData { deserializer },
                 },
-                _ => return Err(ResponseUnknownInstr),
+                _ => return Err(ResponseUnknownCmd),
             };
             Ok(response)
         }
     }
 
-    /// Extracts the instruction+data part of the response from a byte slice.
+    /// Extracts the command+data part of the response from a byte slice.
     /// The unused portion (if any) of the byte slice is returned for further usage.
     /// The byte slice is expected to contain full DGUS response, including header, length, and CRC if enabled.
     fn extract_data_bytes(input: &'de [u8], crc: bool) -> Result<(&'de [u8], &'de [u8])> {

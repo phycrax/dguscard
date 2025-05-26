@@ -1,31 +1,31 @@
-//! Instruction types
+//! Command types
 
 use serde::{Deserialize, Serialize};
 
 trait Sealed {}
 
-/// Instruction trait (sealed)
+/// Command trait (sealed)
 ///
-/// Implemented by all instructions. Users are responsible for valid instruction parameters such as address and length.
-/// - A [`Request`][crate::request::Request] with the instruction [`Word<Read>`] will be responded with [`WordData`][crate::response::Response] which contains the exact instruction.
-/// - A [`Request`][crate::request::Request] with the instruction [`Register<Write>`] will responded with [`RegisterAck`][crate::response::Response].
+/// Implemented by all commands. Users are responsible for valid command parameters such as address and length.
+/// - A [`Request`][crate::request::Request] with the command [`Word<Read>`] will be responded with [`WordData`][crate::response::Response] which contains the exact command.
+/// - A [`Request`][crate::request::Request] with the command [`Register<Write>`] will responded with [`RegisterAck`][crate::response::Response].
 #[allow(private_bounds)]
-pub trait Instruction: Serialize + Sealed {
-    /// Instruction Code
-    const CODE: u8;
+pub trait Command: Serialize + Sealed {
+    /// Command Code
+    const CMD: u8;
 }
 
-/// Write command
+/// Write inner command
 ///
-/// Use it with an instruction
+/// Use it with a command
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Write;
 impl Sealed for Write {}
 
-/// Read command
+/// Read inner command
 ///
-/// Use it with an instruction
+/// Use it with a command
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Read {
@@ -34,9 +34,9 @@ pub struct Read {
 }
 impl Sealed for Read {}
 
-/// Register instruction
+/// Register command
 ///
-/// Generic over commands
+/// Generic over inner commands
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Register<C> {
@@ -49,16 +49,16 @@ pub struct Register<C> {
 }
 impl Sealed for Register<Write> {}
 impl Sealed for Register<Read> {}
-impl Instruction for Register<Write> {
-    const CODE: u8 = 0x80;
+impl Command for Register<Write> {
+    const CMD: u8 = 0x80;
 }
-impl Instruction for Register<Read> {
-    const CODE: u8 = 0x81;
+impl Command for Register<Read> {
+    const CMD: u8 = 0x81;
 }
 
-/// Word instruction
+/// Word command
 ///
-/// Generic over commands
+/// Generic over inner commands
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Word<C> {
@@ -69,16 +69,16 @@ pub struct Word<C> {
 }
 impl Sealed for Word<Write> {}
 impl Sealed for Word<Read> {}
-impl Instruction for Word<Write> {
-    const CODE: u8 = 0x82;
+impl Command for Word<Write> {
+    const CMD: u8 = 0x82;
 }
-impl Instruction for Word<Read> {
-    const CODE: u8 = 0x83;
+impl Command for Word<Read> {
+    const CMD: u8 = 0x83;
 }
 
-/// Dword instruction
+/// Dword command
 ///
-/// Generic over commands
+/// Generic over inner commands
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Dword<C> {
@@ -89,14 +89,14 @@ pub struct Dword<C> {
 }
 impl Sealed for Dword<Write> {}
 impl Sealed for Dword<Read> {}
-impl Instruction for Dword<Write> {
-    const CODE: u8 = 0x86;
+impl Command for Dword<Write> {
+    const CMD: u8 = 0x86;
 }
-impl Instruction for Dword<Read> {
-    const CODE: u8 = 0x87;
+impl Command for Dword<Read> {
+    const CMD: u8 = 0x87;
 }
 
-/// Curve instruction
+/// Curve command
 ///
 /// Write only
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -106,6 +106,6 @@ pub struct Curve {
     pub ch: u8,
 }
 impl Sealed for Curve {}
-impl Instruction for Curve {
-    const CODE: u8 = 0x84;
+impl Command for Curve {
+    const CMD: u8 = 0x84;
 }

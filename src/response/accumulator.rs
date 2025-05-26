@@ -47,9 +47,9 @@ use crate::{response::Response, Error, Result, CRC, HEADER};
 ///             FeedResult::Success(response, remaining) => {
 ///                 // Handle response here.  
 ///                 match response {
-///                     Response::WordData { instr, mut data } => {
-///                         // Check response instruction
-///                         dbg!(instr);
+///                     Response::WordData { cmd, mut data } => {
+///                         // Check response command
+///                         dbg!(cmd);
 ///                         // Take a MyData from the response data
 ///                         let data: MyData = data.take().unwrap();
 ///                     }
@@ -218,7 +218,7 @@ impl<const N: usize> Accumulator<N> {
 
 #[cfg(test)]
 mod test {
-    use crate::instruction::{Read, Word};
+    use crate::command::{Read, Word};
 
     use super::*;
     use serde::{Deserialize, Serialize};
@@ -253,12 +253,12 @@ mod test {
         ];
 
         if let FeedResult::Success(response, remaining) = buf.feed(ser) {
-            let Response::WordData { instr, mut data } = response else {
+            let Response::WordData { cmd, mut data } = response else {
                 panic!("Expected ReadWord response");
             };
 
             assert_eq!(
-                instr,
+                cmd,
                 Word {
                     addr: 0x1234,
                     cmd: Read { wlen: 4 }
@@ -291,12 +291,12 @@ mod test {
             panic!("Expected Success");
         };
 
-        let Response::WordData { instr, mut data } = response else {
+        let Response::WordData { cmd, mut data } = response else {
             panic!("Expected ReadWord response");
         };
 
         assert_eq!(
-            instr,
+            cmd,
             Word {
                 addr: 0x1234,
                 cmd: Read { wlen: 4 }
@@ -316,12 +316,12 @@ mod test {
             panic!("Expected Success");
         };
 
-        let Response::WordData { instr, mut data } = response else {
+        let Response::WordData { cmd, mut data } = response else {
             panic!("Expected ReadWord response");
         };
 
         assert_eq!(
-            instr,
+            cmd,
             Word {
                 addr: 0x1234,
                 cmd: Read { wlen: 4 }

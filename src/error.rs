@@ -15,8 +15,8 @@ pub enum Error {
     ResponseTooLarge,
     /// Response length is less than the minimum proper response length
     ResponseBadLen,
-    /// Unknown response instruction
-    ResponseUnknownInstr,
+    /// Unknown response command
+    ResponseUnknownCmd,
     /// Bad Ack response
     ResponseBadAck,
     /// Response CRC mismatch
@@ -52,7 +52,7 @@ impl Display for Error {
                 ResponseBadHeader => "Response header mismatch",
                 ResponseTooLarge => "Response length is more than the buffer size",
                 ResponseBadLen => "Response length is less than the minimum proper response length",
-                ResponseUnknownInstr => "Unknown response instruction",
+                ResponseUnknownCmd => "Unknown response command",
                 ResponseBadAck => "Bad Ack response",
                 ResponseBadCrc => "Response CRC mismatch",
                 SerializeBadEnum => "Found an enum discriminant that was > u16::max_value()",

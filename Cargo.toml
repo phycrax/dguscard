@@ -1,6 +1,6 @@
 [package]
 name = "dguscard"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Süha ÜNÜVAR"]
 edition = "2021"
 rust-version = "1.81"
@@ -29,4 +29,3 @@ default = ["heapless"]
 heapless = ["dep:heapless"]
 ## Use [`defmt`](https://docs.rs/defmt/latest/defmt/) for logging
 defmt = ["dep:defmt"]
-experimental = []

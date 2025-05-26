@@ -1,10 +1,11 @@
-use crate::response::ResponseData;
+use crate::{command::Command, request::Request, response::Content, Result};
+use serde::Serialize;
 
 /// TODO
 pub trait Dispatch<Key> {
     #[allow(async_fn_in_trait)]
     /// TODO
-    async fn handle(&mut self, key: &Key, data: ResponseData);
+    async fn handle(&mut self, key: &Key, data: Content);
 }
 
 #[macro_export]
@@ -22,7 +23,7 @@ macro_rules! define_dispatch {
         }
 
         impl Dispatch<$key_ty> for $name {
-            async fn handle(&mut self, key: &$key_ty, data: dguscard::response::ResponseData<'_>) {
+            async fn handle(&mut self, key: &$key_ty, data: dguscard::response::Content<'_>) {
                 match key {
                     $(
                         $key => $handler(&mut self.context, data).await,
@@ -40,7 +41,7 @@ macro_rules! define_dispatch {
 /// # Example
 ///
 /// ```rust
-/// use dguscard::{request::to_slice, command::{Word, Write}};
+/// use dguscard::{experimental::to_slice, command::{Word, Write}};
 /// # use std::io::Write as IoWrite;
 /// #[derive(serde::Serialize)]
 /// struct MyData {
@@ -80,7 +81,7 @@ pub fn to_slice<'b, T: Serialize, C: Command>(
 /// # Example
 ///
 /// ```rust
-/// use dguscard::{request::to_hvec, command::{Word, Write}};
+/// use dguscard::{experimental::to_hvec, command::{Word, Write}};
 /// # use std::io::Write as IoWrite;
 /// #[derive(serde::Serialize)]
 /// struct MyData {
@@ -114,12 +115,12 @@ pub fn to_hvec<T: Serialize, C: Command, const N: usize>(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     use crate::{
         command::{Read, Word, Write},
-        request::{to_hvec, to_slice},
         response::Response,
     };
-    use serde::Serialize;
 
     #[derive(Serialize)]
     struct Test(u16);

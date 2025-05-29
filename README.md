@@ -21,7 +21,7 @@ serde = { version = "1.0.*", default-features = false }
 
 ## Examples
 
-Take a look at [`Request`](https://docs.rs/dguscard/request/struct.Request.html), [`Response`](https://docs.rs/dguscard/response/struct.Response.html) and [`Accumulator`](https://docs.rs/dguscard/response/struct.Accumulator.html) examples.
+Take a look at [`Request`](https://docs.rs/dguscard/latest/dguscard/request/struct.Request.html), [`Response`](https://docs.rs/dguscard/latest/dguscard/response/enum.Response.html) and [`Accumulator`](https://docs.rs/dguscard/latest/dguscard/response/struct.Accumulator.html) examples.
 
 ### Word Addressing and Big Endianness
 

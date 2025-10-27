@@ -14,6 +14,7 @@ use crate::{
 use serde::Deserialize;
 
 /// [`serde`] compatible deserializer wrapping over raw data part of the response
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Content<'de> {
     deserializer: Deserializer<'de>,
@@ -83,6 +84,7 @@ impl<'de> Content<'de> {
 /// }
 /// ```
 ///
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Response<'de> {
     /// Response for [`Register<Write>`] request

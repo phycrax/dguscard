@@ -36,6 +36,7 @@ pub trait Storage: Deref<Target = [u8]> + DerefMut<Target = [u8]> {
 ///
 /// Stores the serialized bytes into a plain [`u8`] slice.
 /// Resolves into a sub-slice of the given slice buffer.
+#[derive(Debug)]
 pub struct Slice<'a> {
     buf: &'a mut [u8],
     index: usize,
@@ -89,7 +90,7 @@ mod hvec {
     ///
     /// Stores the serialized bytes and resolves into a [`Vec<u8, N>`][heapless::Vec].
     /// This is a stack allocated data structure, with a fixed maximum size and variable amount of contents.
-    #[derive(Default)]
+    #[derive(Default, Debug)]
     pub struct HVec<const N: usize>(Vec<u8, N>);
 
     impl<const N: usize> HVec<N> {

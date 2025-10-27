@@ -5,6 +5,7 @@ use serde::{ser, Serialize};
 /// `serde` compatible serializer.
 ///
 /// Serialization output type is generic and must implement the [`Storage`] trait.
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Serializer<S: Storage> {
     /// This is the Storage that will be used to store any bytes generated

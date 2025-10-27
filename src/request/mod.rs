@@ -55,6 +55,7 @@ use serde::Serialize;
 /// uart.write_all(tx_bytes).unwrap();
 /// ```
 ///
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Request<C, S: Storage> {
     serializer: Serializer<S>,

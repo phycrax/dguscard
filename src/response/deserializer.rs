@@ -2,6 +2,7 @@ use crate::{Error, Result};
 use serde::de::{self, DeserializeSeed, IntoDeserializer, Visitor};
 
 /// `serde` compatible deserializer.
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Deserializer<'de> {
     pub input: &'de [u8],

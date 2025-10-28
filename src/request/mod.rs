@@ -84,7 +84,7 @@ where
     S: Storage<Output = O>,
 {
     /// Appends a `T` into the [`Request<Write, S>`].
-    pub fn push<T: Serialize>(&mut self, value: &T) -> Result<()> {
+    pub fn push<T: Serialize + ?Sized>(&mut self, value: &T) -> Result<()> {
         value.serialize(&mut self.serializer)
     }
 }

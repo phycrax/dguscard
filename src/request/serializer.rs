@@ -172,7 +172,7 @@ impl<S: Storage> ser::Serializer for &'_ mut Serializer<S> {
 
     #[inline]
     fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq> {
-        Err(Error::NotYetImplemented)
+        Ok(self)
     }
 
     #[inline]

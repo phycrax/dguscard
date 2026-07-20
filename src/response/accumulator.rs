@@ -260,7 +260,7 @@ mod test {
                 panic!("Expected Data response");
             };
 
-            assert_eq!(addr, Address::Word { addr: 0x1234 });
+            assert_eq!(addr, Address::Word(0x1234));
             assert_eq!(wlen, 4);
 
             assert_eq!(
@@ -298,7 +298,7 @@ mod test {
             panic!("Expected Data response");
         };
 
-        assert_eq!(addr, Address::Word { addr: 0x1234 });
+        assert_eq!(addr, Address::Word(0x1234));
         assert_eq!(wlen, 4);
 
         assert_eq!(
@@ -323,7 +323,7 @@ mod test {
             panic!("Expected Data response");
         };
 
-        assert_eq!(addr, Address::Word { addr: 0x1234 });
+        assert_eq!(addr, Address::Word(0x1234));
         assert_eq!(wlen, 4);
 
         assert_eq!(

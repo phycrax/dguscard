@@ -141,16 +141,12 @@ impl<'de> Response<'de> {
         else {
             // Strip address from input
             let addr = match opcode - 1 {
-                Address::REGISTER => Address::Register {
-                    page: u8::deserialize(&mut deserializer)?,
-                    addr: u8::deserialize(&mut deserializer)?,
-                },
-                Address::WORD => Address::Word {
-                    addr: u16::deserialize(&mut deserializer)?,
-                },
-                Address::DWORD => Address::Dword {
-                    addr: u32::deserialize(&mut deserializer)?,
-                },
+                Address::REGISTER => Address::Register(
+                    u8::deserialize(&mut deserializer)?,
+                    u8::deserialize(&mut deserializer)?,
+                ),
+                Address::WORD => Address::Word(u16::deserialize(&mut deserializer)?),
+                Address::DWORD => Address::Dword(u32::deserialize(&mut deserializer)?),
                 _ => return Err(ResponseUnknownCmd),
             };
             // Strip word length from input

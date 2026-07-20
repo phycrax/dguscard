@@ -220,9 +220,7 @@ mod tests {
     fn ack_crc() {
         let input = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 1, 2, 3, 4];
         let (response, rest) = Response::take_from_bytes(&input, true).unwrap();
-        let Response::Ack = response else {
-            panic!()
-        };
+        let Response::Ack = response else { panic!() };
         assert_eq!(rest, &[1, 2, 3, 4]);
     }
 }

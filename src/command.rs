@@ -8,7 +8,7 @@ trait Sealed {}
 ///
 /// Implemented by all commands. Users are responsible for valid command parameters such as address and length.
 /// - A [`Request`][crate::request::Request] with the command [`Word<Read>`] will be responded with [`WordData`][crate::response::Response] which contains the exact command.
-/// - A [`Request`][crate::request::Request] with the command [`Register<Write>`] will responded with [`RegisterAck`][crate::response::Response].
+/// - A [`Request`][crate::request::Request] with the command [`Register<Write>`] will responded with [`Ack`][crate::response::Response::Ack].
 #[allow(private_bounds)]
 pub trait Command: Serialize + Sealed {
     /// Command Code

@@ -87,14 +87,11 @@ impl<'de> Content<'de> {
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Response<'de> {
-    /// Response for [`Register<Write>`] request
-    RegisterAck,
-    /// Response for [`Word<Write>`] request
-    WordAck,
-    /// Response for [`Dword<Write>`] request
-    DwordAck,
-    /// Response for [`Curve`] request
-    CurveAck,
+    /// Response for any write request ([`Register<Write>`], [`Word<Write>`], [`Dword<Write>`], [`Curve`]).
+    ///
+    /// ACK frames carry no payload beyond the literal `"OK"`, so all four
+    /// write commands share this single variant.
+    Ack,
 
     /// Response for [`Register<Read>`] request
     RegisterData {
@@ -148,18 +145,16 @@ impl<'de> Response<'de> {
         use Response::*;
         // Is it ACK?
         if opcode % 2 == 0 {
-            let response = match opcode {
-                Register::<Write>::CMD => RegisterAck,
-                Word::<Write>::CMD => WordAck,
-                Dword::<Write>::CMD => DwordAck,
-                Curve::CMD => CurveAck,
+            // Validate that it's a known write opcode.
+            match opcode {
+                Register::<Write>::CMD | Word::<Write>::CMD | Dword::<Write>::CMD | Curve::CMD => {}
                 _ => return Err(ResponseUnknownCmd),
             };
             // Verify ACK bytes
             if u16::deserialize(&mut deserializer)? != u16::from_be_bytes([b'O', b'K']) {
                 return Err(ResponseBadAck);
             }
-            Ok(response)
+            Ok(Ack)
         }
         // Or is it data?
         else {
@@ -225,7 +220,7 @@ mod tests {
     fn ack_crc() {
         let input = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 1, 2, 3, 4];
         let (response, rest) = Response::take_from_bytes(&input, true).unwrap();
-        let Response::WordAck = response else {
+        let Response::Ack = response else {
             panic!()
         };
         assert_eq!(rest, &[1, 2, 3, 4]);

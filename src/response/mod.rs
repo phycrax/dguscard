@@ -151,7 +151,7 @@ impl<'de> Response<'de> {
                 _ => return Err(ResponseUnknownCmd),
             };
             // Verify ACK bytes
-            if u16::deserialize(&mut deserializer)? != u16::from_be_bytes([b'O', b'K']) {
+            if u16::deserialize(&mut deserializer)? != u16::from_be_bytes(*b"OK") {
                 return Err(ResponseBadAck);
             }
             Ok(Ack)

@@ -6,11 +6,7 @@ mod deserializer;
 pub use self::accumulator::{Accumulator, FeedResult};
 
 use self::deserializer::Deserializer;
-use crate::{
-    command::{Command, Curve, Dword, Read, Register, Word, Write},
-    Error::*,
-    Result, CRC, HEADER,
-};
+use crate::{Address, Error::*, Result, CRC, HEADER};
 use serde::Deserialize;
 
 /// [`serde`] compatible deserializer wrapping over raw data part of the response
@@ -72,45 +68,30 @@ impl<'de> Content<'de> {
 /// let mut response = Response::from_bytes(buf, false).unwrap();
 /// // Handle the response.
 /// match response {
-///     Response::WordData{cmd, mut content} => {
-///         // Check response command
-///         dbg!(cmd);
+///     Response::Data { addr, wlen, mut content } => {
+///         // Check where the data came from
+///         dbg!(addr, wlen);
 ///         // Take a MyData from the response content
 ///         let my_data: MyData = content.take().unwrap();
 ///         // Take an u32 from the response content
 ///         let dword_int: u32 = content.take().unwrap();
 ///     }
-///     _ => (),
+///     Response::Ack => (),
 /// }
 /// ```
 ///
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Response<'de> {
-    /// Response for any write request ([`Register<Write>`], [`Word<Write>`], [`Dword<Write>`], [`Curve`]).
-    ///
-    /// ACK frames carry no payload beyond the literal `"OK"`, so all four
-    /// write commands share this single variant.
+    /// Response for a [`Write`][crate::command::Write] request.
     Ack,
 
-    /// Response for [`Register<Read>`] request
-    RegisterData {
-        /// Command
-        cmd: Register<Read>,
-        /// Content
-        content: Content<'de>,
-    },
-    /// Response for [`Word<Read>`] request
-    WordData {
-        /// Command
-        cmd: Word<Read>,
-        /// Content
-        content: Content<'de>,
-    },
-    /// Response for [`Dword<Read>`] request
-    DwordData {
-        /// Command
-        cmd: Dword<Read>,
+    /// Response for a [`Read`][crate::command::Read] request.
+    Data {
+        /// Address space
+        addr: Address,
+        /// Word length
+        wlen: u8,
         /// Content
         content: Content<'de>,
     },
@@ -145,9 +126,9 @@ impl<'de> Response<'de> {
         use Response::*;
         // Is it ACK?
         if opcode % 2 == 0 {
-            // Validate that it's a known write opcode.
+            // Validate the write command code
             match opcode {
-                Register::<Write>::CMD | Word::<Write>::CMD | Dword::<Write>::CMD | Curve::CMD => {}
+                Address::REGISTER | Address::WORD | Address::CURVE | Address::DWORD => {}
                 _ => return Err(ResponseUnknownCmd),
             };
             // Verify ACK bytes
@@ -158,22 +139,27 @@ impl<'de> Response<'de> {
         }
         // Or is it data?
         else {
-            let response = match opcode {
-                Register::<Read>::CMD => RegisterData {
-                    cmd: Register::deserialize(&mut deserializer)?,
-                    content: Content { deserializer },
+            // Strip address from input
+            let addr = match opcode - 1 {
+                Address::REGISTER => Address::Register {
+                    page: u8::deserialize(&mut deserializer)?,
+                    addr: u8::deserialize(&mut deserializer)?,
                 },
-                Word::<Read>::CMD => WordData {
-                    cmd: Word::deserialize(&mut deserializer)?,
-                    content: Content { deserializer },
+                Address::WORD => Address::Word {
+                    addr: u16::deserialize(&mut deserializer)?,
                 },
-                Dword::<Read>::CMD => DwordData {
-                    cmd: Dword::deserialize(&mut deserializer)?,
-                    content: Content { deserializer },
+                Address::DWORD => Address::Dword {
+                    addr: u32::deserialize(&mut deserializer)?,
                 },
                 _ => return Err(ResponseUnknownCmd),
             };
-            Ok(response)
+            // Strip word length from input
+            let wlen = u8::deserialize(&mut deserializer)?;
+            Ok(Data {
+                addr,
+                wlen,
+                content: Content { deserializer },
+            })
         }
     }
 

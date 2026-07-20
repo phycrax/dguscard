@@ -229,9 +229,7 @@ mod test {
         let ser = &[0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 0, 0, 0, 0];
 
         if let FeedResult::Success(response, remaining) = buf.feed(ser) {
-            let Response::Ack = response else {
-                panic!()
-            };
+            let Response::Ack = response else { panic!() };
             assert_eq!(remaining.len(), 4);
         } else {
             panic!()

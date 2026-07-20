@@ -47,13 +47,13 @@ use crate::{response::Response, Error, Result, CRC, HEADER};
 ///             FeedResult::Success(response, remaining) => {
 ///                 // Handle response here.  
 ///                 match response {
-///                     Response::WordData { cmd, mut content } => {
-///                         // Check response command
-///                         dbg!(cmd);
+///                     Response::Data { addr, wlen, mut content } => {
+///                         // Check where the data came from
+///                         dbg!(addr, wlen);
 ///                         // Take a MyData from the response content
 ///                         let data: MyData = content.take().unwrap();
 ///                     }
-///                     _ => ()
+///                     Response::Ack => ()
 ///                 }
 ///                 // Move the window
 ///                 remaining
@@ -218,7 +218,7 @@ impl<const N: usize> Accumulator<N> {
 
 #[cfg(test)]
 mod test {
-    use crate::command::{Read, Word};
+    use crate::Address;
 
     use super::*;
     use serde::{Deserialize, Serialize};
@@ -251,21 +251,17 @@ mod test {
         ];
 
         if let FeedResult::Success(response, remaining) = buf.feed(ser) {
-            let Response::WordData {
-                cmd,
+            let Response::Data {
+                addr,
+                wlen,
                 content: mut data,
             } = response
             else {
-                panic!("Expected ReadWord response");
+                panic!("Expected Data response");
             };
 
-            assert_eq!(
-                cmd,
-                Word {
-                    addr: 0x1234,
-                    cmd: Read { wlen: 4 }
-                }
-            );
+            assert_eq!(addr, Address::Word { addr: 0x1234 });
+            assert_eq!(wlen, 4);
 
             assert_eq!(
                 Demo {
@@ -293,21 +289,17 @@ mod test {
             panic!("Expected Success");
         };
 
-        let Response::WordData {
-            cmd,
+        let Response::Data {
+            addr,
+            wlen,
             content: mut data,
         } = response
         else {
-            panic!("Expected ReadWord response");
+            panic!("Expected Data response");
         };
 
-        assert_eq!(
-            cmd,
-            Word {
-                addr: 0x1234,
-                cmd: Read { wlen: 4 }
-            }
-        );
+        assert_eq!(addr, Address::Word { addr: 0x1234 });
+        assert_eq!(wlen, 4);
 
         assert_eq!(
             Demo {
@@ -322,21 +314,17 @@ mod test {
             panic!("Expected Success");
         };
 
-        let Response::WordData {
-            cmd,
+        let Response::Data {
+            addr,
+            wlen,
             content: mut data,
         } = response
         else {
-            panic!("Expected ReadWord response");
+            panic!("Expected Data response");
         };
 
-        assert_eq!(
-            cmd,
-            Word {
-                addr: 0x1234,
-                cmd: Read { wlen: 4 }
-            }
-        );
+        assert_eq!(addr, Address::Word { addr: 0x1234 });
+        assert_eq!(wlen, 4);
 
         assert_eq!(
             Demo {

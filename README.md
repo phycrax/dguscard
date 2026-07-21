@@ -3,11 +3,11 @@
 [![crates.io](https://img.shields.io/crates/d/dguscard.svg)](https://crates.io/crates/dguscard)
 [![crates.io](https://img.shields.io/crates/v/dguscard.svg)](https://crates.io/crates/dguscard)
 
-dguscard is a [postcard](https://github.com/jamesmunns/postcard) style `#![no_std]` [DWIN](https://www.dwin-global.com) T5L DGUS request builder & response parser with [serde](https://serde.rs/) support.
+A [`postcard`](https://github.com/jamesmunns/postcard)-inspired, `#![no_std]` request builder and response parser for [DWIN](https://www.dwin-global.com) T5L DGUS displays, with [`serde`](https://serde.rs/) support.
 
-## Setup - `Cargo.toml`
+## Setup
 
-Don't forget to add [the `no-std` subset](https://serde.rs/no-std.html) of `serde` along with `dguscard` to the `[dependencies]` section of your `Cargo.toml`!
+Add `dguscard` and `serde` (with default features disabled for `no_std` compatibility) to your `[dependencies]`:
 
 ```toml
 [dependencies]
@@ -19,36 +19,16 @@ dguscard = "0.1.0"
 serde = { version = "1.0.*", default-features = false }
 ```
 
-## Examples
+## Usage
 
-Take a look at [`Request`](https://docs.rs/dguscard/latest/dguscard/request/struct.Request.html), [`Response`](https://docs.rs/dguscard/latest/dguscard/response/enum.Response.html) and [`Accumulator`](https://docs.rs/dguscard/latest/dguscard/response/struct.Accumulator.html) examples.
+See the documented examples on [`Request`](https://docs.rs/dguscard/latest/dguscard/request/struct.Request.html), [`Response`](https://docs.rs/dguscard/latest/dguscard/response/enum.Response.html), and [`Accumulator`](https://docs.rs/dguscard/latest/dguscard/response/struct.Accumulator.html).
 
-### Word Addressing and Big Endianness
+### Write and Read
 
-T5L is a [word machine](https://en.wikipedia.org/wiki/Word_addressing) and [big-endian](https://en.wikipedia.org/wiki/Endianness). The example below demonstrates how the addressing works. In this example, we are building a request with the values matching their address.
+T5L is a [word-addressed](https://en.wikipedia.org/wiki/Word_addressing), [big-endian](https://en.wikipedia.org/wiki/Endianness) device. The examples below write data to the display and read it back.
 
 ```rust
-// Build a write request to address 0x1000
-let mut request = Request::with_slice(buf, Address::Word(0x1000), Write).unwrap();
-
-request.push(&0x1000_u16).unwrap();                // @0x1000 1 word
-request.push(&0x1001_u16).unwrap();                // @0x1001 1 word
-request.push(&0x1002_1003_u32).unwrap();           // @0x1002 2 words
-request.push(&0x1004_1005_1006_1007_u64).unwrap(); // @0x1004 4 words
-request.push(&0x1008_u16).unwrap();                // @0x1008 1 word
-request.push(&0x10_u8).unwrap();                   // @0x1009 half word MSB
-request.push(&0x09_u8).unwrap();                   // @0x1009 half word LSB
-
-// Finish building request with CRC
-let frame = request.finalize(true).unwrap();
-
-// Send the request
-uart.write(frame);
-```
-
-The example below demonstrates how big-endianness work. Consider we sent the write request successfully in the previous example and now we want to read the same data.
-```rust
-#[derive(serde::Deserialize)]
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct MyData {
     a_msb: u8,
     a_lsb: u8,
@@ -56,44 +36,72 @@ struct MyData {
     c: u32,
 }
 
-/// Build a request for reading 10 word address 0x1000 
-let mut request = Request::with_slice(buf, Address::Word(0x1000), Read(10)).unwrap();
-/// Finalize with CRC
+// Backing buffer for the request.
+let tx_buf = &mut [0u8; 50];
+
+// Build a write request to address 0x1000
+let mut request = Request::with_slice(tx_buf, Address::Word(0x1000), Write).unwrap();
+
+request.push(&0x1000_u16).unwrap();                                         // @0x1000 1 word
+request.push(&0x1001_1002_u32).unwrap();                                    // @0x1001 2 words
+request.push(&0x1003_1004_1005_1006_u64).unwrap();                          // @0x1003 4 words
+let data = MyData { a_msb: 0x10, a_lsb: 0x07, b: 0x1008, c: 0x1009_100A };
+request.push(&data).unwrap();                                               // @0x1007 4 words
+request.push(&0x10_u8).unwrap();                                            // @0x100B half word MSB
+request.push(&0x0B_u8).unwrap();                                            // @0x100B half word LSB
+
+// Finalize with CRC and send
+let frame = request.finalize(true).unwrap();
+uart.write(frame);
+```
+
+Read the data back:
+
+```rust
+// Read back the 12 words we just wrote, starting at address 0x1000
+let mut request = Request::with_slice(tx_buf, Address::Word(0x1000), Read(12)).unwrap();
 let frame = request.finalize(true).unwrap();
 uart.write(frame);
 
-/// Read the response
-let buf = &mut [0; 50];
-uart.read_until_idle(buf);
-/// Extract the response, expect CRC
-let mut response = Response::from_bytes(buf, true).unwrap();
+// Backing buffer for the response.
+let rx_buf = &mut [0u8; 50];
+uart.read_until_idle(rx_buf);
+let mut response = Response::from_bytes(rx_buf, true).unwrap();
 let Response::Data {
     addr,
     wlen,
-    content,
+    mut content,
 } = response
 else {
     panic!("Unexpected response type");
 };
 
 assert_eq!(addr, Address::Word(0x1000));
-assert_eq!(wlen, 10);
+assert_eq!(wlen, 12);
 
-let dword: u32 = content.take().unwrap();
-assert_eq!(dword, 0x1000_1001_u32);
+// Take the values back in the same order and types they were pushed.
+let word: u16 = content.take().unwrap();                    // @0x1000 1 word
+assert_eq!(word, 0x1000_u16);
 
-let my_data: MyData = content.take().unwrap();
-assert_eq!(my_data, 
-    MyData { 
-        a_msb: 0x10_u8, 
-        a_lsb: 0x02_u8, 
-        b: 0x1003_u16, 
-        c: 0x1004_1005_u32 
+let dword: u32 = content.take().unwrap();                   // @0x1001 2 words
+assert_eq!(dword, 0x1001_1002_u32);
+
+let qword: u64 = content.take().unwrap();                   // @0x1003 4 words
+assert_eq!(qword, 0x1003_1004_1005_1006_u64);
+
+let my_data: MyData = content.take().unwrap();              // @0x1007 4 words
+assert_eq!(my_data,
+    MyData {
+        a_msb: 0x10_u8,
+        a_lsb: 0x07_u8,
+        b: 0x1008_u16,
+        c: 0x1009_100A_u32
     }
 );
 
-let bytes: [u8;4] = content.take().unwrap();
-assert_eq!(my_data, [0x10, 0x06, 0x10, 0x07]);
+let msb: u8 = content.take().unwrap();                      // @0x100B half word MSB
+let lsb: u8 = content.take().unwrap();                      // @0x100B half word LSB
+assert_eq!((msb, lsb), (0x10, 0x0B));
 ```
 
 ## Serde Data Model Support

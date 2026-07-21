@@ -33,7 +33,7 @@ impl<S: Storage> ser::Serializer for &'_ mut Serializer<S> {
 
     #[inline]
     fn serialize_bool(self, v: bool) -> Result<()> {
-        self.serialize_u16(if v { 1 } else { 0 })
+        self.serialize_u16(u16::from(v))
     }
 
     #[inline]
@@ -552,17 +552,17 @@ mod tests {
 
     #[test]
     fn unit_variant() {
-        let buf = &mut [0xCDu8; 2];
-        let mut ser = Serializer {
-            output: Slice::new(buf),
-        };
-
         #[derive(Serialize, Debug, PartialEq)]
         enum Test {
             _Zero,
             _One,
             Two,
         }
+
+        let buf = &mut [0xCDu8; 2];
+        let mut ser = Serializer {
+            output: Slice::new(buf),
+        };
 
         Test::Two.serialize(&mut ser).unwrap();
         assert_eq!(&[0x00, 0x02], ser.output.finalize());

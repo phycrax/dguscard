@@ -21,7 +21,7 @@ pub enum Error {
     ResponseBadAck,
     /// Response CRC mismatch
     ResponseBadCrc,
-    /// Found an enum discriminant that was > u16::max_value()
+    /// Found an enum discriminant that was > [`u16::MAX`]
     SerializeBadEnum,
     /// Hit the end of buffer, expected more data
     DeserializeUnexpectedEnd,

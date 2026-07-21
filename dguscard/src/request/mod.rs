@@ -9,7 +9,7 @@ pub use self::storage::{Slice, Storage};
 pub use self::storage::HVec;
 
 use self::serializer::Serializer;
-use crate::{Address, Result, Sealed, CRC, HEADER};
+use crate::{Address, CRC, HEADER, Result, Sealed};
 use core::marker::PhantomData;
 use serde::Serialize;
 

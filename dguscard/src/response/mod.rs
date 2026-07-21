@@ -6,7 +6,7 @@ mod deserializer;
 pub use self::accumulator::{Accumulator, FeedResult};
 
 use self::deserializer::Deserializer;
-use crate::{Address, Error, Result, CRC, HEADER};
+use crate::{Address, CRC, Error, HEADER, Result};
 use serde::Deserialize;
 
 /// [`serde`] compatible deserializer wrapping over raw data part of the response

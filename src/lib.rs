@@ -39,4 +39,15 @@ impl Address {
     const WORD: u8 = 0x82;
     const CURVE: u8 = 0x84;
     const DWORD: u8 = 0x86;
+
+    const fn code(&self, is_read: bool) -> u8 {
+        let code = match self {
+            Address::Register(..) => Self::REGISTER,
+            Address::Word(..) => Self::WORD,
+            Address::Dword(..) => Self::DWORD,
+            Address::Curve(..) => Self::CURVE,
+        };
+
+        code + is_read as u8
+    }
 }

@@ -257,7 +257,7 @@ mod test {
                 Demo {
                     a: 0xAABB,
                     b: true,
-                    c: 0xCCDDEEFF
+                    c: 0xCCDD_EEFF
                 },
                 data.take().unwrap()
             );
@@ -295,7 +295,7 @@ mod test {
             Demo {
                 a: 0xAABB,
                 b: true,
-                c: 0xCCDDEEFF
+                c: 0xCCDD_EEFF
             },
             data.take().unwrap()
         );
@@ -320,7 +320,7 @@ mod test {
             Demo {
                 a: 0xBBAA,
                 b: false,
-                c: 0xFFEEDDCC,
+                c: 0xFFEE_DDCC,
             },
             data.take().unwrap()
         );

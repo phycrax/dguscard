@@ -29,7 +29,7 @@ T5L is a [word machine](https://en.wikipedia.org/wiki/Word_addressing) and [big-
 
 ```rust
 // Build a write request to address 0x1000
-let mut request = Request::with_slice(buf, Word {addr: 0x1000, cmd: Write}).unwrap();
+let mut request = Request::with_slice(buf, Address::Word(0x1000), Write).unwrap();
 
 request.push(&0x1000_u16).unwrap();                // @0x1000 1 word
 request.push(&0x1001_u16).unwrap();                // @0x1001 1 word
@@ -57,7 +57,7 @@ struct MyData {
 }
 
 /// Build a request for reading 10 word address 0x1000 
-let mut request = Request::with_slice(buf, Word {addr: 0x1000, cmd: Read { wlen: 10 }}).unwrap();
+let mut request = Request::with_slice(buf, Address::Word(0x1000), Read(10)).unwrap();
 /// Finalize with CRC
 let frame = request.finalize(true).unwrap();
 uart.write(frame);
@@ -67,16 +67,17 @@ let buf = &mut [0; 50];
 uart.read_until_idle(buf);
 /// Extract the response, expect CRC
 let mut response = Response::from_bytes(buf, true).unwrap();
-let Response::WordData {
-    cmd
+let Response::Data {
+    addr,
+    wlen,
     content,
 } = response
 else {
     panic!("Unexpected response type");
 };
 
-assert_eq!(cmd.addr(), 0x1000);
-assert_eq!(cmd.wlen(), 10);
+assert_eq!(addr, Address::Word(0x1000));
+assert_eq!(wlen, 10);
 
 let dword: u32 = content.take().unwrap();
 assert_eq!(dword, 0x1000_1001_u32);

@@ -397,7 +397,7 @@ mod tests {
         let mut ser = Serializer {
             output: Slice::new(buf),
         };
-        0x12345678u32.serialize(&mut ser).unwrap();
+        0x1234_5678_u32.serialize(&mut ser).unwrap();
         assert_eq!(&[0x12, 0x34, 0x56, 0x78], ser.output.finalize());
     }
 
@@ -407,7 +407,7 @@ mod tests {
         let mut ser = Serializer {
             output: Slice::new(buf),
         };
-        0x1234567890ABCDEFu64.serialize(&mut ser).unwrap();
+        0x1234_5678_90AB_CDEF_u64.serialize(&mut ser).unwrap();
         assert_eq!(
             &[0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF],
             ser.output.finalize()
@@ -420,7 +420,7 @@ mod tests {
         let mut ser = Serializer {
             output: Slice::new(buf),
         };
-        0x1234567890ABCDEFFEDCBA0987654321u128
+        0x1234_5678_90AB_CDEF_FEDC_BA09_8765_4321_u128
             .serialize(&mut ser)
             .unwrap();
         assert_eq!(
@@ -441,9 +441,9 @@ mod tests {
         (
             0x12u8,
             0x1234u16,
-            0x12345678u32,
-            0x1234567890ABCDEFu64,
-            0x1234567890ABCDEFFEDCBA0987654321u128,
+            0x1234_5678_u32,
+            0x1234_5678_90AB_CDEF_u64,
+            0x1234_5678_90AB_CDEF_FEDC_BA09_8765_4321_u128,
         )
             .serialize(&mut ser)
             .unwrap();
@@ -483,7 +483,9 @@ mod tests {
         let mut ser = Serializer {
             output: Slice::new(buf),
         };
-        [0xDEADBEEFu32, 0x12345678].serialize(&mut ser).unwrap();
+        [0xDEAD_BEEF_u32, 0x1234_5678_u32]
+            .serialize(&mut ser)
+            .unwrap();
         assert_eq!(
             &[0xDE, 0xAD, 0xBE, 0xEF, 0x12, 0x34, 0x56, 0x78],
             ser.output.finalize()
@@ -496,7 +498,7 @@ mod tests {
         let mut ser = Serializer {
             output: Slice::new(buf),
         };
-        [0xDEADBEEF12345678u64, 0xABCDEF0011223344u64]
+        [0xDEAD_BEEF_1234_5678_u64, 0xABCD_EF00_1122_3344_u64]
             .serialize(&mut ser)
             .unwrap();
         assert_eq!(
@@ -515,8 +517,8 @@ mod tests {
             output: Slice::new(buf),
         };
         [
-            0xDEADBEEF12345678ABCDEF0011223344u128,
-            0xABCDEF0011223344DEADBEEF12345678,
+            0xDEAD_BEEF_1234_5678_ABCD_EF00_1122_3344_u128,
+            0xABCD_EF00_1122_3344_DEAD_BEEF_1234_5678_u128,
         ]
         .serialize(&mut ser)
         .unwrap();

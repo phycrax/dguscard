@@ -280,7 +280,7 @@ mod tests {
         let buf = &mut [0u8; 20];
         let expected = &[0x5A, 0xA5, 6, 0x87, 0x00, 0x01, 0x02, 0x03, 2];
 
-        let output = Request::with_slice(buf, Address::Dword(0x00010203), Read(2))
+        let output = Request::with_slice(buf, Address::Dword(0x0001_0203), Read(2))
             .unwrap()
             .finalize(false)
             .unwrap();

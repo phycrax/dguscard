@@ -398,7 +398,7 @@ mod tests {
     fn u32_single() {
         let input = &[0xDE, 0xAD, 0xBE, 0xEF];
         let mut de = Deserializer { input };
-        assert_eq!(0xDEADBEEF, u32::deserialize(&mut de).unwrap());
+        assert_eq!(0xDEAD_BEEF, u32::deserialize(&mut de).unwrap());
         assert!(de.input.is_empty());
     }
 
@@ -406,7 +406,7 @@ mod tests {
     fn u64_single() {
         let input = &[0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xEB, 0xDA, 0xED];
         let mut de = Deserializer { input };
-        assert_eq!(0xDEADBEEFFEEBDAED, u64::deserialize(&mut de).unwrap());
+        assert_eq!(0xDEAD_BEEF_FEEB_DAED, u64::deserialize(&mut de).unwrap());
         assert!(de.input.is_empty());
     }
 
@@ -418,7 +418,7 @@ mod tests {
         ];
         let mut de = Deserializer { input };
         assert_eq!(
-            0xDEADBEEFFEEBDAED1223344556677889,
+            0xDEAD_BEEF_FEEB_DAED_1223_3445_5667_7889,
             u128::deserialize(&mut de).unwrap()
         );
         assert!(de.input.is_empty());
@@ -432,16 +432,15 @@ mod tests {
             0x11, 0xDE, 0xAD,
         ];
         let mut de = Deserializer { input };
-        type TestTuple = (u128, u8, u32, u64, u16);
         assert_eq!(
             (
-                0xDEADBEEFFEEBDAED1223344556677889u128,
-                0x10u8,
-                0x44332211u32,
-                0x8877665544332211u64,
-                0xDEADu16
+                0xDEAD_BEEF_FEEB_DAED_1223_3445_5667_7889,
+                0x10,
+                0x4433_2211,
+                0x8877_6655_4433_2211,
+                0xDEAD
             ),
-            TestTuple::deserialize(&mut de).unwrap()
+            <(u128, u8, u32, u64, u16)>::deserialize(&mut de).unwrap()
         );
         assert!(de.input.is_empty());
     }
@@ -450,10 +449,9 @@ mod tests {
     fn u8_array() {
         let input = &[0xDE, 0xAD, 0xBE, 0xEF];
         let mut de = Deserializer { input };
-        type TestArray = [u8; 4];
         assert_eq!(
             [0xDE, 0xAD, 0xBE, 0xEF],
-            TestArray::deserialize(&mut de).unwrap()
+            <[u8; 4]>::deserialize(&mut de).unwrap()
         );
         assert!(de.input.is_empty());
     }
@@ -464,10 +462,9 @@ mod tests {
             0xDE, 0xAD, 0xBE, 0xEF, 0x12, 0x34, 0x56, 0x78, 0xFE, 0x12, 0xCD, 0x34,
         ];
         let mut de = Deserializer { input };
-        type TestArray = [u16; 6];
         assert_eq!(
             [0xDEAD, 0xBEEF, 0x1234, 0x5678, 0xFE12, 0xCD34],
-            TestArray::deserialize(&mut de).unwrap()
+            <[u16; 6]>::deserialize(&mut de).unwrap()
         );
         assert!(de.input.is_empty());
     }
@@ -478,10 +475,10 @@ mod tests {
             0xDE, 0xAD, 0xBE, 0xEF, 0x12, 0x34, 0x56, 0x78, 0xFE, 0x12, 0xCD, 0x34,
         ];
         let mut de = Deserializer { input };
-        type TestArray = [u32; 3];
+
         assert_eq!(
-            [0xDEADBEEF, 0x12345678, 0xFE12CD34],
-            TestArray::deserialize(&mut de).unwrap()
+            [0xDEAD_BEEF, 0x1234_5678, 0xFE12_CD34],
+            <[u32; 3]>::deserialize(&mut de).unwrap()
         );
         assert!(de.input.is_empty());
     }

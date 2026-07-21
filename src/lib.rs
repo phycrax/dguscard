@@ -18,6 +18,8 @@ pub use error::{Error, Result};
 const CRC: Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
 const HEADER: u16 = 0x5AA5;
 
+trait Sealed {}
+
 /// Frame address
 ///
 /// Users are responsible for valid address parameters.

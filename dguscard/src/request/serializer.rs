@@ -1,6 +1,6 @@
 use super::Storage;
 use crate::{Error, Result};
-use serde::{ser, Serialize};
+use serde::{Serialize, ser};
 
 /// `serde` compatible serializer.
 ///

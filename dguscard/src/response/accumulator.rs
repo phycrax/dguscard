@@ -1,4 +1,4 @@
-use crate::{response::Response, Error, Result, CRC, HEADER};
+use crate::{CRC, Error, HEADER, Result, response::Response};
 
 /// An accumulator used to collect chunked response
 ///

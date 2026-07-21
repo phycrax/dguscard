@@ -181,15 +181,7 @@ impl<const N: usize> Accumulator<N> {
                 }
                 FeedState::Length(byte)
             }
-            FeedState::Length(length) => {
-                *self
-                    .buf
-                    .get_mut(self.idx)
-                    .ok_or(Error::AccumulateBufferFull)? = byte;
-                self.idx += 1;
-                FeedState::Data(length - 1)
-            }
-            FeedState::Data(length) => {
+            FeedState::Length(length) | FeedState::Data(length) => {
                 *self
                     .buf
                     .get_mut(self.idx)

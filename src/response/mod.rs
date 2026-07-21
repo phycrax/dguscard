@@ -129,7 +129,7 @@ impl<'de> Response<'de> {
             match opcode {
                 Address::REGISTER | Address::WORD | Address::CURVE | Address::DWORD => {}
                 _ => return Err(Error::ResponseUnknownCmd),
-            };
+            }
             // Verify ACK bytes
             if u16::deserialize(&mut deserializer)? != u16::from_be_bytes(*b"OK") {
                 return Err(Error::ResponseBadAck);

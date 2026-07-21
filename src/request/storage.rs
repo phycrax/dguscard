@@ -52,7 +52,7 @@ impl<'a> Slice<'a> {
 impl<'a> Storage for Slice<'a> {
     type Output = &'a mut [u8];
 
-    #[inline(always)]
+    #[inline]
     fn try_push(&mut self, b: u8) -> Result<()> {
         *self
             .buf
@@ -103,14 +103,14 @@ mod hvec {
     impl<const N: usize> Storage for HVec<N> {
         type Output = Vec<u8, N>;
 
-        #[inline(always)]
+        #[inline]
         fn try_extend(&mut self, data: &[u8]) -> Result<()> {
             self.0
                 .extend_from_slice(data)
-                .map_err(|_| Error::RequestBufferFull)
+                .map_err(|()| Error::RequestBufferFull)
         }
 
-        #[inline(always)]
+        #[inline]
         fn try_push(&mut self, data: u8) -> Result<()> {
             self.0.push(data).map_err(|_| Error::RequestBufferFull)
         }

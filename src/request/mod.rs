@@ -74,19 +74,19 @@ pub struct Request<C, S: Storage> {
     cmd: PhantomData<C>,
 }
 
-impl<'a, C> Request<C, Slice<'a>> {
+impl<'a, C: Command> Request<C, Slice<'a>> {
     /// Returns a new builder that uses a [`Slice`] as a given backing buffer.
     /// The request will be finalized as [`u8`] slice.
-    pub fn with_slice(buf: &'a mut [u8], addr: Address, cmd: impl Command) -> Result<Self> {
+    pub fn with_slice(buf: &'a mut [u8], addr: Address, cmd: C) -> Result<Self> {
         Self::new(Slice::new(buf), addr, cmd)
     }
 }
 
 #[cfg(feature = "heapless")]
-impl<C, const N: usize> Request<C, HVec<N>> {
+impl<C: Command, const N: usize> Request<C, HVec<N>> {
     /// Returns a new builder that uses [`HVec`] as a buffer.
     /// The request will be finalized as [`Vec<u8, N>`][heapless::Vec].
-    pub fn with_hvec(addr: Address, cmd: impl Command) -> Result<Self> {
+    pub fn with_hvec(addr: Address, cmd: C) -> Result<Self> {
         Self::new(HVec::new(), addr, cmd)
     }
 }
@@ -101,14 +101,15 @@ where
     }
 }
 
-impl<RW, S, O> Request<RW, S>
+impl<C, S, O> Request<C, S>
 where
+    C: Command,
     S: Storage<Output = O>,
 {
     /// Returns a new builder with an output type that implements [`Storage`] trait.
     /// The request will be finalized as the given output type.
     /// It should rarely be necessary to directly use this function unless you implemented your own [`Storage`].
-    pub fn new<C: Command>(output: S, addr: Address, cmd: C) -> Result<Self> {
+    pub fn new(output: S, addr: Address, cmd: C) -> Result<Self> {
         let mut serializer = Serializer { output };
         // Push header
         HEADER.serialize(&mut serializer)?;
@@ -255,7 +256,7 @@ mod tests {
         let buf = &mut [0u8; 20];
         let expected = &[0x5A, 0xA5, 4, 0x83, 0x12, 0x34, 4];
 
-        let output = Request::<Read, _>::with_slice(buf, Address::Word(0x1234), Read(4))
+        let output = Request::with_slice(buf, Address::Word(0x1234), Read(4))
             .unwrap()
             .finalize(false)
             .unwrap();
@@ -267,7 +268,7 @@ mod tests {
         let buf = &mut [0u8; 20];
         let expected = &[0x5A, 0xA5, 4, 0x81, 0x01, 0x02, 3];
 
-        let output = Request::<Read, _>::with_slice(buf, Address::Register(0x01, 0x02), Read(3))
+        let output = Request::with_slice(buf, Address::Register(0x01, 0x02), Read(3))
             .unwrap()
             .finalize(false)
             .unwrap();
@@ -279,7 +280,7 @@ mod tests {
         let buf = &mut [0u8; 20];
         let expected = &[0x5A, 0xA5, 6, 0x87, 0x00, 0x01, 0x02, 0x03, 2];
 
-        let output = Request::<Read, _>::with_slice(buf, Address::Dword(0x00010203), Read(2))
+        let output = Request::with_slice(buf, Address::Dword(0x00010203), Read(2))
             .unwrap()
             .finalize(false)
             .unwrap();
@@ -296,4 +297,13 @@ mod tests {
         let output = frame.finalize(false).unwrap();
         assert_eq!(output, expected);
     }
+
+    // Compile test: push should not be available on a Read request
+    /// ```compile_fail
+    /// let buf = &mut [0u8; 20];
+    /// let mut frame = Request::with_slice(buf, Address::Word(0), Read(0)).unwrap();
+    /// frame.push(&42u8).unwrap(); // push is not available on a Read request
+    /// ```
+    #[test]
+    fn read_request_push_should_not_compile() {}
 }

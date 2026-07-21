@@ -107,7 +107,7 @@ mod hvec {
         fn try_extend(&mut self, data: &[u8]) -> Result<()> {
             self.0
                 .extend_from_slice(data)
-                .map_err(|()| Error::RequestBufferFull)
+                .map_err(|_| Error::RequestBufferFull)
         }
 
         #[inline]

@@ -11,12 +11,12 @@ Add `dguscard` and `serde` (with default features disabled for `no_std` compatib
 
 ```toml
 [dependencies]
-dguscard = "0.1.0"
+dguscard = "0.2.0"
 
 # By default, `serde` has the `std` feature enabled, 
 # which makes it unsuitable for embedded targets.
 # Disabling default-features fixes this.
-serde = { version = "1.0.*", default-features = false }
+serde = { version = "1.0", default-features = false }
 ```
 
 ## Usage

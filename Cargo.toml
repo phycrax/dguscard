@@ -1,3 +1,6 @@
 [workspace]
-members = ["dguscard"]
 resolver = "2"
+
+members = [
+    "dguscard",
+]

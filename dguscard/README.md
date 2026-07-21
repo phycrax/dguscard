@@ -135,9 +135,8 @@ Licensed under either of
 - MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
 at your option.
 
-NOTE: This crate contains portions of [postcard](https://github.com/jamesmunns/postcard) code.
-- [LICENSE-APACHE](postcard/LICENSE-APACHE) 
-- [LICENSE-MIT](postcard/LICENSE-MIT)
+Portions of this crate are derived from [postcard](https://github.com/jamesmunns/postcard),
+Copyright (c) 2019 Anthony James Munns, licensed under MIT OR Apache-2.0.
 
 ### Contribution
 

@@ -1,31 +1,3 @@
-[package]
-name = "dguscard"
-version = "0.1.1"
-authors = ["Süha ÜNÜVAR"]
-edition = "2021"
-rust-version = "1.81"
-repository = "https://github.com/phycrax/dguscard"
-description = "DWIN T5L DGUS request builder & response parser"
-license = "MIT OR Apache-2.0"
-categories = ["embedded", "no-std"]
-keywords = ["dwin", "dgus", "hmi", "serde"]
-documentation = "https://docs.rs/dguscard/"
-
-[package.metadata.docs.rs]
-all-features = true
-rustdoc-args = ["--cfg", "docsrs"]
-features = ["defmt", "heapless"]
-
-[dependencies]
-serde               = { version = "1.0", default-features = false, features = ["derive"] }
-crc                 = { version = "3.4" }
-defmt               = { version = "1.1", optional = true }
-heapless            = { version = "0.9", default-features = false, features = ["serde"], optional = true }
-document-features   = "0.2"
-
-[features]
-default = ["heapless"]
-## Support [`heapless::Vec`] as a request serialization output
-heapless = ["dep:heapless"]
-## Use [`defmt`](https://docs.rs/defmt/latest/defmt/) for logging
-defmt = ["dep:defmt"]
+[workspace]
+members = ["dguscard"]
+resolver = "2"

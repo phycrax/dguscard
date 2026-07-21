@@ -6,7 +6,7 @@ mod deserializer;
 pub use self::accumulator::{Accumulator, FeedResult};
 
 use self::deserializer::Deserializer;
-use crate::{Address, Error::*, Result, CRC, HEADER};
+use crate::{Address, Error, Result, CRC, HEADER};
 use serde::Deserialize;
 
 /// [`serde`] compatible deserializer wrapping over raw data part of the response
@@ -123,19 +123,18 @@ impl<'de> Response<'de> {
         let mut deserializer = Deserializer { input };
         // Strip command code from input
         let opcode = u8::deserialize(&mut deserializer)?;
-        use Response::*;
         // Is it ACK?
         if opcode % 2 == 0 {
             // Validate the write command code
             match opcode {
                 Address::REGISTER | Address::WORD | Address::CURVE | Address::DWORD => {}
-                _ => return Err(ResponseUnknownCmd),
+                _ => return Err(Error::ResponseUnknownCmd),
             };
             // Verify ACK bytes
             if u16::deserialize(&mut deserializer)? != u16::from_be_bytes(*b"OK") {
-                return Err(ResponseBadAck);
+                return Err(Error::ResponseBadAck);
             }
-            Ok(Ack)
+            Ok(Response::Ack)
         }
         // Or is it data?
         else {
@@ -147,11 +146,11 @@ impl<'de> Response<'de> {
                 ),
                 Address::WORD => Address::Word(u16::deserialize(&mut deserializer)?),
                 Address::DWORD => Address::Dword(u32::deserialize(&mut deserializer)?),
-                _ => return Err(ResponseUnknownCmd),
+                _ => return Err(Error::ResponseUnknownCmd),
             };
             // Strip word length from input
             let wlen = u8::deserialize(&mut deserializer)?;
-            Ok(Data {
+            Ok(Response::Data {
                 addr,
                 wlen,
                 content: Content { deserializer },
@@ -166,24 +165,26 @@ impl<'de> Response<'de> {
         // Strip header from input
         let input = input
             .strip_prefix(&u16::to_be_bytes(HEADER))
-            .ok_or(ResponseBadHeader)?;
+            .ok_or(Error::ResponseBadHeader)?;
 
         // Strip length from input
-        let (len, input) = input.split_first().ok_or(DeserializeUnexpectedEnd)?;
+        let (len, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
         let len = *len as usize;
         let min_len = if crc { 5 } else { 3 };
         if len < min_len {
-            return Err(ResponseBadLen);
+            return Err(Error::ResponseBadLen);
         }
 
         // Split input with the length
-        let (input, rest) = input.split_at_checked(len).ok_or(ResponseTooLarge)?;
+        let (input, rest) = input.split_at_checked(len).ok_or(Error::ResponseTooLarge)?;
 
         // Strip CRC from input
         let input = if crc {
-            let (input, crc) = input.split_last_chunk().ok_or(DeserializeUnexpectedEnd)?;
+            let (input, crc) = input
+                .split_last_chunk()
+                .ok_or(Error::DeserializeUnexpectedEnd)?;
             if u16::from_le_bytes(*crc) != CRC.checksum(input) {
-                return Err(ResponseBadCrc);
+                return Err(Error::ResponseBadCrc);
             }
             input
         } else {

@@ -83,10 +83,10 @@ impl<'de> Content<'de> {
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Response<'de> {
-    /// Response for a [`Write`][crate::command::Write] request.
+    /// Response for a [`Write`][crate::request::Write] request.
     Ack,
 
-    /// Response for a [`Read`][crate::command::Read] request.
+    /// Response for a [`Read`][crate::request::Read] request.
     Data {
         /// Address space
         addr: Address,

@@ -156,56 +156,54 @@ impl<const N: usize> Accumulator<N> {
 
     /// Feeds a single byte to the internal buffer.
     fn feed_byte(&mut self, byte: u8) -> Result<Option<()>> {
-        use Error::*;
-        use FeedState::*;
         self.state = match self.state {
-            Empty => {
+            FeedState::Empty => {
                 if byte == HEADER.to_be_bytes()[0] {
-                    Header(false)
+                    FeedState::Header(false)
                 } else {
-                    return Err(ResponseBadHeader);
+                    return Err(Error::ResponseBadHeader);
                 }
             }
-            Header(false) => {
+            FeedState::Header(false) => {
                 if byte == HEADER.to_be_bytes()[1] {
-                    Header(true)
+                    FeedState::Header(true)
                 } else {
-                    return Err(ResponseBadHeader);
+                    return Err(Error::ResponseBadHeader);
                 }
             }
-            Header(true) => {
+            FeedState::Header(true) => {
                 let min_len = if self.crc { 5 } else { 3 };
                 if byte < min_len {
-                    return Err(ResponseBadLen);
+                    return Err(Error::ResponseBadLen);
                 }
                 if byte as usize >= N {
-                    return Err(ResponseTooLarge);
+                    return Err(Error::ResponseTooLarge);
                 }
-                Length(byte)
+                FeedState::Length(byte)
             }
-            Length(length) => {
+            FeedState::Length(length) => {
                 *self
                     .buf
                     .get_mut(self.idx)
                     .ok_or(Error::AccumulateBufferFull)? = byte;
                 self.idx += 1;
-                Data(length - 1)
+                FeedState::Data(length - 1)
             }
-            Data(length) => {
+            FeedState::Data(length) => {
                 *self
                     .buf
                     .get_mut(self.idx)
                     .ok_or(Error::AccumulateBufferFull)? = byte;
                 self.idx += 1;
-                Data(length - 1)
+                FeedState::Data(length - 1)
             }
         };
 
-        if let Data(0) = self.state {
+        if let FeedState::Data(0) = self.state {
             if self.crc {
                 let checksum = u16::from_le_bytes([self.buf[self.idx - 2], self.buf[self.idx - 1]]);
                 if checksum != CRC.checksum(&self.buf[..self.idx - 2]) {
-                    return Err(ResponseBadCrc);
+                    return Err(Error::ResponseBadCrc);
                 }
                 self.idx -= 2;
             }

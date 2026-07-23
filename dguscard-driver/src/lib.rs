@@ -21,12 +21,7 @@ const DEFAULT_MTU: usize = 128;
 /// [`Runner::run`] calls this for every received data frame.
 pub trait Router {
     /// Handles one data frame addressed to `(addr, wlen)`.
-    fn route(
-        &mut self,
-        addr: Address,
-        wlen: u8,
-        content: &mut Content<'_>,
-    );
+    fn route(&mut self, addr: Address, wlen: u8, content: &mut Content<'_>);
 }
 
 /// Driver errors.
@@ -71,15 +66,16 @@ pub fn new<
     TX: embedded_io_async::Write,
     const RX_MTU: usize,
     const TX_MTU: usize,
-    const ACC_MTU: usize,
 >(
-    res: &'r mut Stack<RX_MTU, TX_MTU, ACC_MTU>,
+    res: &'r mut Stack<RX_MTU, TX_MTU>,
     rx: RX,
-    _tx: TX,
-) -> Runner<'r, RX, ACC_MTU> {
+    tx: TX,
+) -> Runner<'r, RX, TX, RX_MTU, TX_MTU> {
     Runner {
         uart_rx: rx,
+        uart_tx: tx,
         rx_buf: &mut res.rx_buf[..],
+        tx_buf: &mut res.tx_buf[..],
         accumulator: &mut res.accumulator,
     }
 }
@@ -87,28 +83,27 @@ pub fn new<
 pub struct Stack<
     const RX_MTU: usize = DEFAULT_MTU,
     const TX_MTU: usize = DEFAULT_MTU,
-    const ACC_MTU: usize = DEFAULT_MTU,
 > {
     pub(crate) rx_buf: [u8; RX_MTU],
-    pub(crate) _tx_buf: [u8; TX_MTU],
-    pub(crate) accumulator: Accumulator<ACC_MTU>,
+    pub(crate) tx_buf: [u8; TX_MTU],
+    pub(crate) accumulator: Accumulator<RX_MTU>,
 }
 
-impl<const RX_MTU: usize, const TX_MTU: usize, const ACC_MTU: usize>
-    Stack<RX_MTU, TX_MTU, ACC_MTU>
+impl<const RX_MTU: usize, const TX_MTU: usize>
+    Stack<RX_MTU, TX_MTU>
 {
     /// Create new driver stack
     pub const fn new(config: Config) -> Self {
         Self {
             rx_buf: [0; RX_MTU],
-            _tx_buf: [0; TX_MTU],
+            tx_buf: [0; TX_MTU],
             accumulator: Accumulator::new(config.crc),
         }
     }
 }
 
-impl<const RX_MTU: usize, const TX_MTU: usize, const ACC_MTU: usize> Default
-    for Stack<RX_MTU, TX_MTU, ACC_MTU>
+impl<const RX_MTU: usize, const TX_MTU: usize> Default
+    for Stack<RX_MTU, TX_MTU>
 {
     /// Default [`Config`]
     fn default() -> Self {
@@ -116,13 +111,28 @@ impl<const RX_MTU: usize, const TX_MTU: usize, const ACC_MTU: usize> Default
     }
 }
 
-pub struct Runner<'r, RX: embedded_io_async::Read, const MTU: usize = DEFAULT_MTU> {
+pub struct Runner<
+    'r,
+    RX: embedded_io_async::Read,
+    TX: embedded_io_async::Write,
+    const RX_MTU: usize = DEFAULT_MTU,
+    const TX_MTU: usize = DEFAULT_MTU,
+> {
     uart_rx: RX,
+    uart_tx: TX,
     rx_buf: &'r mut [u8],
-    accumulator: &'r mut Accumulator<MTU>,
+    tx_buf: &'r mut [u8],
+    accumulator: &'r mut Accumulator<RX_MTU>,
 }
 
-impl<'r, RX: embedded_io_async::Read, const MTU: usize> Runner<'r, RX, MTU> {
+impl<
+    'r,
+    RX: embedded_io_async::Read,
+    TX: embedded_io_async::Write,
+    const RX_MTU: usize,
+    const TX_MTU: usize,
+> Runner<'r, RX, TX, RX_MTU, TX_MTU>
+{
     /// Runs the receive loop, routing data frames through `router`.
     ///
     /// The context is passed here rather than at construction so it may borrow

@@ -5,7 +5,7 @@ use embassy_executor::Spawner;
 use serde::Deserialize;
 use static_cell::ConstStaticCell;
 
-use crate::uart::UartRx;
+use crate::uart::{UartRx, UartTx};
 
 /// Application state; the [`Router`] impl mutates it through `&mut self`.
 #[derive(Default)]
@@ -102,7 +102,7 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn runner_task(mut runner: Runner<'static, UartRx>) {
+async fn runner_task(mut runner: Runner<'static, UartRx, UartTx>) {
     let mut app = FanApp::default();
     loop {
         runner.run(&mut app).await.unwrap();

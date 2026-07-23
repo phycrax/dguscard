@@ -1,8 +1,14 @@
 #![no_std]
 
+mod router;
+
 use core::convert::Infallible;
 
-use dguscard::response::{Accumulator, FeedResult};
+pub use dguscard::Address;
+pub use dguscard::response::Content;
+pub use router::Router;
+
+use dguscard::response::{Accumulator, FeedResult, Response};
 use embedded_io_async::Error as _;
 
 const DEFAULT_MTU: usize = 128;
@@ -13,27 +19,54 @@ const DEFAULT_MTU: usize = 128;
 pub enum Error {
     /// Frame accumulation failed.
     Accumulation(dguscard::Error),
-    /// The transport reached EOF.
+    /// Response payload could not be deserialized into the mapped type.
+    Deserialize(Address, dguscard::Error),
+    /// Transport read reached EOF.
     UnexpectedEof,
     /// Transport read error.
     Read(embedded_io_async::ErrorKind),
     /// Transport write error.
     Write(embedded_io_async::ErrorKind),
+    /// A data frame's `(addr, wlen)` has no handler in the routing table.
+    ///
+    /// Only produced when the [`router!`] table sets `ignore_unhandled: false`.
+    Unhandled(Address, u8),
+}
+
+/// Stack configuration.
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Config {
+    /// Verify a trailing CRC on each received frame.
+    pub crc: bool,
+}
+
+impl Config {
+    /// CRC enabled.
+    pub const fn new() -> Self {
+        Self { crc: true }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Create a new driver.
 pub fn new<
     'r,
-    R: embedded_io_async::Read,
-    W: embedded_io_async::Write,
+    RX: embedded_io_async::Read,
+    TX: embedded_io_async::Write,
     const RX_MTU: usize,
     const TX_MTU: usize,
     const ACC_MTU: usize,
 >(
-    res: &'r mut Resources<RX_MTU, TX_MTU, ACC_MTU>,
-    rx: R,
-    _tx: W,
-) -> Runner<'r, R, ACC_MTU> {
+    res: &'r mut Stack<RX_MTU, TX_MTU, ACC_MTU>,
+    rx: RX,
+    _tx: TX,
+) -> Runner<'r, RX, ACC_MTU> {
     Runner {
         uart_rx: rx,
         rx_buf: &mut res.rx_buf[..],
@@ -41,7 +74,7 @@ pub fn new<
     }
 }
 
-pub struct Resources<
+pub struct Stack<
     const RX_MTU: usize = DEFAULT_MTU,
     const TX_MTU: usize = DEFAULT_MTU,
     const ACC_MTU: usize = DEFAULT_MTU,
@@ -52,35 +85,43 @@ pub struct Resources<
 }
 
 impl<const RX_MTU: usize, const TX_MTU: usize, const ACC_MTU: usize>
-    Resources<RX_MTU, TX_MTU, ACC_MTU>
+    Stack<RX_MTU, TX_MTU, ACC_MTU>
 {
-    /// Allocate driver resources
-    pub const fn new(crc: bool) -> Self {
+    /// Create new driver stack
+    pub const fn new(config: Config) -> Self {
         Self {
             rx_buf: [0; RX_MTU],
             _tx_buf: [0; TX_MTU],
-            accumulator: Accumulator::new(crc),
+            accumulator: Accumulator::new(config.crc),
         }
     }
 }
 
 impl<const RX_MTU: usize, const TX_MTU: usize, const ACC_MTU: usize> Default
-    for Resources<RX_MTU, TX_MTU, ACC_MTU>
+    for Stack<RX_MTU, TX_MTU, ACC_MTU>
 {
-    /// CRC enabled by default
+    /// Default [`Config`]
     fn default() -> Self {
-        Self::new(true)
+        Self::new(Config::new())
     }
 }
 
-pub struct Runner<'r, R: embedded_io_async::Read, const MTU: usize = DEFAULT_MTU> {
-    uart_rx: R,
+pub struct Runner<'r, RX: embedded_io_async::Read, const MTU: usize = DEFAULT_MTU> {
+    uart_rx: RX,
     rx_buf: &'r mut [u8],
     accumulator: &'r mut Accumulator<MTU>,
 }
 
-impl<'r, R: embedded_io_async::Read, const MTU: usize> Runner<'r, R, MTU> {
-    pub async fn run(&mut self) -> Result<Infallible, Error> {
+impl<'r, RX: embedded_io_async::Read, const MTU: usize> Runner<'r, RX, MTU> {
+    /// Runs the receive loop, routing data frames through `router`.
+    ///
+    /// The context is passed here rather than at construction so it may borrow
+    /// task-local state. Returns only on transport or framing errors.
+    pub async fn run<R: Router>(
+        &mut self,
+        router: &mut R,
+        cx: &mut R::Context,
+    ) -> Result<Infallible, Error> {
         loop {
             let n = self
                 .uart_rx
@@ -98,8 +139,17 @@ impl<'r, R: embedded_io_async::Read, const MTU: usize> Runner<'r, R, MTU> {
                 window = match self.accumulator.feed(window) {
                     FeedResult::Consumed => break,
                     FeedResult::Error(e, _) => return Err(Error::Accumulation(e)),
-                    FeedResult::Success(_response, remaining) => {
-                        //TODO match response {}
+                    FeedResult::Success(response, remaining) => {
+                        match response {
+                            Response::Ack => (), //TODO
+                            Response::Data {
+                                addr,
+                                wlen,
+                                mut content,
+                            } => {
+                                router.route(addr, wlen, &mut content, cx)?;
+                            }
+                        }
 
                         remaining
                     }

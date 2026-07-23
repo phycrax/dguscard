@@ -1,13 +1,13 @@
 mod uart;
 
-use dguscard_driver::{Config, Runner, Stack, router};
+use dguscard_driver::{Address, Config, Content, Router, Runner, Stack};
 use embassy_executor::Spawner;
 use serde::Deserialize;
 use static_cell::ConstStaticCell;
 
 use crate::uart::UartRx;
 
-/// Application state, threaded to every handler.
+/// Application state; the [`Router`] impl mutates it through `&mut self`.
 #[derive(Default)]
 struct FanApp {
     /// Current speed.
@@ -55,35 +55,33 @@ enum Adjust {
     Increase,
 }
 
-/// Direct selection: set the speed to the chosen level.
-fn on_speed(fan: &mut FanApp, speed: Speed) {
-    fan.speed = speed;
-    println!("speed set to {:?}", fan.speed);
-}
-
-/// Step the speed one level up or down, saturating at `Off`/`High`.
-fn on_adjust(fan: &mut FanApp, adjust: Adjust) {
-    fan.speed = match adjust {
-        Adjust::Increase => fan.speed.increased(),
-        Adjust::Decrease => fan.speed.decreased(),
-    };
-    println!("speed adjusted to {:?}", fan.speed);
-}
-
-/// Toggle oscillation. The `bool` decodes from a word (0 = off, 1 = on).
-fn on_rotate(fan: &mut FanApp, rotating: bool) {
-    fan.rotating = rotating;
-    println!("rotating: {}", fan.rotating);
-}
-
-router! {
-    name: Router,
-    context: FanApp,
-    ignore_unhandled: true,
-    routes: {
-        Word(0x1000), wlen: 1 => on_speed,
-        Word(0x1001), wlen: 1 => on_adjust,
-        Word(0x1002), wlen: 1 => on_rotate,
+impl Router for FanApp {
+    fn route(&mut self, addr: Address, wlen: u8, content: &mut Content<'_>) {
+        use Address::*;
+        match (addr, wlen) {
+            // Direct selection: set the speed to the chosen level.
+            (Word(0x1000), 1) => {
+                let speed: Speed = content.take().unwrap();
+                self.speed = speed;
+                println!("speed set to {:?}", self.speed);
+            }
+            // Step the speed one level up or down, saturating at `Off`/`High`.
+            (Word(0x1001), 1) => {
+                let adjust: Adjust = content.take().unwrap();
+                self.speed = match adjust {
+                    Adjust::Increase => self.speed.increased(),
+                    Adjust::Decrease => self.speed.decreased(),
+                };
+                println!("speed adjusted to {:?}", self.speed);
+            }
+            // Toggle oscillation. The `bool` decodes from a word (0 = off, 1 = on).
+            (Word(0x1002), 1) => {
+                let rotating: bool = content.take().unwrap();
+                self.rotating = rotating;
+                println!("rotating: {}", self.rotating);
+            }
+            _ => {} // ignore unmapped frames
+        }
     }
 }
 
@@ -105,9 +103,8 @@ async fn main(spawner: Spawner) {
 
 #[embassy_executor::task]
 async fn runner_task(mut runner: Runner<'static, UartRx>) {
-    let mut router = Router;
     let mut app = FanApp::default();
     loop {
-        runner.run(&mut router, &mut app).await.unwrap();
+        runner.run(&mut app).await.unwrap();
     }
 }

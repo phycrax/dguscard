@@ -1,17 +1,33 @@
 #![no_std]
 
-mod router;
-
 use core::convert::Infallible;
 
 pub use dguscard::Address;
 pub use dguscard::response::Content;
-pub use router::Router;
 
 use dguscard::response::{Accumulator, FeedResult, Response};
 use embedded_io_async::Error as _;
 
 const DEFAULT_MTU: usize = 128;
+
+/// Routes received data frames to application logic.
+///
+/// Implement this by hand on your own type: hold whatever state you need in
+/// `self` (reachable through `&mut self`), `match` on `(addr, wlen)`, and do
+/// whatever you like per frame — deserializing the payload with
+/// [`Content::take`] is your responsibility. Decide your own fall-through
+/// behavior; typically a `_ => {}` arm ignores frames you don't care about.
+///
+/// [`Runner::run`] calls this for every received data frame.
+pub trait Router {
+    /// Handles one data frame addressed to `(addr, wlen)`.
+    fn route(
+        &mut self,
+        addr: Address,
+        wlen: u8,
+        content: &mut Content<'_>,
+    );
+}
 
 /// Driver errors.
 #[derive(Debug)]
@@ -19,18 +35,12 @@ const DEFAULT_MTU: usize = 128;
 pub enum Error {
     /// Frame accumulation failed.
     Accumulation(dguscard::Error),
-    /// Response payload could not be deserialized into the mapped type.
-    Deserialize(Address, dguscard::Error),
     /// Transport read reached EOF.
     UnexpectedEof,
     /// Transport read error.
     Read(embedded_io_async::ErrorKind),
     /// Transport write error.
     Write(embedded_io_async::ErrorKind),
-    /// A data frame's `(addr, wlen)` has no handler in the routing table.
-    ///
-    /// Only produced when the [`router!`] table sets `ignore_unhandled: false`.
-    Unhandled(Address, u8),
 }
 
 /// Stack configuration.
@@ -117,11 +127,7 @@ impl<'r, RX: embedded_io_async::Read, const MTU: usize> Runner<'r, RX, MTU> {
     ///
     /// The context is passed here rather than at construction so it may borrow
     /// task-local state. Returns only on transport or framing errors.
-    pub async fn run<R: Router>(
-        &mut self,
-        router: &mut R,
-        cx: &mut R::Context,
-    ) -> Result<Infallible, Error> {
+    pub async fn run<R: Router>(&mut self, router: &mut R) -> Result<Infallible, Error> {
         loop {
             let n = self
                 .uart_rx
@@ -147,7 +153,7 @@ impl<'r, RX: embedded_io_async::Read, const MTU: usize> Runner<'r, RX, MTU> {
                                 wlen,
                                 mut content,
                             } => {
-                                router.route(addr, wlen, &mut content, cx)?;
+                                router.route(addr, wlen, &mut content);
                             }
                         }
 

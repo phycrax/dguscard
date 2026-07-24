@@ -46,18 +46,19 @@
 //!
 //! [`NoopRawMutex`]: embassy_sync::blocking_mutex::raw::NoopRawMutex
 
-use core::cell::Cell;
-use core::convert::Infallible;
-use core::mem::MaybeUninit;
+use core::{cell::Cell, convert::Infallible, mem::MaybeUninit};
 
 pub use dguscard::Address;
-pub use dguscard::response::Content;
 
-use dguscard::request::{Read, Request, Write};
-use dguscard::response::{Accumulator, FeedResult, Response};
+use dguscard::{
+    request::{Read, Request, Write},
+    response::{Accumulator, Content, FeedResult, Response},
+};
 use embassy_futures::select::{Either, select};
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_sync::zerocopy_channel::{Channel, Receiver, Sender};
+use embassy_sync::{
+    blocking_mutex::raw::NoopRawMutex,
+    zerocopy_channel::{Channel, Receiver, Sender},
+};
 use embedded_io_async::{Error as _, Read as IoRead, Write as IoWrite};
 use serde::{Deserialize, Serialize};
 
@@ -175,24 +176,26 @@ struct StateInner<'a, const MTU: usize> {
 /// Caller-provided storage for the driver, like `embassy_net::StackResources`.
 ///
 /// `MTU` bounds the largest sendable/receivable frame (dguscard accepts
-/// 5..=256). `N` is the depth of the request/response channels; the default of
-/// 1 is enough for the single-in-flight handle. `E` is the depth of the
-/// unsolicited event queue — size it for the worst-case burst of touch events
-/// between two [`Events::receive`] calls.
-pub struct Stack<const MTU: usize = DEFAULT_MTU, const N: usize = 1, const E: usize = 4> {
-    tx_bufs: [TxFrame<MTU>; N],
-    resp_bufs: [RxFrame<MTU>; N],
+/// 5..=256). `E` is the depth of the unsolicited event queue — size it for the
+/// worst-case burst of touch events between two [`Events::receive`] calls.
+///
+/// The request and response channels are fixed at depth 1: only one request is
+/// ever in flight (enforced by `&mut self` on [`Control`]), and correlation
+/// tracks a single expectation, so a deeper queue could only mis-correlate.
+pub struct Stack<const MTU: usize = DEFAULT_MTU, const E: usize = 4> {
+    tx_bufs: [TxFrame<MTU>; 1],
+    resp_bufs: [RxFrame<MTU>; 1],
     event_bufs: [EventFrame<MTU>; E],
     inner: MaybeUninit<StateInner<'static, MTU>>,
     crc: bool,
 }
 
-impl<const MTU: usize, const N: usize, const E: usize> Stack<MTU, N, E> {
+impl<const MTU: usize, const E: usize> Stack<MTU, E> {
     /// Creates new driver storage.
     pub const fn new(config: Config) -> Self {
         Self {
-            tx_bufs: [TxFrame::INIT; N],
-            resp_bufs: [RxFrame::INIT; N],
+            tx_bufs: [TxFrame::INIT; 1],
+            resp_bufs: [RxFrame::INIT; 1],
             event_bufs: [EventFrame::INIT; E],
             inner: MaybeUninit::uninit(),
             crc: config.crc,
@@ -200,7 +203,7 @@ impl<const MTU: usize, const N: usize, const E: usize> Stack<MTU, N, E> {
     }
 }
 
-impl<const MTU: usize, const N: usize, const E: usize> Default for Stack<MTU, N, E> {
+impl<const MTU: usize, const E: usize> Default for Stack<MTU, E> {
     fn default() -> Self {
         Self::new(Config::new())
     }
@@ -246,8 +249,8 @@ pub struct Runner<'d, RX: IoRead, TX: IoWrite, const MTU: usize = DEFAULT_MTU> {
 /// Creates a driver instance from a split transport.
 ///
 /// Returns the [`Device`] handle and the [`Runner`] that drives the UART.
-pub fn new<'d, RX, TX, const MTU: usize, const N: usize, const E: usize>(
-    stack: &'d mut Stack<MTU, N, E>,
+pub fn new<'d, RX, TX, const MTU: usize, const E: usize>(
+    stack: &'d mut Stack<MTU, E>,
     rx: RX,
     tx: TX,
 ) -> (Device<'d, MTU>, Runner<'d, RX, TX, MTU>)
@@ -602,11 +605,11 @@ impl<'d, RX: IoRead, TX: IoWrite, const MTU: usize> Runner<'d, RX, TX, MTU> {
                                             slot.seq = seq;
                                             resp_sender.send_done();
                                         }
-                                        Some((Expect::Ack, _seq)) => {
-                                            unreachable!()
-                                        }
                                         _ => {
-                                            // Unsolicited: queue for `Events`.
+                                            // Unsolicited (including a data
+                                            // frame arriving while a write
+                                            // awaits its ACK): queue for
+                                            // `Events`.
                                             let bytes = content.as_bytes();
                                             if bytes.len() > MTU {
                                                 return Err(Error::ResponseTooLarge);

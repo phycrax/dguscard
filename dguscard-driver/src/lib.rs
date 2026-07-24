@@ -4,7 +4,7 @@
 //!
 //! Drives a DGUS display over any [`embedded_io_async`] byte stream, using
 //! [`dguscard`] as the sans-io frame codec. The split follows `embassy-net`:
-//! [`new`] takes caller-provided [`Stack`] storage and returns a [`Device`]
+//! [`new`] takes caller-provided [`Resources`] storage and returns a [`Device`]
 //! handle plus a [`Runner`] whose [`Runner::run`] future owns **both** UART
 //! halves and must be polled continuously — typically from its own task.
 //!
@@ -39,10 +39,12 @@
 //! - A read response is matched by `(addr, wlen)`. A spontaneous frame with the
 //!   same address *and* length as an in-flight read is indistinguishable from
 //!   its response; avoid reading from variables the display also auto-uploads.
-//! - If the event queue is full because the application is not draining it,
-//!   [`Runner::run`] returns [`Error::EventQueueFull`] rather than blocking
-//!   request completion or silently dropping the frame. Size the queue with the
-//!   `E` const on [`Stack`].
+//! - [`Runner::run`] returns errors instead of hiding them, and the *caller*
+//!   picks the recovery policy. Framing noise ([`Error::Accumulation`]) and a
+//!   full event queue ([`Error::EventQueueFull`]) are recoverable by calling
+//!   [`Runner::run`] again in a loop; transport errors mean the byte stream
+//!   itself is broken. See [`Runner::run`] for exactly what is lost across a
+//!   restart. Size the event queue with the `E` const on [`Resources`].
 //!
 //! [`NoopRawMutex`]: embassy_sync::blocking_mutex::raw::NoopRawMutex
 
@@ -80,13 +82,11 @@ pub enum Error {
     Read(embedded_io_async::ErrorKind),
     /// Transport write error.
     Write(embedded_io_async::ErrorKind),
-    /// A read response did not fit in the MTU-sized response slot.
-    ResponseTooLarge,
     /// An unsolicited frame arrived while the event queue was full.
     EventQueueFull,
 }
 
-/// Stack configuration.
+/// Driver configuration, passed to [`new`].
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config {
@@ -109,7 +109,7 @@ impl Default for Config {
 
 /// What the in-flight operation is waiting for, moved from the handle to the
 /// runner alongside the outgoing frame.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Expect {
     /// A write's "OK" ACK.
     Ack,
@@ -134,7 +134,7 @@ impl<const MTU: usize> TxFrame<MTU> {
     };
 }
 
-/// A completed operation's result (runner → handle). `len == 0` is a bare ACK.
+/// A completed operation's result (runner → handle).
 struct RxFrame<const MTU: usize> {
     seq: u8,
     len: usize,
@@ -166,7 +166,7 @@ impl<const MTU: usize> EventFrame<MTU> {
     };
 }
 
-/// The three zero-copy channels, borrowing the buffer arrays in [`Stack`].
+/// The three zero-copy channels, borrowing the buffer arrays in [`Resources`].
 struct StateInner<'a, const MTU: usize> {
     tx: Channel<'a, NoopRawMutex, TxFrame<MTU>>,
     resp: Channel<'a, NoopRawMutex, RxFrame<MTU>>,
@@ -175,37 +175,31 @@ struct StateInner<'a, const MTU: usize> {
 
 /// Caller-provided storage for the driver, like `embassy_net::StackResources`.
 ///
-/// `MTU` bounds the largest sendable/receivable frame (dguscard accepts
-/// 5..=256). `E` is the depth of the unsolicited event queue — size it for the
-/// worst-case burst of touch events between two [`Events::receive`] calls.
-///
-/// The request and response channels are fixed at depth 1: only one request is
-/// ever in flight (enforced by `&mut self` on [`Control`]), and correlation
-/// tracks a single expectation, so a deeper queue could only mis-correlate.
-pub struct Stack<const MTU: usize = DEFAULT_MTU, const E: usize = 4> {
+/// `MTU` bounds the largest sendable/receivable frame. `E` is the depth
+/// of the unsolicited event queue — size it for the worst-case burst of
+/// touch events between two [`Events::receive`] calls.
+pub struct Resources<const MTU: usize = DEFAULT_MTU, const E: usize = 4> {
     tx_bufs: [TxFrame<MTU>; 1],
     resp_bufs: [RxFrame<MTU>; 1],
     event_bufs: [EventFrame<MTU>; E],
     inner: MaybeUninit<StateInner<'static, MTU>>,
-    crc: bool,
 }
 
-impl<const MTU: usize, const E: usize> Stack<MTU, E> {
+impl<const MTU: usize, const E: usize> Resources<MTU, E> {
     /// Creates new driver storage.
-    pub const fn new(config: Config) -> Self {
+    pub const fn new() -> Self {
         Self {
             tx_bufs: [TxFrame::INIT; 1],
             resp_bufs: [RxFrame::INIT; 1],
             event_bufs: [EventFrame::INIT; E],
             inner: MaybeUninit::uninit(),
-            crc: config.crc,
         }
     }
 }
 
-impl<const MTU: usize, const E: usize> Default for Stack<MTU, E> {
+impl<const MTU: usize, const E: usize> Default for Resources<MTU, E> {
     fn default() -> Self {
-        Self::new(Config::new())
+        Self::new()
     }
 }
 
@@ -244,36 +238,44 @@ pub struct Runner<'d, RX: IoRead, TX: IoWrite, const MTU: usize = DEFAULT_MTU> {
     resp_sender: Sender<'d, NoopRawMutex, RxFrame<MTU>>,
     event_sender: Sender<'d, NoopRawMutex, EventFrame<MTU>>,
     crc: bool,
+    /// What the in-flight request is waiting for, armed just before its frame
+    /// starts transmitting. Lives here (not in [`Runner::run`]) so correlation
+    /// survives a `run` restart — and doubles as the half-transmit marker: if
+    /// it matches the frame still at the head of the tx queue when `run` is
+    /// (re-)entered, that frame may be partially on the wire.
+    pending: Cell<Option<(Expect, u8)>>,
 }
 
 /// Creates a driver instance from a split transport.
 ///
 /// Returns the [`Device`] handle and the [`Runner`] that drives the UART.
 pub fn new<'d, RX, TX, const MTU: usize, const E: usize>(
-    stack: &'d mut Stack<MTU, E>,
+    resources: &'d mut Resources<MTU, E>,
     rx: RX,
     tx: TX,
+    config: Config,
 ) -> (Device<'d, MTU>, Runner<'d, RX, TX, MTU>)
 where
     RX: IoRead,
     TX: IoWrite,
 {
-    let crc = stack.crc;
+    let crc = config.crc;
 
     // Self-referential init, mirroring `embassy-net-driver-channel`: the
-    // channels in `StateInner` borrow `stack.tx_bufs` / `stack.resp_bufs` /
-    // `stack.event_bufs`, which are fields of the same `stack`.
+    // channels in `StateInner` borrow `resources.tx_bufs` /
+    // `resources.resp_bufs` / `resources.event_bufs`, which are fields of the
+    // same `resources`.
     //
     // SAFETY: the borrow laundered from `'static` to `'d` is sound because the
-    // returned handles carry `'d`, so `stack` cannot move or be reused while any
-    // of the internal references are live, and those references are never
-    // touched once the `'d` borrow ends.
+    // returned handles carry `'d`, so `resources` cannot move or be reused
+    // while any of the internal references are live, and those references are
+    // never touched once the `'d` borrow ends.
     let inner_uninit: *mut MaybeUninit<StateInner<'d, MTU>> =
-        (&mut stack.inner as *mut MaybeUninit<StateInner<'static, MTU>>).cast();
+        (&mut resources.inner as *mut MaybeUninit<StateInner<'static, MTU>>).cast();
     let inner = unsafe { &mut *inner_uninit }.write(StateInner {
-        tx: Channel::new(&mut stack.tx_bufs[..]),
-        resp: Channel::new(&mut stack.resp_bufs[..]),
-        events: Channel::new(&mut stack.event_bufs[..]),
+        tx: Channel::new(&mut resources.tx_bufs[..]),
+        resp: Channel::new(&mut resources.resp_bufs[..]),
+        events: Channel::new(&mut resources.event_bufs[..]),
     });
 
     let (tx_sender, tx_receiver) = inner.tx.split();
@@ -296,6 +298,7 @@ where
         resp_sender,
         event_sender,
         crc,
+        pending: Cell::new(None),
     };
     (device, runner)
 }
@@ -530,11 +533,47 @@ impl<'d, RX: IoRead, TX: IoWrite, const MTU: usize> Runner<'d, RX, TX, MTU> {
     /// instead of it being embedded in this future's state.
     ///
     /// Data frames that complete an in-flight request are handed back to
-    /// [`Control`]; all other data frames are queued for [`Events`]. Returns
-    /// only on the first transport or framing error, or with
-    /// [`Error::EventQueueFull`] if an unsolicited frame arrives while the
-    /// event queue is full.
+    /// [`Control`]; all other data frames are queued for [`Events`].
+    ///
+    /// # Errors and restarts
+    ///
+    /// Returns on the first error instead of hiding it; the caller picks the
+    /// recovery policy by matching on the error and, for recoverable ones,
+    /// calling `run` again in a loop:
+    ///
+    /// - [`Error::Accumulation`]: framing noise (stray bytes, a partial frame
+    ///   at startup, a CRC mismatch). Restarting resynchronizes on the next
+    ///   frame header. The partially accumulated frame and the unprocessed
+    ///   remainder of the current read window are lost; a request whose
+    ///   response was in that data hangs until the caller's timeout and can
+    ///   then be retried.
+    /// - [`Error::EventQueueFull`]: an unsolicited frame arrived while the
+    ///   event queue was full. That frame is lost; restarting resumes normal
+    ///   operation. Size the queue with the `E` const on [`Resources`].
+    /// - [`Error::Read`] / [`Error::Write`] / [`Error::UnexpectedEof`]: the
+    ///   transport itself failed; restart only after the underlying stream
+    ///   has been repaired.
+    ///
+    /// Restarting is sound: request correlation lives in the runner, and a
+    /// request frame that was only partially transmitted when the previous
+    /// `run` future was dropped is discarded on the next call (its request
+    /// should time out) rather than retransmitted as a corrupt duplicate.
     pub async fn run(&mut self, rx_buf: &mut [u8]) -> Result<Infallible, Error> {
+        // If the frame at the head of the tx queue is the one `pending` was
+        // armed for, a previous `run` was torn down mid-transmission and part
+        // of it may already be on the wire. Discard it (the request times out
+        // and the caller retries) instead of retransmitting it from the start
+        // as a corrupt duplicate. An unarmed head frame was merely queued
+        // while the runner was down and is transmitted normally.
+        let armed = self
+            .tx_receiver
+            .try_receive()
+            .is_some_and(|frame| self.pending.get() == Some((frame.expect, frame.seq)));
+        if armed {
+            self.tx_receiver.receive_done();
+            self.pending.set(None);
+        }
+
         let rx = &mut self.rx;
         let tx = &mut self.tx;
         let tx_receiver = &mut self.tx_receiver;
@@ -543,19 +582,21 @@ impl<'d, RX: IoRead, TX: IoWrite, const MTU: usize> Runner<'d, RX, TX, MTU> {
         let crc = self.crc;
 
         // Correlation between the two futures
-        let pending = Cell::new(None);
+        let pending = &self.pending;
 
         let tx_fut = async {
             loop {
                 let frame = tx_receiver.receive().await;
                 // Arm correlation before the frame hits the wire, so the ACK
-                // cannot be observed before we know to expect it.
+                // cannot be observed before we know to expect it. Arming also
+                // marks the frame as possibly-on-the-wire: if this future is
+                // torn down (or the write fails) before `receive_done`, the
+                // next `run` sees the armed head frame and discards it.
                 pending.set(Some((frame.expect, frame.seq)));
-                let r = tx.write_all(&frame.buf[..frame.len]).await;
+                tx.write_all(&frame.buf[..frame.len])
+                    .await
+                    .map_err(|e| Error::Write(e.kind()))?;
                 tx_receiver.receive_done();
-                if let Err(e) = r {
-                    return Err(Error::Write(e.kind()));
-                }
             }
         };
 
@@ -590,39 +631,32 @@ impl<'d, RX: IoRead, TX: IoWrite, const MTU: usize> Runner<'d, RX, TX, MTU> {
                                     wlen,
                                     content,
                                 } => {
-                                    match pending.get() {
-                                        Some((Expect::Read { addr: a, wlen: w }, seq))
-                                            if a == addr && w == wlen =>
-                                        {
-                                            pending.set(None);
-                                            let bytes = content.as_bytes();
-                                            if bytes.len() > MTU {
-                                                return Err(Error::ResponseTooLarge);
-                                            }
-                                            let slot = resp_sender.send().await;
-                                            slot.buf[..bytes.len()].copy_from_slice(bytes);
-                                            slot.len = bytes.len();
-                                            slot.seq = seq;
-                                            resp_sender.send_done();
-                                        }
-                                        _ => {
-                                            // Unsolicited (including a data
-                                            // frame arriving while a write
-                                            // awaits its ACK): queue for
-                                            // `Events`.
-                                            let bytes = content.as_bytes();
-                                            if bytes.len() > MTU {
-                                                return Err(Error::ResponseTooLarge);
-                                            }
-                                            let Some(slot) = events_sender.try_send() else {
-                                                return Err(Error::EventQueueFull);
-                                            };
-                                            slot.addr = addr;
-                                            slot.wlen = wlen;
-                                            slot.buf[..bytes.len()].copy_from_slice(bytes);
-                                            slot.len = bytes.len();
-                                            events_sender.send_done();
-                                        }
+                                    if let Some((Expect::Read { addr: a, wlen: w }, seq)) =
+                                        pending.get()
+                                        && a == addr
+                                        && w == wlen
+                                    {
+                                        pending.set(None);
+                                        let bytes = content.as_bytes();
+                                        let slot = resp_sender.send().await;
+                                        slot.buf[..bytes.len()].copy_from_slice(bytes);
+                                        slot.len = bytes.len();
+                                        slot.seq = seq;
+                                        resp_sender.send_done();
+                                    } else {
+                                        // Unsolicited (including a data
+                                        // frame arriving while a write
+                                        // awaits its ACK): queue for
+                                        // `Events`.
+                                        let bytes = content.as_bytes();
+                                        let Some(slot) = events_sender.try_send() else {
+                                            return Err(Error::EventQueueFull);
+                                        };
+                                        slot.addr = addr;
+                                        slot.wlen = wlen;
+                                        slot.buf[..bytes.len()].copy_from_slice(bytes);
+                                        slot.len = bytes.len();
+                                        events_sender.send_done();
                                     }
                                 }
                             }

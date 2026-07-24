@@ -1,6 +1,6 @@
 mod uart;
 
-use dguscard_driver::{Address, Config, Runner, Stack};
+use dguscard_driver::{Address, Config, Error, Resources, Runner};
 use embassy_executor::Spawner;
 use serde::Deserialize;
 use static_cell::ConstStaticCell;
@@ -59,11 +59,11 @@ enum Adjust {
 async fn main(spawner: Spawner) {
     let (tx, rx) = uart::new();
 
-    static RESOURCES: ConstStaticCell<Stack> = ConstStaticCell::new(Stack::new(Config::new()));
+    static RESOURCES: ConstStaticCell<Resources> = ConstStaticCell::new(Resources::new());
     let resources = RESOURCES.take();
 
     // The runner owns both UART halves; the device talks to it over the channels.
-    let (mut device, runner) = dguscard_driver::new(resources, rx, tx);
+    let (mut device, runner) = dguscard_driver::new(resources, rx, tx, Config::new());
 
     spawner.spawn(runner_task(runner).unwrap());
 
@@ -113,6 +113,15 @@ async fn main(spawner: Spawner) {
 #[embassy_executor::task]
 async fn runner_task(mut runner: Runner<'static, UartRx, UartTx>) {
     let rx_buf = &mut [0; 16];
-    // Returns only on a transport or framing error.
-    runner.run(rx_buf).await.unwrap();
+    // The caller picks the recovery policy: framing noise and event-queue
+    // overflow are survivable by restarting `run`; transport errors mean the
+    // UART itself is gone.
+    loop {
+        match runner.run(rx_buf).await {
+            Err(Error::Accumulation(e)) => eprintln!("framing error, resyncing: {e:?}"),
+            Err(Error::EventQueueFull) => eprintln!("event queue full, frame dropped"),
+            Err(e) => panic!("transport failed: {e:?}"),
+            Ok(_infallible) => unreachable!(),
+        }
+    }
 }

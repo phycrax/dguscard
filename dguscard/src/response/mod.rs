@@ -17,6 +17,25 @@ pub struct Content<'de> {
 }
 
 impl<'de> Content<'de> {
+    /// Wraps a raw byte slice as [`Content`], without any framing.
+    ///
+    /// The bytes are the data part of a response (i.e. what remains after the
+    /// command, address, and word length have been stripped). Intended for
+    /// reconstructing a [`Content`] from bytes captured elsewhere, e.g. copied
+    /// out of an [`Accumulator`] by a driver and handed across a channel.
+    ///
+    /// [`Accumulator`]: crate::response::Accumulator
+    pub fn from_bytes(input: &'de [u8]) -> Self {
+        Self {
+            deserializer: Deserializer { input },
+        }
+    }
+
+    /// Returns the remaining, not-yet-taken bytes of the content.
+    pub fn as_bytes(&self) -> &'de [u8] {
+        self.deserializer.input
+    }
+
     /// Removes a `T` from content and returns it.
     pub fn take<T: Deserialize<'de>>(&mut self) -> Result<T> {
         T::deserialize(&mut self.deserializer)
@@ -205,5 +224,16 @@ mod tests {
         let (response, rest) = Response::take_from_bytes(&input, true).unwrap();
         let Response::Ack = response else { panic!() };
         assert_eq!(rest, &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn content_from_bytes_roundtrip() {
+        // Data part only: a u16 followed by a u32, big-endian.
+        let bytes = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF];
+        let mut content = Content::from_bytes(&bytes);
+        assert_eq!(content.as_bytes(), &bytes);
+        assert_eq!(content.take::<u16>().unwrap(), 0xAABB);
+        assert_eq!(content.take::<u32>().unwrap(), 0xCCDD_EEFF);
+        assert!(content.is_empty());
     }
 }

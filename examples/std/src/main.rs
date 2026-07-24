@@ -1,13 +1,13 @@
 mod uart;
 
-use dguscard_driver::{Address, Config, Content, Router, Runner, Stack};
+use dguscard_driver::{Address, Config, Runner, Stack};
 use embassy_executor::Spawner;
 use serde::Deserialize;
 use static_cell::ConstStaticCell;
 
 use crate::uart::{UartRx, UartTx};
 
-/// Application state; the [`Router`] impl mutates it through `&mut self`.
+/// Application state, mutated by the event loop in [`main`].
 #[derive(Default)]
 struct FanApp {
     /// Current speed.
@@ -55,36 +55,6 @@ enum Adjust {
     Increase,
 }
 
-impl Router for FanApp {
-    fn route(&mut self, addr: Address, wlen: u8, content: &mut Content<'_>) {
-        use Address::*;
-        match (addr, wlen) {
-            // Direct selection: set the speed to the chosen level.
-            (Word(0x1000), 1) => {
-                let speed: Speed = content.take().unwrap();
-                self.speed = speed;
-                println!("speed set to {:?}", self.speed);
-            }
-            // Step the speed one level up or down, saturating at `Off`/`High`.
-            (Word(0x1001), 1) => {
-                let adjust: Adjust = content.take().unwrap();
-                self.speed = match adjust {
-                    Adjust::Increase => self.speed.increased(),
-                    Adjust::Decrease => self.speed.decreased(),
-                };
-                println!("speed adjusted to {:?}", self.speed);
-            }
-            // Toggle oscillation. The `bool` decodes from a word (0 = off, 1 = on).
-            (Word(0x1002), 1) => {
-                let rotating: bool = content.take().unwrap();
-                self.rotating = rotating;
-                println!("rotating: {}", self.rotating);
-            }
-            _ => {} // ignore unmapped frames
-        }
-    }
-}
-
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let (tx, rx) = uart::new();
@@ -92,19 +62,57 @@ async fn main(spawner: Spawner) {
     static RESOURCES: ConstStaticCell<Stack> = ConstStaticCell::new(Stack::new(Config::new()));
     let resources = RESOURCES.take();
 
-    let runner = dguscard_driver::new(resources, rx, tx);
+    // The runner owns both UART halves; the device talks to it over the channels.
+    let (mut device, runner) = dguscard_driver::new(resources, rx, tx);
 
     spawner.spawn(runner_task(runner).unwrap());
 
+    // Switch to page 1 (system VP 0x0084), then read the active page back
+    // (system VP 0x0014) to confirm it took effect.
+    device
+        .write(Address::Word(0x0084), &(0x5A01u16, 1u16))
+        .await
+        .unwrap();
+    let page: u16 = device.read(Address::Word(0x0014), 1).await.unwrap();
+    println!("current page: {page}");
+
+    // Split so the event loop can issue writes while an `Event` guard is alive.
+    let (mut ctl, mut events) = device.split();
+    let mut app = FanApp::default();
+
     loop {
-        embassy_futures::yield_now().await;
+        let mut event = events.receive().await;
+        use Address::*;
+        match (event.addr(), event.wlen()) {
+            // Direct selection: set the speed to the chosen level.
+            (Word(0x1000), 1) => {
+                app.speed = event.take().unwrap();
+                println!("speed set to {:?}", app.speed);
+            }
+            // Step the speed one level up or down, then echo the new level back
+            // to the display so its indicator follows.
+            (Word(0x1001), 1) => {
+                app.speed = match event.take().unwrap() {
+                    Adjust::Increase => app.speed.increased(),
+                    Adjust::Decrease => app.speed.decreased(),
+                };
+                println!("speed adjusted to {:?}", app.speed);
+                ctl.write(Address::Word(0x1000), &(app.speed as u16))
+                    .await
+                    .unwrap();
+            }
+            // Toggle oscillation. The `bool` decodes from a word (0 = off, 1 = on).
+            (Word(0x1002), 1) => {
+                app.rotating = event.take().unwrap();
+                println!("rotating: {}", app.rotating);
+            }
+            _ => {} // ignore unmapped frames
+        }
     }
 }
 
 #[embassy_executor::task]
 async fn runner_task(mut runner: Runner<'static, UartRx, UartTx>) {
-    let mut app = FanApp::default();
-    loop {
-        runner.run(&mut app).await.unwrap();
-    }
+    // Returns only on a transport or framing error.
+    runner.run().await.unwrap();
 }

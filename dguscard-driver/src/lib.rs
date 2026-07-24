@@ -46,7 +46,7 @@
 //!
 //! [`NoopRawMutex`]: embassy_sync::blocking_mutex::raw::NoopRawMutex
 
-use core::cell::RefCell;
+use core::cell::Cell;
 use core::convert::Infallible;
 use core::mem::MaybeUninit;
 
@@ -536,16 +536,15 @@ impl<'d, RX: IoRead, TX: IoWrite, const MTU: usize> Runner<'d, RX, TX, MTU> {
         let events_sender = &mut self.event_sender;
         let crc = self.crc;
 
-        // Correlation between the two futures of this one task; borrowed only
-        // momentarily, never across an `.await`, so a `RefCell` is enough.
-        let pending = RefCell::new(None);
+        // Correlation between the two futures
+        let pending = Cell::new(None);
 
         let tx_fut = async {
             loop {
                 let frame = tx_receiver.receive().await;
                 // Arm correlation before the frame hits the wire, so the ACK
                 // cannot be observed before we know to expect it.
-                *pending.borrow_mut() = Some((frame.expect, frame.seq));
+                pending.set(Some((frame.expect, frame.seq)));
                 let r = tx.write_all(&frame.buf[..frame.len]).await;
                 tx_receiver.receive_done();
                 if let Err(e) = r {
@@ -573,11 +572,8 @@ impl<'d, RX: IoRead, TX: IoWrite, const MTU: usize> Runner<'d, RX, TX, MTU> {
                         FeedResult::Success(response, rest) => {
                             match response {
                                 Response::Ack => {
-                                    // Copy out so the `Ref` is not held across
-                                    // the `resp.send().await` below.
-                                    let p = *pending.borrow();
-                                    if let Some((Expect::Ack, seq)) = p {
-                                        *pending.borrow_mut() = None;
+                                    if let Some((Expect::Ack, seq)) = pending.get() {
+                                        pending.set(None);
                                         let slot = resp_sender.send().await;
                                         slot.seq = seq;
                                         slot.len = 0;
@@ -591,12 +587,11 @@ impl<'d, RX: IoRead, TX: IoWrite, const MTU: usize> Runner<'d, RX, TX, MTU> {
                                     wlen,
                                     content,
                                 } => {
-                                    let p = *pending.borrow();
-                                    match p {
+                                    match pending.get() {
                                         Some((Expect::Read { addr: a, wlen: w }, seq))
                                             if a == addr && w == wlen =>
                                         {
-                                            *pending.borrow_mut() = None;
+                                            pending.set(None);
                                             let bytes = content.as_bytes();
                                             if bytes.len() > MTU {
                                                 return Err(Error::ResponseTooLarge);

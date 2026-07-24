@@ -82,16 +82,15 @@ async fn main(spawner: Spawner) {
 
     loop {
         let mut event = events.receive().await;
-        use Address::*;
         match (event.addr(), event.wlen()) {
             // Direct selection: set the speed to the chosen level.
-            (Word(0x1000), 1) => {
+            (Address::Word(0x1000), 1) => {
                 app.speed = event.take().unwrap();
                 println!("speed set to {:?}", app.speed);
             }
             // Step the speed one level up or down, then echo the new level back
             // to the display so its indicator follows.
-            (Word(0x1001), 1) => {
+            (Address::Word(0x1001), 1) => {
                 app.speed = match event.take().unwrap() {
                     Adjust::Increase => app.speed.increased(),
                     Adjust::Decrease => app.speed.decreased(),
@@ -102,7 +101,7 @@ async fn main(spawner: Spawner) {
                     .unwrap();
             }
             // Toggle oscillation. The `bool` decodes from a word (0 = off, 1 = on).
-            (Word(0x1002), 1) => {
+            (Address::Word(0x1002), 1) => {
                 app.rotating = event.take().unwrap();
                 println!("rotating: {}", app.rotating);
             }
@@ -113,6 +112,7 @@ async fn main(spawner: Spawner) {
 
 #[embassy_executor::task]
 async fn runner_task(mut runner: Runner<'static, UartRx, UartTx>) {
+    let rx_buf = &mut [0; 16];
     // Returns only on a transport or framing error.
-    runner.run().await.unwrap();
+    runner.run(rx_buf).await.unwrap();
 }

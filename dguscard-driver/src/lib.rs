@@ -522,15 +522,18 @@ impl<'a, 'd, const MTU: usize> Drop for Event<'a, 'd, MTU> {
 impl<'d, RX: IoRead, TX: IoWrite, const MTU: usize> Runner<'d, RX, TX, MTU> {
     /// Concurrently drives the RX and TX loops.
     ///
+    /// `rx_buf` is the caller-provided scratch buffer for incoming transport
+    /// reads; the caller owns its storage (e.g. a `static` or stack slot)
+    /// instead of it being embedded in this future's state.
+    ///
     /// Data frames that complete an in-flight request are handed back to
     /// [`Control`]; all other data frames are queued for [`Events`]. Returns
     /// only on the first transport or framing error, or with
     /// [`Error::EventQueueFull`] if an unsolicited frame arrives while the
     /// event queue is full.
-    pub async fn run(&mut self) -> Result<Infallible, Error> {
+    pub async fn run(&mut self, rx_buf: &mut [u8]) -> Result<Infallible, Error> {
         let rx = &mut self.rx;
         let tx = &mut self.tx;
-        let rx_buf = &mut [0; MTU];
         let tx_receiver = &mut self.tx_receiver;
         let resp_sender = &mut self.resp_sender;
         let events_sender = &mut self.event_sender;
@@ -556,10 +559,7 @@ impl<'d, RX: IoRead, TX: IoWrite, const MTU: usize> Runner<'d, RX, TX, MTU> {
         let rx_fut = async {
             let mut acc = Accumulator::<MTU>::new(crc);
             loop {
-                let n = rx
-                    .read(rx_buf)
-                    .await
-                    .map_err(|e| Error::Read(e.kind()))?;
+                let n = rx.read(rx_buf).await.map_err(|e| Error::Read(e.kind()))?;
                 if n == 0 {
                     return Err(Error::UnexpectedEof);
                 }
@@ -601,6 +601,9 @@ impl<'d, RX: IoRead, TX: IoWrite, const MTU: usize> Runner<'d, RX, TX, MTU> {
                                             slot.len = bytes.len();
                                             slot.seq = seq;
                                             resp_sender.send_done();
+                                        }
+                                        Some((Expect::Ack, _seq)) => {
+                                            unreachable!()
                                         }
                                         _ => {
                                             // Unsolicited: queue for `Events`.

@@ -46,6 +46,11 @@ impl<'de> Content<'de> {
         self.wlen
     }
 
+    /// Returns the remaining, not-yet-taken bytes of the content.
+    pub const fn as_bytes(&self) -> &'de [u8] {
+        self.deserializer.input
+    }
+
     /// Removes a `T` from content and returns it.
     pub fn take<T: Deserialize<'de>>(&mut self) -> Result<T> {
         T::deserialize(&mut self.deserializer)

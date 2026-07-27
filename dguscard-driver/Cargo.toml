@@ -1,0 +1,25 @@
+[package]
+name = "dguscard-driver"
+version = "0.1.0"
+edition = "2024"
+description = "TODO"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/phycrax/dguscard"
+keywords = ["dwin", "dgus"]
+categories = ["embedded", "no-std"]
+
+[features]
+default = []
+## Use [`defmt`](https://docs.rs/defmt/latest/defmt/) for logging
+defmt = [
+    "dep:defmt",
+    "dguscard/defmt",
+    "embedded-io-async/defmt",
+]
+
+[dependencies]
+dguscard          = { path = "../dguscard" }
+embedded-io-async = "0.7"
+embassy-sync      = "0.8"
+serde             = { workspace = true }
+defmt             = { workspace = true, optional = true }

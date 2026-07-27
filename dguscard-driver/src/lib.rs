@@ -25,11 +25,13 @@
 //! - **Events** ([`Device::event`]): data frames the display sends
 //!   spontaneously (touch auto-uploads, user input). The runner queues them in
 //!   a fixed pool of `E` MTU-sized slots; the application awaits them and
-//!   deserializes in place via the zero-copy [`Event`] guard.
+//!   deserializes in place from a [`Content`] borrowing the queue slot. The
+//!   slot is released as soon as the closure returns, so decode inside it and
+//!   act on the decoded value outside.
 //!
 //! Use [`Device::split`] to obtain independent [`Control`] and [`Events`]
-//! handles when one task must hold an [`Event`] borrow while issuing requests
-//! (e.g. a `select` loop that draws in response to touch events).
+//! handles when requests and events are driven from separate tasks (e.g. a
+//! `select` loop that draws in response to touch events).
 //!
 //! # Reliability notes
 //!
@@ -61,11 +63,11 @@
 
 use core::{cell::Cell, convert::Infallible, mem::MaybeUninit};
 
-pub use dguscard::Address;
+pub use dguscard::{Address, response::Content};
 
 use dguscard::{
     request::{Read, Request, Write},
-    response::{Accumulator, Content, FeedResult, Response},
+    response::{Accumulator, FeedResult, Response},
 };
 use embassy_sync::{
     blocking_mutex::raw::NoopRawMutex,
@@ -203,10 +205,8 @@ impl<const MTU: usize, const E: usize> Default for Resources<MTU, E> {
 
 /// Application-facing handle bundling [`Control`] and [`Events`].
 ///
-/// Convenient for simple sequential use; note that [`Device::event`] borrows
-/// the whole handle, so a held [`Event`] blocks [`Device::write`] /
-/// [`Device::read`]. Call [`Device::split`] when one task needs to issue
-/// requests while an event is being processed.
+/// Convenient for simple sequential use. Call [`Device::split`] when requests
+/// and events must be driven from separate tasks.
 pub struct Device<'d, TX: IoWrite, const MTU: usize = DEFAULT_MTU> {
     control: Control<'d, TX, MTU>,
     events: Events<'d, MTU>,
@@ -320,14 +320,14 @@ impl<'d, TX: IoWrite, const MTU: usize> Device<'d, TX, MTU> {
     }
 
     /// Waits for the next unsolicited data frame. See [`Events::receive`].
-    pub async fn event(&mut self) -> Event<'_, 'd, MTU> {
-        self.events.receive().await
+    pub async fn event<R>(&mut self, f: impl FnOnce(Content<'_>) -> R) -> R {
+        self.events.receive(f).await
     }
 
     /// Returns the next queued unsolicited frame without waiting. See
     /// [`Events::try_receive`].
-    pub fn try_event(&mut self) -> Option<Event<'_, 'd, MTU>> {
-        self.events.try_receive()
+    pub fn try_event<R>(&mut self, f: impl FnOnce(Content<'_>) -> R) -> Option<R> {
+        self.events.try_receive(f)
     }
 
     /// Splits the handle into its independent request and event halves.
@@ -419,7 +419,7 @@ impl<'d, TX: IoWrite, const MTU: usize> Control<'d, TX, MTU> {
                     .len())
             },
             |bytes| {
-                Content::from_bytes(bytes)
+                Content::from_data_bytes(addr, wlen, bytes)
                     .take::<T>()
                     .map_err(|e| Error::Deserialize(addr, e))
             },
@@ -429,101 +429,43 @@ impl<'d, TX: IoWrite, const MTU: usize> Control<'d, TX, MTU> {
 }
 
 impl<'d, const MTU: usize> Events<'d, MTU> {
-    /// Waits for the next unsolicited data frame.
+    /// Waits for the next unsolicited data frame and passes it to `f` as a
+    /// [`Content`] borrowing the queue slot.
     ///
-    /// The returned [`Event`] borrows this handle and releases its queue slot
-    /// on drop. Cancel-safe: dropping the future before it completes consumes
-    /// nothing.
-    pub async fn receive(&mut self) -> Event<'_, 'd, MTU> {
-        let (addr, wlen) = {
+    /// Deserialize with [`Content::take`] (repeatedly for concatenated values)
+    /// and return whatever the application needs; the slot is released as soon
+    /// as `f` returns, so `f` cannot hold on to the borrowed bytes. Requests
+    /// that depend on an event are therefore issued *after* `receive` returns,
+    /// on the value `f` produced.
+    ///
+    /// Cancel-safe: dropping the future before it completes consumes nothing
+    /// and never calls `f`.
+    pub async fn receive<R>(&mut self, f: impl FnOnce(Content<'_>) -> R) -> R {
+        let out = {
             let slot = self.event_receiver.receive().await;
-            (slot.addr, slot.wlen)
+            f(Content::from_data_bytes(
+                slot.addr,
+                slot.wlen,
+                &slot.buf[..slot.len],
+            ))
         };
-        Event {
-            ch: &mut self.event_receiver,
-            addr,
-            wlen,
-            pos: 0,
-        }
+        self.event_receiver.receive_done();
+        out
     }
 
-    /// Returns the next queued unsolicited frame, or `None` if the queue is
-    /// empty.
-    pub fn try_receive(&mut self) -> Option<Event<'_, 'd, MTU>> {
-        let (addr, wlen) = {
+    /// Returns `f`'s result for the next queued unsolicited frame, or `None` if
+    /// the queue is empty. See [`Events::receive`].
+    pub fn try_receive<R>(&mut self, f: impl FnOnce(Content<'_>) -> R) -> Option<R> {
+        let out = {
             let slot = self.event_receiver.try_receive()?;
-            (slot.addr, slot.wlen)
+            f(Content::from_data_bytes(
+                slot.addr,
+                slot.wlen,
+                &slot.buf[..slot.len],
+            ))
         };
-        Some(Event {
-            ch: &mut self.event_receiver,
-            addr,
-            wlen,
-            pos: 0,
-        })
-    }
-}
-
-/// Zero-copy view of one unsolicited data frame.
-///
-/// Deserialize the payload with [`Event::take`] (repeatedly for concatenated
-/// values). The underlying queue slot is released when this guard is dropped.
-pub struct Event<'a, 'd, const MTU: usize = DEFAULT_MTU> {
-    ch: &'a mut Receiver<'d, NoopRawMutex, EventFrame<MTU>>,
-    addr: Address,
-    wlen: u8,
-    pos: usize,
-}
-
-impl<'a, 'd, const MTU: usize> Event<'a, 'd, MTU> {
-    /// The frame's variable address.
-    pub fn addr(&self) -> Address {
-        self.addr
-    }
-
-    /// The frame's payload length in words.
-    pub fn wlen(&self) -> u8 {
-        self.wlen
-    }
-
-    /// Deserializes the next `T` from the payload, advancing past it.
-    pub fn take<T: for<'de> Deserialize<'de>>(&mut self) -> Result<T, Error> {
-        let addr = self.addr;
-        let pos = self.pos;
-        // Field access rather than `self.slot()` so `self.pos` stays free to
-        // update below.
-        let slot = self
-            .ch
-            .try_receive()
-            .expect("event slot present until drop");
-        let mut content = Content::from_bytes(&slot.buf[pos..slot.len]);
-        let before = content.len();
-        let out = content
-            .take::<T>()
-            .map_err(|e| Error::Deserialize(addr, e))?;
-        self.pos += before - content.len();
-        Ok(out)
-    }
-
-    /// The not-yet-taken remainder of the payload.
-    pub fn content(&mut self) -> Content<'_> {
-        let pos = self.pos;
-        let slot = self.slot();
-        Content::from_bytes(&slot.buf[pos..slot.len])
-    }
-
-    /// Re-peeks the queue slot this guard was constructed from. The slot stays
-    /// at the front of the queue until `receive_done` in [`Drop`], and this
-    /// guard exclusively borrows the receiver, so it is always present.
-    fn slot(&mut self) -> &mut EventFrame<MTU> {
-        self.ch
-            .try_receive()
-            .expect("event slot present until drop")
-    }
-}
-
-impl<'a, 'd, const MTU: usize> Drop for Event<'a, 'd, MTU> {
-    fn drop(&mut self) {
-        self.ch.receive_done();
+        self.event_receiver.receive_done();
+        Some(out)
     }
 }
 
@@ -588,15 +530,11 @@ impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
                                 // Unmatched ACKs belong to cancelled requests;
                                 // drop them.
                             }
-                            Response::Data {
-                                addr,
-                                wlen,
-                                content,
-                            } => {
+                            Response::Data(content) => {
                                 if let Some((Expect::Read { addr: a, wlen: w }, seq)) =
                                     self.pending.get()
-                                    && a == addr
-                                    && w == wlen
+                                    && a == content.addr()
+                                    && w == content.wlen()
                                 {
                                     self.pending.set(None);
                                     let bytes = content.as_bytes();
@@ -609,6 +547,7 @@ impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
                                     // Unsolicited (including a data frame
                                     // arriving while a write awaits its ACK):
                                     // queue for `Events`.
+                                    let (addr, wlen) = (content.addr(), content.wlen());
                                     let bytes = content.as_bytes();
                                     let Some(slot) = self.event_sender.try_send() else {
                                         return Err(Error::EventQueueFull);

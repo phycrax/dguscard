@@ -9,30 +9,77 @@ use self::deserializer::Deserializer;
 use crate::{Address, CRC, Error, HEADER, Result};
 use serde::Deserialize;
 
-/// [`serde`] compatible deserializer wrapping over raw data part of the response
+/// A data response: where it came from, how long it is, and a [`serde`]
+/// compatible deserializer over its not-yet-taken data.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Content<'de> {
+    addr: Address,
+    wlen: u8,
     deserializer: Deserializer<'de>,
 }
 
 impl<'de> Content<'de> {
-    /// Wraps a raw byte slice as [`Content`], without any framing.
+    /// Parses the command and data section of a data response.
+    ///
+    /// The bytes are expected to start with the read command code, followed by
+    /// the address, the word length, and the data — i.e. a full response with
+    /// the header, length, and CRC (if enabled) already stripped. This is the
+    /// same slice [`Response::from_content_bytes`] accepts, restricted to data
+    /// responses: an ACK command code is rejected with
+    /// [`Error::ResponseUnknownCmd`].
+    pub fn from_frame_bytes(input: &'de [u8]) -> Result<Self> {
+        let mut deserializer = Deserializer { input };
+        // Strip command code from input
+        let opcode = u8::deserialize(&mut deserializer)?;
+        // Strip address from input
+        let addr = match opcode.checked_sub(1).ok_or(Error::ResponseUnknownCmd)? {
+            Address::REGISTER => Address::Register(
+                u8::deserialize(&mut deserializer)?,
+                u8::deserialize(&mut deserializer)?,
+            ),
+            Address::WORD => Address::Word(u16::deserialize(&mut deserializer)?),
+            Address::DWORD => Address::Dword(u32::deserialize(&mut deserializer)?),
+            _ => return Err(Error::ResponseUnknownCmd),
+        };
+        // Strip word length from input
+        let wlen = u8::deserialize(&mut deserializer)?;
+        Ok(Self {
+            addr,
+            wlen,
+            deserializer,
+        })
+    }
+
+    /// Wraps a raw data byte slice as [`Content`], without any framing.
     ///
     /// The bytes are the data part of a response (i.e. what remains after the
-    /// command, address, and word length have been stripped). Intended for
-    /// reconstructing a [`Content`] from bytes captured elsewhere, e.g. copied
-    /// out of an [`Accumulator`] by a driver and handed across a channel.
+    /// command, address, and word length have been stripped), with `addr` and
+    /// `wlen` supplied by the caller. Intended for reconstructing a [`Content`]
+    /// from bytes captured elsewhere, e.g. copied out of an [`Accumulator`] by a
+    /// driver and handed across a channel.
     ///
     /// [`Accumulator`]: crate::response::Accumulator
-    pub fn from_bytes(input: &'de [u8]) -> Self {
+    pub const fn from_data_bytes(addr: Address, wlen: u8, data: &'de [u8]) -> Self {
         Self {
-            deserializer: Deserializer { input },
+            addr,
+            wlen,
+            deserializer: Deserializer { input: data },
         }
     }
 
+    /// Returns the address space the data came from.
+    pub const fn addr(&self) -> Address {
+        self.addr
+    }
+
+    /// Returns the word length reported by the response.
+    pub const fn wlen(&self) -> u8 {
+        self.wlen
+    }
+
     /// Returns the remaining, not-yet-taken bytes of the content.
-    pub fn as_bytes(&self) -> &'de [u8] {
+    pub const fn as_bytes(&self) -> &'de [u8] {
         self.deserializer.input
     }
 
@@ -42,7 +89,7 @@ impl<'de> Content<'de> {
     }
 
     /// Returns the number of remaining bytes in the content.
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.deserializer.input.len()
     }
 
@@ -87,9 +134,9 @@ impl<'de> Content<'de> {
 /// let mut response = Response::from_bytes(buf, false).unwrap();
 /// // Handle the response.
 /// match response {
-///     Response::Data { addr, wlen, mut content } => {
+///     Response::Data(mut content) => {
 ///         // Check where the data came from
-///         dbg!(addr, wlen);
+///         dbg!(content.addr(), content.wlen());
 ///         // Take a MyData from the response content
 ///         let my_data: MyData = content.take().unwrap();
 ///         // Take an u32 from the response content
@@ -106,14 +153,7 @@ pub enum Response<'de> {
     Ack,
 
     /// Response for a [`Read`][crate::request::Read] request.
-    Data {
-        /// Address space
-        addr: Address,
-        /// Word length
-        wlen: u8,
-        /// Content
-        content: Content<'de>,
-    },
+    Data(Content<'de>),
 }
 
 impl<'de> Response<'de> {
@@ -139,11 +179,14 @@ impl<'de> Response<'de> {
     /// i.e. excluding header, length, and CRC if enabled.
     /// Intended to be used with an Accumulator.
     pub fn from_content_bytes(input: &'de [u8]) -> Result<Self> {
-        let mut deserializer = Deserializer { input };
-        // Strip command code from input
-        let opcode = u8::deserialize(&mut deserializer)?;
+        // Peek the command code without consuming it; `Content::from_frame_bytes`
+        // expects it to still be there.
+        let opcode = *input.first().ok_or(Error::DeserializeUnexpectedEnd)?;
         // Is it ACK?
         if opcode % 2 == 0 {
+            let mut deserializer = Deserializer { input };
+            // Strip command code from input
+            let opcode = u8::deserialize(&mut deserializer)?;
             // Validate the write command code
             match opcode {
                 Address::REGISTER | Address::WORD | Address::CURVE | Address::DWORD => {}
@@ -157,23 +200,7 @@ impl<'de> Response<'de> {
         }
         // Or is it data?
         else {
-            // Strip address from input
-            let addr = match opcode - 1 {
-                Address::REGISTER => Address::Register(
-                    u8::deserialize(&mut deserializer)?,
-                    u8::deserialize(&mut deserializer)?,
-                ),
-                Address::WORD => Address::Word(u16::deserialize(&mut deserializer)?),
-                Address::DWORD => Address::Dword(u32::deserialize(&mut deserializer)?),
-                _ => return Err(Error::ResponseUnknownCmd),
-            };
-            // Strip word length from input
-            let wlen = u8::deserialize(&mut deserializer)?;
-            Ok(Response::Data {
-                addr,
-                wlen,
-                content: Content { deserializer },
-            })
+            Ok(Response::Data(Content::from_frame_bytes(input)?))
         }
     }
 
@@ -227,13 +254,37 @@ mod tests {
     }
 
     #[test]
-    fn content_from_bytes_roundtrip() {
+    fn content_from_data_bytes_roundtrip() {
         // Data part only: a u16 followed by a u32, big-endian.
         let bytes = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF];
-        let mut content = Content::from_bytes(&bytes);
+        let mut content = Content::from_data_bytes(Address::Word(0x1234), 3, &bytes);
+        assert_eq!(content.addr(), Address::Word(0x1234));
+        assert_eq!(content.wlen(), 3);
         assert_eq!(content.as_bytes(), &bytes);
         assert_eq!(content.take::<u16>().unwrap(), 0xAABB);
         assert_eq!(content.take::<u32>().unwrap(), 0xCCDD_EEFF);
         assert!(content.is_empty());
+    }
+
+    #[test]
+    fn content_from_frame_bytes() {
+        let bytes = [0x83, 0x12, 0x34, 3, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF];
+        let mut content = Content::from_frame_bytes(&bytes).unwrap();
+        assert_eq!(content.addr(), Address::Word(0x1234));
+        assert_eq!(content.wlen(), 3);
+        assert_eq!(content.as_bytes(), &bytes[4..]);
+        assert_eq!(content.take::<u16>().unwrap(), 0xAABB);
+        assert_eq!(content.take::<u32>().unwrap(), 0xCCDD_EEFF);
+        assert!(content.is_empty());
+    }
+
+    #[test]
+    fn content_from_frame_bytes_rejects_ack() {
+        // A write ACK is not a data response.
+        let bytes = [0x82, b'O', b'K'];
+        assert!(matches!(
+            Content::from_frame_bytes(&bytes),
+            Err(Error::ResponseUnknownCmd)
+        ));
     }
 }

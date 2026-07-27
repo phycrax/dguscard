@@ -55,6 +55,22 @@ enum Adjust {
     Increase,
 }
 
+/// A decoded auto-upload, produced inside the `Events::receive` closure.
+///
+/// The closure only borrows the queue slot for as long as it runs, so it
+/// decodes and hands back an owned value; acting on it (including issuing
+/// requests, which needs an `await`) happens after `receive` returns.
+enum Input {
+    /// Direct speed selection at VP 0x1000.
+    Speed(Speed),
+    /// Step up/down at VP 0x1001.
+    Adjust(Adjust),
+    /// Oscillation toggle at VP 0x1002.
+    Rotate(bool),
+    /// Unmapped frame.
+    Ignored,
+}
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let (tx, rx) = uart::new();
@@ -77,22 +93,34 @@ async fn main(spawner: Spawner) {
     let page: u16 = device.read(Address::Word(0x0014), 1).await.unwrap();
     println!("current page: {page}");
 
-    // Split so the event loop can issue writes while an `Event` guard is alive.
+    // Split so the event loop keeps a `Control` to echo state back with.
     let (mut ctl, mut events) = device.split();
     let mut app = FanApp::default();
 
     loop {
-        let mut event = events.receive().await;
-        match (event.addr(), event.wlen()) {
+        // Decode inside the closure: it borrows the queue slot, which is
+        // released the moment it returns.
+        let input = events
+            .receive(|mut content| match (content.addr(), content.wlen()) {
+                (Address::Word(0x1000), 1) => Input::Speed(content.take().unwrap()),
+                (Address::Word(0x1001), 1) => Input::Adjust(content.take().unwrap()),
+                // The `bool` decodes from a word (0 = off, 1 = on).
+                (Address::Word(0x1002), 1) => Input::Rotate(content.take().unwrap()),
+                _ => Input::Ignored,
+            })
+            .await;
+
+        // Act outside it, where awaiting a request is allowed.
+        match input {
             // Direct selection: set the speed to the chosen level.
-            (Address::Word(0x1000), 1) => {
-                app.speed = event.take().unwrap();
+            Input::Speed(speed) => {
+                app.speed = speed;
                 println!("speed set to {:?}", app.speed);
             }
             // Step the speed one level up or down, then echo the new level back
             // to the display so its indicator follows.
-            (Address::Word(0x1001), 1) => {
-                app.speed = match event.take().unwrap() {
+            Input::Adjust(adjust) => {
+                app.speed = match adjust {
                     Adjust::Increase => app.speed.increased(),
                     Adjust::Decrease => app.speed.decreased(),
                 };
@@ -101,12 +129,12 @@ async fn main(spawner: Spawner) {
                     .await
                     .unwrap();
             }
-            // Toggle oscillation. The `bool` decodes from a word (0 = off, 1 = on).
-            (Address::Word(0x1002), 1) => {
-                app.rotating = event.take().unwrap();
+            // Toggle oscillation.
+            Input::Rotate(rotating) => {
+                app.rotating = rotating;
                 println!("rotating: {}", app.rotating);
             }
-            _ => {} // ignore unmapped frames
+            Input::Ignored => {}
         }
     }
 }

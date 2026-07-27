@@ -108,7 +108,10 @@ async fn main(spawner: Spawner) {
                 (Address::Word(0x1002), 1) => Input::Rotate(content.take().unwrap()),
                 _ => Input::Ignored,
             })
-            .await;
+            .await
+            // The runner task panics on a fatal error rather than returning, so
+            // a down link here means it is gone for good.
+            .expect("runner stopped");
 
         // Act outside it, where awaiting a request is allowed.
         match input {

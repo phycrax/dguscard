@@ -22,7 +22,7 @@
 //! - **Requests** ([`Device::write`] / [`Device::read`]): modbus-style, one in
 //!   flight at a time. A write awaits the display's "OK" ACK; a read awaits the
 //!   data response correlated by `(addr, wlen)`.
-//! - **Events** ([`Device::event`]): data frames the display sends
+//! - **Events** ([`Device::receive_event`]): data frames the display sends
 //!   spontaneously (touch auto-uploads, user input). The runner queues them in
 //!   a fixed pool of `E` MTU-sized slots; the application awaits them and
 //!   deserializes in place from a [`Content`] borrowing the queue slot. The
@@ -50,8 +50,15 @@
 //! - A read response is matched by `(addr, wlen)`. A spontaneous frame with the
 //!   same address *and* length as an in-flight read is indistinguishable from
 //!   its response; avoid reading from variables the display also auto-uploads.
-//! - Neither half signals the other's death. If the runner's task stops, the
-//!   handles simply never complete; a timeout is the only guard.
+//! - The runner sets a shared `running` flag for as long as [`Runner::run`] is
+//!   executing, and every [`Control`] and [`Events`] call checks it on entry,
+//!   returning [`Error::NotRunning`] rather than issuing a request nothing will
+//!   answer. The flag is checked once, on entry — it does *not* interrupt a
+//!   call already awaiting, so a runner that stops mid-request leaves that one
+//!   request parked. Timeouts remain mandatory. Note also that the flag tracks
+//!   whether `run` is executing, not whether the display is reachable: it is
+//!   momentarily clear while the caller backs off between recoverable restarts,
+//!   and it never clears for a display that has simply gone quiet.
 //! - [`Runner::run`] returns errors instead of hiding them, and the *caller*
 //!   picks the recovery policy. Framing noise ([`Error::Accumulation`]) and a
 //!   full event queue ([`Error::EventQueueFull`]) are recoverable by calling
@@ -96,6 +103,9 @@ pub enum Error {
     Write(embedded_io_async::ErrorKind),
     /// An unsolicited frame arrived while the event queue was full.
     EventQueueFull,
+    /// [`Runner::run`] was not executing when the call was made, so nothing
+    /// would have received the reply or queued the event.
+    NotRunning,
 }
 
 /// Driver configuration, passed to [`new`].
@@ -127,6 +137,55 @@ enum Expect {
     Ack,
     /// A read's data response, correlated by address and word length.
     Read { addr: Address, wlen: u8 },
+}
+
+/// State shared between the handles and the [`Runner`], living in
+/// [`Resources`] rather than in either half so both survive a [`Runner::run`]
+/// restart.
+struct Shared {
+    /// What the in-flight request is waiting for. Armed by [`Control`] just
+    /// before the frame starts transmitting — so the reply cannot be observed
+    /// before the runner knows to expect it — and cleared by the [`Runner`]
+    /// when the matching reply arrives.
+    pending: Cell<Option<(Expect, u8)>>,
+    /// Whether [`Runner::run`] is currently executing. Held by a [`RunGuard`]
+    /// living in the `run` future, and read by every [`Control`] and [`Events`]
+    /// call.
+    ///
+    /// Initialized to `true` rather than `false`: the handles and the runner
+    /// are typically driven from separate tasks, and the first request often
+    /// precedes the runner task's first poll. Starting `false` would fail that
+    /// request spuriously.
+    running: Cell<bool>,
+}
+
+impl Shared {
+    const fn new() -> Self {
+        Self {
+            pending: Cell::new(None),
+            running: Cell::new(false),
+        }
+    }
+}
+
+/// RAII guard tying [`Shared::running`] to a [`Runner::run`] call: constructed
+/// as `run` starts, dropped whenever it leaves — by returning an error, by the
+/// task exiting, or by the future being cancelled.
+struct RunGuard<'d> {
+    shared: &'d Shared,
+}
+
+impl<'d> RunGuard<'d> {
+    fn new(shared: &'d Shared) -> Self {
+        shared.running.set(true);
+        Self { shared }
+    }
+}
+
+impl Drop for RunGuard<'_> {
+    fn drop(&mut self) {
+        self.shared.running.set(false);
+    }
 }
 
 /// A completed operation's result (runner → handle).
@@ -162,17 +221,11 @@ impl<const MTU: usize> EventFrame<MTU> {
 }
 
 /// State shared between [`Control`] and [`Runner`]: the two zero-copy channels,
-/// borrowing the buffer arrays in [`Resources`], plus the request correlation
-/// slot.
+/// borrowing the buffer arrays in [`Resources`], plus the flags in [`Shared`].
 struct StateInner<'a, const MTU: usize> {
     resp: Channel<'a, NoopRawMutex, ResponseFrame<MTU>>,
     events: Channel<'a, NoopRawMutex, EventFrame<MTU>>,
-    /// What the in-flight request is waiting for. Armed by [`Control`] just
-    /// before the frame starts transmitting — so the reply cannot be observed
-    /// before the runner knows to expect it — and cleared by the [`Runner`]
-    /// when the matching reply arrives. Living here rather than in either half
-    /// keeps correlation intact across a [`Runner::run`] restart.
-    pending: Cell<Option<(Expect, u8)>>,
+    shared: Shared,
 }
 
 /// Caller-provided storage for the driver, like `embassy_net::StackResources`.
@@ -221,7 +274,7 @@ pub struct Control<'d, TX: IoWrite, const MTU: usize = DEFAULT_MTU> {
     /// in flight at a time (enforced by `&mut self`), so one buffer suffices.
     buf: [u8; MTU],
     resp_receiver: Receiver<'d, NoopRawMutex, ResponseFrame<MTU>>,
-    pending: &'d Cell<Option<(Expect, u8)>>,
+    shared: &'d Shared,
     seq: u8,
     crc: bool,
 }
@@ -230,6 +283,7 @@ pub struct Control<'d, TX: IoWrite, const MTU: usize = DEFAULT_MTU> {
 /// [`Runner`].
 pub struct Events<'d, const MTU: usize = DEFAULT_MTU> {
     event_receiver: Receiver<'d, NoopRawMutex, EventFrame<MTU>>,
+    shared: &'d Shared,
 }
 
 /// RX worker. [`Runner::run`] must be polled continuously for request
@@ -238,7 +292,7 @@ pub struct Runner<'d, RX: IoRead, const MTU: usize = DEFAULT_MTU> {
     rx: RX,
     resp_sender: Sender<'d, NoopRawMutex, ResponseFrame<MTU>>,
     event_sender: Sender<'d, NoopRawMutex, EventFrame<MTU>>,
-    pending: &'d Cell<Option<(Expect, u8)>>,
+    shared: &'d Shared,
     crc: bool,
 }
 
@@ -271,29 +325,32 @@ where
     let inner = unsafe { &mut *inner_uninit }.write(StateInner {
         resp: Channel::new(&mut resources.resp_bufs[..]),
         events: Channel::new(&mut resources.event_bufs[..]),
-        pending: Cell::new(None),
+        shared: Shared::new(),
     });
 
     let (resp_sender, resp_receiver) = inner.resp.split();
     let (event_sender, event_receiver) = inner.events.split();
-    let pending = &inner.pending;
+    let shared = &inner.shared;
 
     let device = Device {
         control: Control {
             tx,
             buf: [0; MTU],
             resp_receiver,
-            pending,
+            shared,
             seq: 0,
             crc,
         },
-        events: Events { event_receiver },
+        events: Events {
+            event_receiver,
+            shared,
+        },
     };
     let runner = Runner {
         rx,
         resp_sender,
         event_sender,
-        pending,
+        shared,
         crc,
     };
     (device, runner)
@@ -320,13 +377,16 @@ impl<'d, TX: IoWrite, const MTU: usize> Device<'d, TX, MTU> {
     }
 
     /// Waits for the next unsolicited data frame. See [`Events::receive`].
-    pub async fn event<R>(&mut self, f: impl FnOnce(Content<'_>) -> R) -> R {
+    pub async fn receive_event<R>(&mut self, f: impl FnOnce(Content<'_>) -> R) -> Result<R, Error> {
         self.events.receive(f).await
     }
 
     /// Returns the next queued unsolicited frame without waiting. See
     /// [`Events::try_receive`].
-    pub fn try_event<R>(&mut self, f: impl FnOnce(Content<'_>) -> R) -> Option<R> {
+    pub fn try_receive_event<R>(
+        &mut self,
+        f: impl FnOnce(Content<'_>) -> R,
+    ) -> Result<Option<R>, Error> {
         self.events.try_receive(f)
     }
 
@@ -355,14 +415,20 @@ impl<'d, TX: IoWrite, const MTU: usize> Control<'d, TX, MTU> {
         build: impl FnOnce(&mut [u8], bool) -> Result<usize, dguscard::Error>,
         complete: impl FnOnce(&[u8]) -> Result<R, Error>,
     ) -> Result<R, Error> {
+        // Nothing is receiving, so this frame could only ever time out. Fail
+        // before it reaches the wire.
+        if !self.shared.running.get() {
+            return Err(Error::NotRunning);
+        }
+
         let seq = self.begin_request();
         let len = build(&mut self.buf, self.crc).map_err(Error::Serialize)?;
 
         // Arm correlation before the frame hits the wire, so the reply cannot
         // be observed before the runner knows to expect it.
-        self.pending.set(Some((expect, seq)));
+        self.shared.pending.set(Some((expect, seq)));
         if let Err(e) = self.tx.write_all(&self.buf[..len]).await {
-            self.pending.set(None);
+            self.shared.pending.set(None);
             return Err(Error::Write(e.kind()));
         }
 
@@ -383,6 +449,12 @@ impl<'d, TX: IoWrite, const MTU: usize> Control<'d, TX, MTU> {
     /// Cancel-safe with one caveat: a completion arriving after this future is
     /// dropped is discarded by the next request, but cancelling *during*
     /// transmission leaves a partial frame on the wire.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NotRunning`] if [`Runner::run`] was not executing on entry, in
+    /// which case nothing is transmitted. Otherwise [`Error::Serialize`] or
+    /// [`Error::Write`].
     pub async fn write<T: Serialize + ?Sized>(
         &mut self,
         addr: Address,
@@ -406,6 +478,12 @@ impl<'d, TX: IoWrite, const MTU: usize> Control<'d, TX, MTU> {
     /// Cancel-safe with one caveat: a completion arriving after this future is
     /// dropped is discarded by the next request, but cancelling *during*
     /// transmission leaves a partial frame on the wire.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NotRunning`] if [`Runner::run`] was not executing on entry, in
+    /// which case nothing is transmitted. Otherwise [`Error::Serialize`],
+    /// [`Error::Write`], or [`Error::Deserialize`].
     pub async fn read<T: for<'a> Deserialize<'a>>(
         &mut self,
         addr: Address,
@@ -440,7 +518,18 @@ impl<'d, const MTU: usize> Events<'d, MTU> {
     ///
     /// Cancel-safe: dropping the future before it completes consumes nothing
     /// and never calls `f`.
-    pub async fn receive<R>(&mut self, f: impl FnOnce(Content<'_>) -> R) -> R {
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NotRunning`] if [`Runner::run`] was not executing on entry —
+    /// nothing would ever queue an event to wait for. The flag is checked
+    /// *once*, on entry: if the runner stops while this future is already
+    /// parked, it stays parked. Wrap the call in a timeout.
+    pub async fn receive<R>(&mut self, f: impl FnOnce(Content<'_>) -> R) -> Result<R, Error> {
+        if !self.shared.running.get() {
+            return Err(Error::NotRunning);
+        }
+
         let out = {
             let slot = self.event_receiver.receive().await;
             f(Content::from_data_bytes(
@@ -450,14 +539,26 @@ impl<'d, const MTU: usize> Events<'d, MTU> {
             ))
         };
         self.event_receiver.receive_done();
-        out
+        Ok(out)
     }
 
-    /// Returns `f`'s result for the next queued unsolicited frame, or `None` if
-    /// the queue is empty. See [`Events::receive`].
-    pub fn try_receive<R>(&mut self, f: impl FnOnce(Content<'_>) -> R) -> Option<R> {
+    /// Returns `f`'s result for the next queued unsolicited frame, or
+    /// `Ok(None)` if the queue is empty. See [`Events::receive`].
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NotRunning`] if [`Runner::run`] was not executing on entry. The
+    /// error takes precedence over the queue, so frames left over from before
+    /// the runner stopped are not drained by this call.
+    pub fn try_receive<R>(&mut self, f: impl FnOnce(Content<'_>) -> R) -> Result<Option<R>, Error> {
+        if !self.shared.running.get() {
+            return Err(Error::NotRunning);
+        }
+
         let out = {
-            let slot = self.event_receiver.try_receive()?;
+            let Some(slot) = self.event_receiver.try_receive() else {
+                return Ok(None);
+            };
             f(Content::from_data_bytes(
                 slot.addr,
                 slot.wlen,
@@ -465,7 +566,7 @@ impl<'d, const MTU: usize> Events<'d, MTU> {
             ))
         };
         self.event_receiver.receive_done();
-        Some(out)
+        Ok(Some(out))
     }
 }
 
@@ -500,8 +601,25 @@ impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
     /// transmitter — so a restart never truncates an outgoing frame. Request
     /// correlation lives in shared state rather than in this future, so it
     /// survives a restart untouched.
+    ///
+    /// # Run state
+    ///
+    /// While this call is executing it sets a shared `running` flag; the flag
+    /// clears on every exit path — an error return, the task exiting, or this
+    /// future being cancelled — and [`Control`] and [`Events`] calls made while
+    /// it is clear fail with [`Error::NotRunning`] instead of parking forever.
+    ///
+    /// A restart loop that calls `run` again without awaiting in between never
+    /// exposes the gap, since the handles cannot be polled in it. Awaiting a
+    /// backoff before restarting does expose it, and requests issued during
+    /// that window fail — which is usually what you want, but it means
+    /// [`Error::NotRunning`] reports "the receive loop is not running", not "the
+    /// display is unreachable".
     pub async fn run(&mut self, rx_buf: &mut [u8]) -> Result<Infallible, Error> {
         let mut acc = Accumulator::<MTU>::new(self.crc);
+        // Publishes `running` for exactly as long as this call runs; its `Drop`
+        // clears it on every exit path, cancellation included.
+        let _guard = RunGuard::new(self.shared);
         loop {
             let n = self
                 .rx
@@ -520,8 +638,8 @@ impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
                     FeedResult::Success(response, rest) => {
                         match response {
                             Response::Ack => {
-                                if let Some((Expect::Ack, seq)) = self.pending.get() {
-                                    self.pending.set(None);
+                                if let Some((Expect::Ack, seq)) = self.shared.pending.get() {
+                                    self.shared.pending.set(None);
                                     let slot = self.resp_sender.send().await;
                                     slot.seq = seq;
                                     slot.len = 0;
@@ -532,11 +650,11 @@ impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
                             }
                             Response::Data(content) => {
                                 if let Some((Expect::Read { addr: a, wlen: w }, seq)) =
-                                    self.pending.get()
+                                    self.shared.pending.get()
                                     && a == content.addr()
                                     && w == content.wlen()
                                 {
-                                    self.pending.set(None);
+                                    self.shared.pending.set(None);
                                     let bytes = content.as_bytes();
                                     let slot = self.resp_sender.send().await;
                                     slot.buf[..bytes.len()].copy_from_slice(bytes);

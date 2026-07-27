@@ -3,6 +3,10 @@ resolver = "2"
 
 members = [
     "dguscard",
-    "dguscard-driver", 
+    "dguscard-driver",
     "examples/std",
 ]
+
+[workspace.dependencies]
+serde = { version = "1.0", default-features = false }
+defmt = { version = "1.1" }

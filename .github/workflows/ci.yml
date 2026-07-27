@@ -21,4 +21,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # Required by `serialport` (via the `std` example).
+      - run: sudo apt-get update && sudo apt-get install --yes libudev-dev
       - run: ./ci.sh

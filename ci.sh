@@ -30,8 +30,13 @@ cargo_test() {
 
 cargo_test
 
-cargo_check --target=thumbv6m-none-eabi
-cargo_check --target=thumbv6m-none-eabi --no-default-features
+# The `std` example is host-only, so it is excluded from the no_std targets.
+cargo_check_embedded() {
+  cargo_check --exclude=std "$@"
+}
+
+cargo_check_embedded --target=thumbv6m-none-eabi
+cargo_check_embedded --target=thumbv6m-none-eabi --no-default-features
 
 cargo fmt --all -- --check
 

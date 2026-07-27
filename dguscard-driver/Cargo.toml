@@ -21,6 +21,5 @@ defmt = [
 dguscard          = { path = "../dguscard" }
 embedded-io-async = "0.7"
 embassy-sync      = "0.8"
-embassy-futures   = "0.1"
 serde             = { version = "1", default-features = false }
 defmt             = { version = "1.1", optional = true }

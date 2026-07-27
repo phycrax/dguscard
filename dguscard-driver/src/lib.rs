@@ -4,9 +4,15 @@
 //!
 //! Drives a DGUS display over any [`embedded_io_async`] byte stream, using
 //! [`dguscard`] as the sans-io frame codec. The split follows `embassy-net`:
-//! [`new`] takes caller-provided [`Resources`] storage and returns a [`Device`]
-//! handle plus a [`Runner`] whose [`Runner::run`] future owns **both** UART
-//! halves and must be polled continuously — typically from its own task.
+//! [`new`] takes caller-provided [`Resources`] storage plus both halves of the
+//! transport, and returns a [`Device`] handle owning the **transmitter**
+//! alongside a [`Runner`] owning the **receiver**. [`Runner::run`] must be
+//! polled continuously — typically from its own task — or no response and no
+//! event will ever arrive.
+//!
+//! Requests go straight to the transport from [`Control`]: there is no queue
+//! between the application and the wire. [`Device::write`] and [`Device::read`]
+//! transmit inline, then await their correlated reply from the runner.
 //!
 //! The internal channels use [`NoopRawMutex`], so the handles and the runner
 //! must be driven from the same executor (single-threaded); they are `!Send`.
@@ -32,6 +38,9 @@
 //!   your application requires. This is safe: every request carries an internal
 //!   sequence number, so a completion belonging to a cancelled (timed-out)
 //!   request is discarded by the next request instead of mis-correlating.
+//! - Cancelling a request while its frame is still being transmitted leaves a
+//!   partial frame on the wire, which the display may need to resynchronize
+//!   from. Size timeouts well above the time it takes to shift a frame out.
 //! - DGUS has no wire-level sequence numbers. If the display itself answers
 //!   *late* — after a request was cancelled and a new one armed — a stale
 //!   response can still satisfy a newer request of the same shape. Choose
@@ -39,6 +48,8 @@
 //! - A read response is matched by `(addr, wlen)`. A spontaneous frame with the
 //!   same address *and* length as an in-flight read is indistinguishable from
 //!   its response; avoid reading from variables the display also auto-uploads.
+//! - Neither half signals the other's death. If the runner's task stops, the
+//!   handles simply never complete; a timeout is the only guard.
 //! - [`Runner::run`] returns errors instead of hiding them, and the *caller*
 //!   picks the recovery policy. Framing noise ([`Error::Accumulation`]) and a
 //!   full event queue ([`Error::EventQueueFull`]) are recoverable by calling
@@ -56,7 +67,6 @@ use dguscard::{
     request::{Read, Request, Write},
     response::{Accumulator, Content, FeedResult, Response},
 };
-use embassy_futures::select::{Either, select};
 use embassy_sync::{
     blocking_mutex::raw::NoopRawMutex,
     zerocopy_channel::{Channel, Receiver, Sender},
@@ -107,8 +117,8 @@ impl Default for Config {
     }
 }
 
-/// What the in-flight operation is waiting for, moved from the handle to the
-/// runner alongside the outgoing frame.
+/// What the in-flight operation is waiting for, armed by [`Control`] just
+/// before its frame hits the wire and consumed by the [`Runner`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Expect {
     /// A write's "OK" ACK.
@@ -117,31 +127,14 @@ enum Expect {
     Read { addr: Address, wlen: u8 },
 }
 
-/// A queued outgoing frame (handle → runner).
-struct TxFrame<const MTU: usize> {
-    expect: Expect,
-    seq: u8,
-    len: usize,
-    buf: [u8; MTU],
-}
-
-impl<const MTU: usize> TxFrame<MTU> {
-    const INIT: Self = Self {
-        expect: Expect::Ack,
-        seq: 0,
-        len: 0,
-        buf: [0; MTU],
-    };
-}
-
 /// A completed operation's result (runner → handle).
-struct RxFrame<const MTU: usize> {
+struct ResponseFrame<const MTU: usize> {
     seq: u8,
     len: usize,
     buf: [u8; MTU],
 }
 
-impl<const MTU: usize> RxFrame<MTU> {
+impl<const MTU: usize> ResponseFrame<MTU> {
     const INIT: Self = Self {
         seq: 0,
         len: 0,
@@ -166,11 +159,18 @@ impl<const MTU: usize> EventFrame<MTU> {
     };
 }
 
-/// The three zero-copy channels, borrowing the buffer arrays in [`Resources`].
+/// State shared between [`Control`] and [`Runner`]: the two zero-copy channels,
+/// borrowing the buffer arrays in [`Resources`], plus the request correlation
+/// slot.
 struct StateInner<'a, const MTU: usize> {
-    tx: Channel<'a, NoopRawMutex, TxFrame<MTU>>,
-    resp: Channel<'a, NoopRawMutex, RxFrame<MTU>>,
+    resp: Channel<'a, NoopRawMutex, ResponseFrame<MTU>>,
     events: Channel<'a, NoopRawMutex, EventFrame<MTU>>,
+    /// What the in-flight request is waiting for. Armed by [`Control`] just
+    /// before the frame starts transmitting — so the reply cannot be observed
+    /// before the runner knows to expect it — and cleared by the [`Runner`]
+    /// when the matching reply arrives. Living here rather than in either half
+    /// keeps correlation intact across a [`Runner::run`] restart.
+    pending: Cell<Option<(Expect, u8)>>,
 }
 
 /// Caller-provided storage for the driver, like `embassy_net::StackResources`.
@@ -179,8 +179,7 @@ struct StateInner<'a, const MTU: usize> {
 /// of the unsolicited event queue — size it for the worst-case burst of
 /// touch events between two [`Events::receive`] calls.
 pub struct Resources<const MTU: usize = DEFAULT_MTU, const E: usize = 4> {
-    tx_bufs: [TxFrame<MTU>; 1],
-    resp_bufs: [RxFrame<MTU>; 1],
+    resp_bufs: [ResponseFrame<MTU>; 1],
     event_bufs: [EventFrame<MTU>; E],
     inner: MaybeUninit<StateInner<'static, MTU>>,
 }
@@ -189,8 +188,7 @@ impl<const MTU: usize, const E: usize> Resources<MTU, E> {
     /// Creates new driver storage.
     pub const fn new() -> Self {
         Self {
-            tx_bufs: [TxFrame::INIT; 1],
-            resp_bufs: [RxFrame::INIT; 1],
+            resp_bufs: [ResponseFrame::INIT; 1],
             event_bufs: [EventFrame::INIT; E],
             inner: MaybeUninit::uninit(),
         }
@@ -209,16 +207,21 @@ impl<const MTU: usize, const E: usize> Default for Resources<MTU, E> {
 /// the whole handle, so a held [`Event`] blocks [`Device::write`] /
 /// [`Device::read`]. Call [`Device::split`] when one task needs to issue
 /// requests while an event is being processed.
-pub struct Device<'d, const MTU: usize = DEFAULT_MTU> {
-    control: Control<'d, MTU>,
+pub struct Device<'d, TX: IoWrite, const MTU: usize = DEFAULT_MTU> {
+    control: Control<'d, TX, MTU>,
     events: Events<'d, MTU>,
 }
 
-/// Request half of the handle: serializes requests and awaits their correlated
-/// completion. Does not own the transport (the [`Runner`] does).
-pub struct Control<'d, const MTU: usize = DEFAULT_MTU> {
-    tx_sender: Sender<'d, NoopRawMutex, TxFrame<MTU>>,
-    resp_receiver: Receiver<'d, NoopRawMutex, RxFrame<MTU>>,
+/// Request half of the handle: owns the transmitter, serializes requests
+/// straight onto it, and awaits their correlated completion from the
+/// [`Runner`].
+pub struct Control<'d, TX: IoWrite, const MTU: usize = DEFAULT_MTU> {
+    tx: TX,
+    /// Serialization scratch for the request being sent. Only one request is
+    /// in flight at a time (enforced by `&mut self`), so one buffer suffices.
+    buf: [u8; MTU],
+    resp_receiver: Receiver<'d, NoopRawMutex, ResponseFrame<MTU>>,
+    pending: &'d Cell<Option<(Expect, u8)>>,
     seq: u8,
     crc: bool,
 }
@@ -229,32 +232,26 @@ pub struct Events<'d, const MTU: usize = DEFAULT_MTU> {
     event_receiver: Receiver<'d, NoopRawMutex, EventFrame<MTU>>,
 }
 
-/// RX+TX worker. [`Runner::run`] must be polled continuously for requests and
-/// event delivery to make progress.
-pub struct Runner<'d, RX: IoRead, TX: IoWrite, const MTU: usize = DEFAULT_MTU> {
+/// RX worker. [`Runner::run`] must be polled continuously for request
+/// completions and event delivery to make progress.
+pub struct Runner<'d, RX: IoRead, const MTU: usize = DEFAULT_MTU> {
     rx: RX,
-    tx: TX,
-    tx_receiver: Receiver<'d, NoopRawMutex, TxFrame<MTU>>,
-    resp_sender: Sender<'d, NoopRawMutex, RxFrame<MTU>>,
+    resp_sender: Sender<'d, NoopRawMutex, ResponseFrame<MTU>>,
     event_sender: Sender<'d, NoopRawMutex, EventFrame<MTU>>,
+    pending: &'d Cell<Option<(Expect, u8)>>,
     crc: bool,
-    /// What the in-flight request is waiting for, armed just before its frame
-    /// starts transmitting. Lives here (not in [`Runner::run`]) so correlation
-    /// survives a `run` restart — and doubles as the half-transmit marker: if
-    /// it matches the frame still at the head of the tx queue when `run` is
-    /// (re-)entered, that frame may be partially on the wire.
-    pending: Cell<Option<(Expect, u8)>>,
 }
 
 /// Creates a driver instance from a split transport.
 ///
-/// Returns the [`Device`] handle and the [`Runner`] that drives the UART.
+/// Returns the [`Device`] handle, which owns `tx`, and the [`Runner`], which
+/// owns `rx`.
 pub fn new<'d, RX, TX, const MTU: usize, const E: usize>(
     resources: &'d mut Resources<MTU, E>,
     rx: RX,
     tx: TX,
     config: Config,
-) -> (Device<'d, MTU>, Runner<'d, RX, TX, MTU>)
+) -> (Device<'d, TX, MTU>, Runner<'d, RX, MTU>)
 where
     RX: IoRead,
     TX: IoWrite,
@@ -262,9 +259,8 @@ where
     let crc = config.crc;
 
     // Self-referential init, mirroring `embassy-net-driver-channel`: the
-    // channels in `StateInner` borrow `resources.tx_bufs` /
-    // `resources.resp_bufs` / `resources.event_bufs`, which are fields of the
-    // same `resources`.
+    // channels in `StateInner` borrow `resources.resp_bufs` /
+    // `resources.event_bufs`, which are fields of the same `resources`.
     //
     // SAFETY: the borrow laundered from `'static` to `'d` is sound because the
     // returned handles carry `'d`, so `resources` cannot move or be reused
@@ -273,19 +269,21 @@ where
     let inner_uninit: *mut MaybeUninit<StateInner<'d, MTU>> =
         (&mut resources.inner as *mut MaybeUninit<StateInner<'static, MTU>>).cast();
     let inner = unsafe { &mut *inner_uninit }.write(StateInner {
-        tx: Channel::new(&mut resources.tx_bufs[..]),
         resp: Channel::new(&mut resources.resp_bufs[..]),
         events: Channel::new(&mut resources.event_bufs[..]),
+        pending: Cell::new(None),
     });
 
-    let (tx_sender, tx_receiver) = inner.tx.split();
     let (resp_sender, resp_receiver) = inner.resp.split();
     let (event_sender, event_receiver) = inner.events.split();
+    let pending = &inner.pending;
 
     let device = Device {
         control: Control {
-            tx_sender,
+            tx,
+            buf: [0; MTU],
             resp_receiver,
+            pending,
             seq: 0,
             crc,
         },
@@ -293,17 +291,15 @@ where
     };
     let runner = Runner {
         rx,
-        tx,
-        tx_receiver,
         resp_sender,
         event_sender,
+        pending,
         crc,
-        pending: Cell::new(None),
     };
     (device, runner)
 }
 
-impl<'d, const MTU: usize> Device<'d, MTU> {
+impl<'d, TX: IoWrite, const MTU: usize> Device<'d, TX, MTU> {
     /// Writes `val` to `addr` and awaits the ACK. See [`Control::write`].
     pub async fn write<T: Serialize + ?Sized>(
         &mut self,
@@ -335,12 +331,12 @@ impl<'d, const MTU: usize> Device<'d, MTU> {
     }
 
     /// Splits the handle into its independent request and event halves.
-    pub fn split(self) -> (Control<'d, MTU>, Events<'d, MTU>) {
+    pub fn split(self) -> (Control<'d, TX, MTU>, Events<'d, MTU>) {
         (self.control, self.events)
     }
 }
 
-impl<'d, const MTU: usize> Control<'d, MTU> {
+impl<'d, TX: IoWrite, const MTU: usize> Control<'d, TX, MTU> {
     /// Discards completions left over from cancelled (timed-out) requests, then
     /// stamps and returns the sequence number for a new request.
     fn begin_request(&mut self) -> u8 {
@@ -351,7 +347,7 @@ impl<'d, const MTU: usize> Control<'d, MTU> {
         self.seq
     }
 
-    /// Sends one request frame built by `build` and awaits its correlated
+    /// Transmits one request frame built by `build` and awaits its correlated
     /// completion, mapping the completion payload with `complete`.
     async fn transfer<R>(
         &mut self,
@@ -360,11 +356,15 @@ impl<'d, const MTU: usize> Control<'d, MTU> {
         complete: impl FnOnce(&[u8]) -> Result<R, Error>,
     ) -> Result<R, Error> {
         let seq = self.begin_request();
-        let frame = self.tx_sender.send().await;
-        frame.len = build(&mut frame.buf, self.crc).map_err(Error::Serialize)?;
-        frame.expect = expect;
-        frame.seq = seq;
-        self.tx_sender.send_done();
+        let len = build(&mut self.buf, self.crc).map_err(Error::Serialize)?;
+
+        // Arm correlation before the frame hits the wire, so the reply cannot
+        // be observed before the runner knows to expect it.
+        self.pending.set(Some((expect, seq)));
+        if let Err(e) = self.tx.write_all(&self.buf[..len]).await {
+            self.pending.set(None);
+            return Err(Error::Write(e.kind()));
+        }
 
         loop {
             let resp = self.resp_receiver.receive().await;
@@ -380,8 +380,9 @@ impl<'d, const MTU: usize> Control<'d, MTU> {
     /// Writes `val` to the variable (word) address `addr` and awaits the ACK.
     ///
     /// Only one request may be in flight at a time (enforced by `&mut self`).
-    /// Cancel-safe: a completion arriving after this future is dropped is
-    /// discarded by the next request.
+    /// Cancel-safe with one caveat: a completion arriving after this future is
+    /// dropped is discarded by the next request, but cancelling *during*
+    /// transmission leaves a partial frame on the wire.
     pub async fn write<T: Serialize + ?Sized>(
         &mut self,
         addr: Address,
@@ -402,8 +403,9 @@ impl<'d, const MTU: usize> Control<'d, MTU> {
     /// Reads `wlen` words from `addr`, awaits the response, and deserializes `T`.
     ///
     /// Only one request may be in flight at a time (enforced by `&mut self`).
-    /// Cancel-safe: a completion arriving after this future is dropped is
-    /// discarded by the next request.
+    /// Cancel-safe with one caveat: a completion arriving after this future is
+    /// dropped is discarded by the next request, but cancelling *during*
+    /// transmission leaves a partial frame on the wire.
     pub async fn read<T: for<'a> Deserialize<'a>>(
         &mut self,
         addr: Address,
@@ -525,15 +527,14 @@ impl<'a, 'd, const MTU: usize> Drop for Event<'a, 'd, MTU> {
     }
 }
 
-impl<'d, RX: IoRead, TX: IoWrite, const MTU: usize> Runner<'d, RX, TX, MTU> {
-    /// Concurrently drives the RX and TX loops.
+impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
+    /// Drives the receive loop: accumulates frames off the transport, hands
+    /// those completing an in-flight request back to [`Control`], and queues
+    /// every other data frame for [`Events`].
     ///
     /// `rx_buf` is the caller-provided scratch buffer for incoming transport
     /// reads; the caller owns its storage (e.g. a `static` or stack slot)
     /// instead of it being embedded in this future's state.
-    ///
-    /// Data frames that complete an in-flight request are handed back to
-    /// [`Control`]; all other data frames are queued for [`Events`].
     ///
     /// # Errors and restarts
     ///
@@ -550,126 +551,80 @@ impl<'d, RX: IoRead, TX: IoWrite, const MTU: usize> Runner<'d, RX, TX, MTU> {
     /// - [`Error::EventQueueFull`]: an unsolicited frame arrived while the
     ///   event queue was full. That frame is lost; restarting resumes normal
     ///   operation. Size the queue with the `E` const on [`Resources`].
-    /// - [`Error::Read`] / [`Error::Write`] / [`Error::UnexpectedEof`]: the
-    ///   transport itself failed; restart only after the underlying stream
-    ///   has been repaired.
+    /// - [`Error::Read`] / [`Error::UnexpectedEof`]: the transport itself
+    ///   failed; restart only after the underlying stream has been repaired.
     ///
-    /// Restarting is sound: request correlation lives in the runner, and a
-    /// request frame that was only partially transmitted when the previous
-    /// `run` future was dropped is discarded on the next call (its request
-    /// should time out) rather than retransmitted as a corrupt duplicate.
+    /// Transmission is unaffected by any of this — [`Control`] owns the
+    /// transmitter — so a restart never truncates an outgoing frame. Request
+    /// correlation lives in shared state rather than in this future, so it
+    /// survives a restart untouched.
     pub async fn run(&mut self, rx_buf: &mut [u8]) -> Result<Infallible, Error> {
-        // If the frame at the head of the tx queue is the one `pending` was
-        // armed for, a previous `run` was torn down mid-transmission and part
-        // of it may already be on the wire. Discard it (the request times out
-        // and the caller retries) instead of retransmitting it from the start
-        // as a corrupt duplicate. An unarmed head frame was merely queued
-        // while the runner was down and is transmitted normally.
-        let armed = self
-            .tx_receiver
-            .try_receive()
-            .is_some_and(|frame| self.pending.get() == Some((frame.expect, frame.seq)));
-        if armed {
-            self.tx_receiver.receive_done();
-            self.pending.set(None);
-        }
-
-        let rx = &mut self.rx;
-        let tx = &mut self.tx;
-        let tx_receiver = &mut self.tx_receiver;
-        let resp_sender = &mut self.resp_sender;
-        let events_sender = &mut self.event_sender;
-        let crc = self.crc;
-
-        // Correlation between the two futures
-        let pending = &self.pending;
-
-        let tx_fut = async {
-            loop {
-                let frame = tx_receiver.receive().await;
-                // Arm correlation before the frame hits the wire, so the ACK
-                // cannot be observed before we know to expect it. Arming also
-                // marks the frame as possibly-on-the-wire: if this future is
-                // torn down (or the write fails) before `receive_done`, the
-                // next `run` sees the armed head frame and discards it.
-                pending.set(Some((frame.expect, frame.seq)));
-                tx.write_all(&frame.buf[..frame.len])
-                    .await
-                    .map_err(|e| Error::Write(e.kind()))?;
-                tx_receiver.receive_done();
+        let mut acc = Accumulator::<MTU>::new(self.crc);
+        loop {
+            let n = self
+                .rx
+                .read(rx_buf)
+                .await
+                .map_err(|e| Error::Read(e.kind()))?;
+            if n == 0 {
+                return Err(Error::UnexpectedEof);
             }
-        };
 
-        let rx_fut = async {
-            let mut acc = Accumulator::<MTU>::new(crc);
-            loop {
-                let n = rx.read(rx_buf).await.map_err(|e| Error::Read(e.kind()))?;
-                if n == 0 {
-                    return Err(Error::UnexpectedEof);
-                }
-
-                let mut window: &[u8] = &rx_buf[..n];
-                while !window.is_empty() {
-                    window = match acc.feed(window) {
-                        FeedResult::Consumed => break,
-                        FeedResult::Error(e, _) => return Err(Error::Accumulation(e)),
-                        FeedResult::Success(response, rest) => {
-                            match response {
-                                Response::Ack => {
-                                    if let Some((Expect::Ack, seq)) = pending.get() {
-                                        pending.set(None);
-                                        let slot = resp_sender.send().await;
-                                        slot.seq = seq;
-                                        slot.len = 0;
-                                        resp_sender.send_done();
-                                    }
-                                    // Unmatched ACKs belong to cancelled
-                                    // requests; drop them.
+            let mut window: &[u8] = &rx_buf[..n];
+            while !window.is_empty() {
+                window = match acc.feed(window) {
+                    FeedResult::Consumed => break,
+                    FeedResult::Error(e, _) => return Err(Error::Accumulation(e)),
+                    FeedResult::Success(response, rest) => {
+                        match response {
+                            Response::Ack => {
+                                if let Some((Expect::Ack, seq)) = self.pending.get() {
+                                    self.pending.set(None);
+                                    let slot = self.resp_sender.send().await;
+                                    slot.seq = seq;
+                                    slot.len = 0;
+                                    self.resp_sender.send_done();
                                 }
-                                Response::Data {
-                                    addr,
-                                    wlen,
-                                    content,
-                                } => {
-                                    if let Some((Expect::Read { addr: a, wlen: w }, seq)) =
-                                        pending.get()
-                                        && a == addr
-                                        && w == wlen
-                                    {
-                                        pending.set(None);
-                                        let bytes = content.as_bytes();
-                                        let slot = resp_sender.send().await;
-                                        slot.buf[..bytes.len()].copy_from_slice(bytes);
-                                        slot.len = bytes.len();
-                                        slot.seq = seq;
-                                        resp_sender.send_done();
-                                    } else {
-                                        // Unsolicited (including a data
-                                        // frame arriving while a write
-                                        // awaits its ACK): queue for
-                                        // `Events`.
-                                        let bytes = content.as_bytes();
-                                        let Some(slot) = events_sender.try_send() else {
-                                            return Err(Error::EventQueueFull);
-                                        };
-                                        slot.addr = addr;
-                                        slot.wlen = wlen;
-                                        slot.buf[..bytes.len()].copy_from_slice(bytes);
-                                        slot.len = bytes.len();
-                                        events_sender.send_done();
-                                    }
+                                // Unmatched ACKs belong to cancelled requests;
+                                // drop them.
+                            }
+                            Response::Data {
+                                addr,
+                                wlen,
+                                content,
+                            } => {
+                                if let Some((Expect::Read { addr: a, wlen: w }, seq)) =
+                                    self.pending.get()
+                                    && a == addr
+                                    && w == wlen
+                                {
+                                    self.pending.set(None);
+                                    let bytes = content.as_bytes();
+                                    let slot = self.resp_sender.send().await;
+                                    slot.buf[..bytes.len()].copy_from_slice(bytes);
+                                    slot.len = bytes.len();
+                                    slot.seq = seq;
+                                    self.resp_sender.send_done();
+                                } else {
+                                    // Unsolicited (including a data frame
+                                    // arriving while a write awaits its ACK):
+                                    // queue for `Events`.
+                                    let bytes = content.as_bytes();
+                                    let Some(slot) = self.event_sender.try_send() else {
+                                        return Err(Error::EventQueueFull);
+                                    };
+                                    slot.addr = addr;
+                                    slot.wlen = wlen;
+                                    slot.buf[..bytes.len()].copy_from_slice(bytes);
+                                    slot.len = bytes.len();
+                                    self.event_sender.send_done();
                                 }
                             }
-                            rest
                         }
-                    };
-                }
+                        rest
+                    }
+                };
             }
-        };
-
-        match select(rx_fut, tx_fut).await {
-            Either::First(r) => r,
-            Either::Second(r) => r,
         }
     }
 }

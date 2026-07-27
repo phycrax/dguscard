@@ -497,7 +497,7 @@ impl<'d, TX: IoWrite, const MTU: usize> Control<'d, TX, MTU> {
                     .len())
             },
             |bytes| {
-                Content::from_data_bytes(addr, wlen, bytes)
+                Content::new(addr, wlen, bytes)
                     .take::<T>()
                     .map_err(|e| Error::Deserialize(addr, e))
             },
@@ -532,11 +532,7 @@ impl<'d, const MTU: usize> Events<'d, MTU> {
 
         let out = {
             let slot = self.event_receiver.receive().await;
-            f(Content::from_data_bytes(
-                slot.addr,
-                slot.wlen,
-                &slot.buf[..slot.len],
-            ))
+            f(Content::new(slot.addr, slot.wlen, &slot.buf[..slot.len]))
         };
         self.event_receiver.receive_done();
         Ok(out)
@@ -559,11 +555,7 @@ impl<'d, const MTU: usize> Events<'d, MTU> {
             let Some(slot) = self.event_receiver.try_receive() else {
                 return Ok(None);
             };
-            f(Content::from_data_bytes(
-                slot.addr,
-                slot.wlen,
-                &slot.buf[..slot.len],
-            ))
+            f(Content::new(slot.addr, slot.wlen, &slot.buf[..slot.len]))
         };
         self.event_receiver.receive_done();
         Ok(Some(out))

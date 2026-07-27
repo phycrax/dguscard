@@ -44,7 +44,7 @@ pub struct Slice<'a> {
 
 impl<'a> Slice<'a> {
     /// Create a new `Slice` from given backing buffer
-    pub fn new(buf: &'a mut [u8]) -> Self {
+    pub const fn new(buf: &'a mut [u8]) -> Self {
         Self { buf, index: 0 }
     }
 }
@@ -95,8 +95,8 @@ mod hvec {
 
     impl<const N: usize> HVec<N> {
         /// Create a new `HVec` to be used for storing serialized data.
-        pub fn new() -> Self {
-            Self::default()
+        pub const fn new() -> Self {
+            Self(Vec::new())
         }
     }
 

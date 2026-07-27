@@ -23,12 +23,12 @@ impl<'de> Content<'de> {
     }
 
     /// Returns the number of remaining bytes in the content.
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.deserializer.input.len()
     }
 
     /// Returns true if the content does not contain any remaining bytes.
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.deserializer.input.is_empty()
     }
 }

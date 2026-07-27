@@ -47,9 +47,9 @@ use crate::{CRC, Error, HEADER, Result, response::Response};
 ///             FeedResult::Success(response, remaining) => {
 ///                 // Handle response here.  
 ///                 match response {
-///                     Response::Data { addr, wlen, mut content } => {
+///                     Response::Data(mut content) => {
 ///                         // Check where the data came from
-///                         dbg!(addr, wlen);
+///                         dbg!(content.addr(), content.wlen());
 ///                         // Take a MyData from the response content
 ///                         let data: MyData = content.take().unwrap();
 ///                     }
@@ -241,17 +241,12 @@ mod test {
         ];
 
         if let FeedResult::Success(response, remaining) = buf.feed(ser) {
-            let Response::Data {
-                addr,
-                wlen,
-                content: mut data,
-            } = response
-            else {
+            let Response::Data(mut data) = response else {
                 panic!("Expected Data response");
             };
 
-            assert_eq!(addr, Address::Word(0x1234));
-            assert_eq!(wlen, 4);
+            assert_eq!(data.addr(), Address::Word(0x1234));
+            assert_eq!(data.wlen(), 4);
 
             assert_eq!(
                 Demo {
@@ -279,17 +274,12 @@ mod test {
             panic!("Expected Success");
         };
 
-        let Response::Data {
-            addr,
-            wlen,
-            content: mut data,
-        } = response
-        else {
+        let Response::Data(mut data) = response else {
             panic!("Expected Data response");
         };
 
-        assert_eq!(addr, Address::Word(0x1234));
-        assert_eq!(wlen, 4);
+        assert_eq!(data.addr(), Address::Word(0x1234));
+        assert_eq!(data.wlen(), 4);
 
         assert_eq!(
             Demo {
@@ -304,17 +294,12 @@ mod test {
             panic!("Expected Success");
         };
 
-        let Response::Data {
-            addr,
-            wlen,
-            content: mut data,
-        } = response
-        else {
+        let Response::Data(mut data) = response else {
             panic!("Expected Data response");
         };
 
-        assert_eq!(addr, Address::Word(0x1234));
-        assert_eq!(wlen, 4);
+        assert_eq!(data.addr(), Address::Word(0x1234));
+        assert_eq!(data.wlen(), 4);
 
         assert_eq!(
             Demo {

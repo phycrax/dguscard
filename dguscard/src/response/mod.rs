@@ -9,14 +9,43 @@ use self::deserializer::Deserializer;
 use crate::{Address, CRC, Error, HEADER, Result};
 use serde::Deserialize;
 
-/// [`serde`] compatible deserializer wrapping over raw data part of the response
+/// A data response: where it came from, how long it is, and a [`serde`]
+/// compatible deserializer over its not-yet-taken data.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Content<'de> {
+    addr: Address,
+    wlen: u8,
     deserializer: Deserializer<'de>,
 }
 
 impl<'de> Content<'de> {
+    /// Creates a [`Content`] from an address, a word length, and the raw data
+    /// bytes, without any framing.
+    ///
+    /// The bytes are the data part of a response, i.e. what remains after the
+    /// command, address, and word length have been stripped. Parsing a response
+    /// off the wire produces a [`Content`] already; this is for reconstructing
+    /// one from parts captured elsewhere, e.g. copied out of an [`Accumulator`]
+    /// by a driver and handed across a channel.
+    pub const fn new(addr: Address, wlen: u8, data: &'de [u8]) -> Self {
+        Self {
+            addr,
+            wlen,
+            deserializer: Deserializer { input: data },
+        }
+    }
+
+    /// Returns the address the data came from.
+    pub const fn addr(&self) -> Address {
+        self.addr
+    }
+
+    /// Returns the word length reported by the response.
+    pub const fn wlen(&self) -> u8 {
+        self.wlen
+    }
+
     /// Removes a `T` from content and returns it.
     pub fn take<T: Deserialize<'de>>(&mut self) -> Result<T> {
         T::deserialize(&mut self.deserializer)
@@ -68,9 +97,9 @@ impl<'de> Content<'de> {
 /// let mut response = Response::from_bytes(buf, false).unwrap();
 /// // Handle the response.
 /// match response {
-///     Response::Data { addr, wlen, mut content } => {
+///     Response::Data(mut content) => {
 ///         // Check where the data came from
-///         dbg!(addr, wlen);
+///         dbg!(content.addr(), content.wlen());
 ///         // Take a MyData from the response content
 ///         let my_data: MyData = content.take().unwrap();
 ///         // Take an u32 from the response content
@@ -87,14 +116,7 @@ pub enum Response<'de> {
     Ack,
 
     /// Response for a [`Read`][crate::request::Read] request.
-    Data {
-        /// Address space
-        addr: Address,
-        /// Word length
-        wlen: u8,
-        /// Content
-        content: Content<'de>,
-    },
+    Data(Content<'de>),
 }
 
 impl<'de> Response<'de> {
@@ -150,11 +172,11 @@ impl<'de> Response<'de> {
             };
             // Strip word length from input
             let wlen = u8::deserialize(&mut deserializer)?;
-            Ok(Response::Data {
+            Ok(Response::Data(Content {
                 addr,
                 wlen,
-                content: Content { deserializer },
-            })
+                deserializer,
+            }))
         }
     }
 
@@ -205,5 +227,44 @@ mod tests {
         let (response, rest) = Response::take_from_bytes(&input, true).unwrap();
         let Response::Ack = response else { panic!() };
         assert_eq!(rest, &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn content_new() {
+        // Data part only: a u16 followed by a u32, big-endian.
+        let bytes = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF];
+        let mut content = Content::new(Address::Word(0x1234), 3, &bytes);
+        assert_eq!(content.addr(), Address::Word(0x1234));
+        assert_eq!(content.wlen(), 3);
+        assert_eq!(content.len(), 6);
+        assert_eq!(content.take::<u16>().unwrap(), 0xAABB);
+        assert_eq!(content.take::<u32>().unwrap(), 0xCCDD_EEFF);
+        assert!(content.is_empty());
+    }
+
+    #[test]
+    fn data_content_register_and_dword() {
+        let input = [0x5A, 0xA5, 4, 0x81, 0x00, 0x04, 1, 0xAA, 0xBB];
+        let Response::Data(content) = Response::from_bytes(&input, false).unwrap() else {
+            panic!("Expected Data response");
+        };
+        assert_eq!(content.addr(), Address::Register(0x00, 0x04));
+        assert_eq!(content.wlen(), 1);
+
+        let input = [0x5A, 0xA5, 6, 0x87, 0x00, 0x01, 0x02, 0x03, 1, 0xAA, 0xBB];
+        let Response::Data(content) = Response::from_bytes(&input, false).unwrap() else {
+            panic!("Expected Data response");
+        };
+        assert_eq!(content.addr(), Address::Dword(0x0001_0203));
+        assert_eq!(content.wlen(), 1);
+    }
+
+    #[test]
+    fn unknown_cmd() {
+        // The curve buffer is write only, so there is no 0x85 response.
+        assert!(matches!(
+            Response::from_content_bytes(&[0x85, 0x00, 1, 0xAA, 0xBB]),
+            Err(Error::ResponseUnknownCmd)
+        ));
     }
 }

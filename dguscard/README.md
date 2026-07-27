@@ -67,17 +67,12 @@ uart.write(frame);
 let rx_buf = &mut [0u8; 50];
 uart.read_until_idle(rx_buf);
 let mut response = Response::from_bytes(rx_buf, true).unwrap();
-let Response::Data {
-    addr,
-    wlen,
-    mut content,
-} = response
-else {
+let Response::Data(mut content) = response else {
     panic!("Unexpected response type");
 };
 
-assert_eq!(addr, Address::Word(0x1000));
-assert_eq!(wlen, 12);
+assert_eq!(content.addr(), Address::Word(0x1000));
+assert_eq!(content.wlen(), 12);
 
 // Take the values back in the same order and types they were pushed.
 let word: u16 = content.take().unwrap();                    // @0x1000 1 word

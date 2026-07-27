@@ -117,7 +117,7 @@ impl<const N: usize> Accumulator<N> {
     }
 
     /// Reset the accumulator.
-    fn reset(&mut self) {
+    const fn reset(&mut self) {
         self.idx = 0;
         self.state = FeedState::Empty;
     }

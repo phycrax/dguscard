@@ -94,7 +94,7 @@ impl<'de> Content<'de> {
     }
 
     /// Returns true if the content does not contain any remaining bytes.
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.deserializer.input.is_empty()
     }
 }
@@ -261,6 +261,7 @@ mod tests {
         assert_eq!(content.addr(), Address::Word(0x1234));
         assert_eq!(content.wlen(), 3);
         assert_eq!(content.as_bytes(), &bytes);
+        assert_eq!(content.len(), 6);
         assert_eq!(content.take::<u16>().unwrap(), 0xAABB);
         assert_eq!(content.take::<u32>().unwrap(), 0xCCDD_EEFF);
         assert!(content.is_empty());
@@ -284,6 +285,32 @@ mod tests {
         let bytes = [0x82, b'O', b'K'];
         assert!(matches!(
             Content::from_frame_bytes(&bytes),
+            Err(Error::ResponseUnknownCmd)
+        ));
+    }
+
+    #[test]
+    fn data_content_register_and_dword() {
+        let input = [0x5A, 0xA5, 4, 0x81, 0x00, 0x04, 1, 0xAA, 0xBB];
+        let Response::Data(content) = Response::from_bytes(&input, false).unwrap() else {
+            panic!("Expected Data response");
+        };
+        assert_eq!(content.addr(), Address::Register(0x00, 0x04));
+        assert_eq!(content.wlen(), 1);
+
+        let input = [0x5A, 0xA5, 6, 0x87, 0x00, 0x01, 0x02, 0x03, 1, 0xAA, 0xBB];
+        let Response::Data(content) = Response::from_bytes(&input, false).unwrap() else {
+            panic!("Expected Data response");
+        };
+        assert_eq!(content.addr(), Address::Dword(0x0001_0203));
+        assert_eq!(content.wlen(), 1);
+    }
+
+    #[test]
+    fn unknown_cmd() {
+        // The curve buffer is write only, so there is no 0x85 response.
+        assert!(matches!(
+            Response::from_content_bytes(&[0x85, 0x00, 1, 0xAA, 0xBB]),
             Err(Error::ResponseUnknownCmd)
         ));
     }

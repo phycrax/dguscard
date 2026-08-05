@@ -97,13 +97,14 @@ impl<S: Storage> ser::Serializer for &'_ mut Serializer<S> {
     }
 
     #[inline]
-    fn serialize_char(self, _v: char) -> Result<()> {
-        Err(Error::NotYetImplemented)
+    fn serialize_char(self, v: char) -> Result<()> {
+        let mut buf = [0u8; 4];
+        self.output.try_extend(v.encode_utf8(&mut buf).as_bytes())
     }
 
     #[inline]
-    fn serialize_str(self, _v: &str) -> Result<()> {
-        Err(Error::NotYetImplemented)
+    fn serialize_str(self, v: &str) -> Result<()> {
+        self.output.try_extend(v.as_bytes())
     }
 
     #[inline]

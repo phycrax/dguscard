@@ -105,8 +105,8 @@ assert_eq!((msb, lsb), (0x10, 0x0B));
 - ✅ u8, u16, u32, u64, u128 - encoded as big endian
 - ✅ f32, f64 - encoded as big endian
 - ✅ bool - encoded as u16
-- ❌ char
-- ❌ string
+- ❌ char - serialization only
+- ❌ string - serialization only
 - ❌ byte array - serialization only
 - ❌ option
 - ✅ unit - not encoded

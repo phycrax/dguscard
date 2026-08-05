@@ -298,6 +298,17 @@ mod tests {
         assert_eq!(output, expected);
     }
 
+    #[test]
+    fn write_str() {
+        let buf = &mut [0u8; 20];
+        let expected = &[0x5A, 0xA5, 5, 0x82, 0x12, 0x34, 0x48, 0x69];
+
+        let mut frame = Request::with_slice(buf, Address::Word(0x1234), Write).unwrap();
+        frame.push("Hi").unwrap();
+        let output = frame.finalize(false).unwrap();
+        assert_eq!(output, expected);
+    }
+
     // Compile test: push should not be available on a Read request
     /// ```compile_fail
     /// let buf = &mut [0u8; 20];

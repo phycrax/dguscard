@@ -1,4 +1,5 @@
-use crate::{CRC, Error, HEADER, Result, response::Response};
+use crate::response::Response;
+use crate::{CRC, Error, HEADER, Result};
 
 /// An accumulator used to collect chunked response
 ///
@@ -103,10 +104,7 @@ impl<const N: usize> Accumulator<N> {
     pub const fn new(crc: bool) -> Self {
         const {
             assert!(N >= 5, "Accumulator buffer size should be >= 5");
-            assert!(
-                N <= u8::MAX as usize,
-                "Accumulator buffer size should be <= 256"
-            );
+            assert!(N <= u8::MAX as usize, "Accumulator buffer size should be <= 256");
         };
         Accumulator {
             buf: [0; N],
@@ -182,10 +180,7 @@ impl<const N: usize> Accumulator<N> {
                 FeedState::Length(byte)
             }
             FeedState::Length(length) | FeedState::Data(length) => {
-                *self
-                    .buf
-                    .get_mut(self.idx)
-                    .ok_or(Error::AccumulateBufferFull)? = byte;
+                *self.buf.get_mut(self.idx).ok_or(Error::AccumulateBufferFull)? = byte;
                 self.idx += 1;
                 FeedState::Data(length - 1)
             }
@@ -208,10 +203,10 @@ impl<const N: usize> Accumulator<N> {
 
 #[cfg(test)]
 mod test {
-    use crate::Address;
+    use serde::{Deserialize, Serialize};
 
     use super::*;
-    use serde::{Deserialize, Serialize};
+    use crate::Address;
 
     #[test]
     fn ack_crc() {
@@ -266,8 +261,8 @@ mod test {
     fn double_demo() {
         let mut buf: Accumulator<64> = Accumulator::new(false);
         let ser = &[
-            0x5A, 0xA5, 12, 0x83, 0x12, 0x34, 4, 0xAA, 0xBB, 0x00, 0x01, 0xCC, 0xDD, 0xEE, 0xFF,
-            0x5A, 0xA5, 12, 0x83, 0x12, 0x34, 4, 0xBB, 0xAA, 0x00, 0x00, 0xFF, 0xEE, 0xDD, 0xCC,
+            0x5A, 0xA5, 12, 0x83, 0x12, 0x34, 4, 0xAA, 0xBB, 0x00, 0x01, 0xCC, 0xDD, 0xEE, 0xFF, 0x5A, 0xA5, 12, 0x83,
+            0x12, 0x34, 4, 0xBB, 0xAA, 0x00, 0x00, 0xFF, 0xEE, 0xDD, 0xCC,
         ];
 
         let FeedResult::Success(response, remaining) = buf.feed(ser) else {

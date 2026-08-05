@@ -3,15 +3,15 @@
 mod serializer;
 mod storage;
 
-pub use self::storage::{Slice, Storage};
+use core::marker::PhantomData;
 
-#[cfg(feature = "heapless")]
-pub use self::storage::HVec;
+use serde::Serialize;
 
 use self::serializer::Serializer;
+#[cfg(feature = "heapless")]
+pub use self::storage::HVec;
+pub use self::storage::{Slice, Storage};
 use crate::{Address, CRC, HEADER, Result, Sealed};
-use core::marker::PhantomData;
-use serde::Serialize;
 
 /// Request builder
 ///
@@ -187,8 +187,9 @@ impl Command for Read {
 #[cfg(feature = "heapless")]
 #[cfg(test)]
 mod tests {
-    use super::*;
     use heapless::Vec;
+
+    use super::*;
 
     #[derive(Serialize)]
     struct TestTuple(u16, u16);
@@ -202,9 +203,7 @@ mod tests {
     #[test]
     fn tuple_to_slice_crc() {
         let buf = &mut [0u8; 20];
-        let expected = &[
-            0x5A, 0xA5, 9, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34, 0x0E, 0xB4,
-        ];
+        let expected = &[0x5A, 0xA5, 9, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34, 0x0E, 0xB4];
         let data = TestTuple::new();
 
         let mut frame = Request::with_slice(buf, Address::Word(0x00DE), Write).unwrap();
@@ -227,10 +226,8 @@ mod tests {
 
     #[test]
     fn tuple_to_hvec() {
-        let expected: Vec<u8, 12> = Vec::from_slice(&[
-            0x5A, 0xA5, 9, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34, 0x0E, 0xB4,
-        ])
-        .unwrap();
+        let expected: Vec<u8, 12> =
+            Vec::from_slice(&[0x5A, 0xA5, 9, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34, 0x0E, 0xB4]).unwrap();
         let data = TestTuple::new();
 
         let mut frame = Request::with_hvec(Address::Word(0x00DE), Write).unwrap();

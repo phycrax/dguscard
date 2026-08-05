@@ -38,7 +38,7 @@ cargo_check_embedded() {
 cargo_check_embedded --target=thumbv6m-none-eabi
 cargo_check_embedded --target=thumbv6m-none-eabi --no-default-features
 
-cargo fmt --all -- --check
+cargo +nightly fmt --all -- --check
 
 # Check docs.rs build
 env RUSTDOCFLAGS='--cfg=docsrs --deny=warnings' cargo +nightly doc --all --no-deps --all-features

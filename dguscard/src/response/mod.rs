@@ -3,11 +3,11 @@
 mod accumulator;
 mod deserializer;
 
-pub use self::accumulator::{Accumulator, FeedResult};
+use serde::Deserialize;
 
+pub use self::accumulator::{Accumulator, FeedResult};
 use self::deserializer::Deserializer;
 use crate::{Address, CRC, Error, HEADER, Result};
-use serde::Deserialize;
 
 /// A data response: where it came from, how long it is, and a [`serde`]
 /// compatible deserializer over its not-yet-taken data.
@@ -167,10 +167,9 @@ impl<'de> Response<'de> {
         else {
             // Strip address from input
             let addr = match opcode - 1 {
-                Address::REGISTER => Address::Register(
-                    u8::deserialize(&mut deserializer)?,
-                    u8::deserialize(&mut deserializer)?,
-                ),
+                Address::REGISTER => {
+                    Address::Register(u8::deserialize(&mut deserializer)?, u8::deserialize(&mut deserializer)?)
+                }
                 Address::WORD => Address::Word(u16::deserialize(&mut deserializer)?),
                 Address::DWORD => Address::Dword(u32::deserialize(&mut deserializer)?),
                 _ => return Err(Error::ResponseUnknownCmd),
@@ -207,9 +206,7 @@ impl<'de> Response<'de> {
 
         // Strip CRC from input
         let input = if crc {
-            let (input, crc) = input
-                .split_last_chunk()
-                .ok_or(Error::DeserializeUnexpectedEnd)?;
+            let (input, crc) = input.split_last_chunk().ok_or(Error::DeserializeUnexpectedEnd)?;
             if u16::from_le_bytes(*crc) != CRC.checksum(input) {
                 return Err(Error::ResponseBadCrc);
             }

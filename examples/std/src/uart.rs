@@ -1,4 +1,5 @@
-use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex};
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::mutex::Mutex;
 use serialport::SerialPort;
 use static_cell::StaticCell;
 
@@ -25,9 +26,7 @@ fn prompt_serial_port() -> Option<String> {
     }
 
     let mut input = String::new();
-    std::io::stdin()
-        .read_line(&mut input)
-        .expect("Failed to read input");
+    std::io::stdin().read_line(&mut input).expect("Failed to read input");
 
     let port_idx: Option<usize> = input.trim().parse().ok();
 

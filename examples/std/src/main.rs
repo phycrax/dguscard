@@ -86,10 +86,7 @@ async fn main(spawner: Spawner) {
 
     // Switch to page 1 (system VP 0x0084), then read the active page back
     // (system VP 0x0014) to confirm it took effect.
-    device
-        .write(Address::Word(0x0084), &(0x5A01u16, 1u16))
-        .await
-        .unwrap();
+    device.write(Address::Word(0x0084), &(0x5A01u16, 1u16)).await.unwrap();
     let page: u16 = device.read(Address::Word(0x0014), 1).await.unwrap();
     println!("current page: {page}");
 
@@ -128,9 +125,7 @@ async fn main(spawner: Spawner) {
                     Adjust::Decrease => app.speed.decreased(),
                 };
                 println!("speed adjusted to {:?}", app.speed);
-                ctl.write(Address::Word(0x1000), &(app.speed as u16))
-                    .await
-                    .unwrap();
+                ctl.write(Address::Word(0x1000), &(app.speed as u16)).await.unwrap();
             }
             // Toggle oscillation.
             Input::Rotate(rotating) => {

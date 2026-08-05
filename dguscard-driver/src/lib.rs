@@ -68,18 +68,16 @@
 //!
 //! [`NoopRawMutex`]: embassy_sync::blocking_mutex::raw::NoopRawMutex
 
-use core::{cell::Cell, convert::Infallible, mem::MaybeUninit};
+use core::cell::Cell;
+use core::convert::Infallible;
+use core::mem::MaybeUninit;
 
-pub use dguscard::{Address, response::Content};
-
-use dguscard::{
-    request::{Read, Request, Write},
-    response::{Accumulator, FeedResult, Response},
-};
-use embassy_sync::{
-    blocking_mutex::raw::NoopRawMutex,
-    zerocopy_channel::{Channel, Receiver, Sender},
-};
+pub use dguscard::Address;
+use dguscard::request::{Read, Request, Write};
+pub use dguscard::response::Content;
+use dguscard::response::{Accumulator, FeedResult, Response};
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::zerocopy_channel::{Channel, Receiver, Sender};
 use embedded_io_async::{Error as _, Read as IoRead, Write as IoWrite};
 use serde::{Deserialize, Serialize};
 
@@ -341,10 +339,7 @@ where
             seq: 0,
             crc,
         },
-        events: Events {
-            event_receiver,
-            shared,
-        },
+        events: Events { event_receiver, shared },
     };
     let runner = Runner {
         rx,
@@ -358,21 +353,13 @@ where
 
 impl<'d, TX: IoWrite, const MTU: usize> Device<'d, TX, MTU> {
     /// Writes `val` to `addr` and awaits the ACK. See [`Control::write`].
-    pub async fn write<T: Serialize + ?Sized>(
-        &mut self,
-        addr: Address,
-        val: &T,
-    ) -> Result<(), Error> {
+    pub async fn write<T: Serialize + ?Sized>(&mut self, addr: Address, val: &T) -> Result<(), Error> {
         self.control.write(addr, val).await
     }
 
     /// Reads `wlen` words from `addr` and deserializes `T`. See
     /// [`Control::read`].
-    pub async fn read<T: for<'a> Deserialize<'a>>(
-        &mut self,
-        addr: Address,
-        wlen: u8,
-    ) -> Result<T, Error> {
+    pub async fn read<T: for<'a> Deserialize<'a>>(&mut self, addr: Address, wlen: u8) -> Result<T, Error> {
         self.control.read(addr, wlen).await
     }
 
@@ -383,10 +370,7 @@ impl<'d, TX: IoWrite, const MTU: usize> Device<'d, TX, MTU> {
 
     /// Returns the next queued unsolicited frame without waiting. See
     /// [`Events::try_receive`].
-    pub fn try_receive_event<R>(
-        &mut self,
-        f: impl FnOnce(Content<'_>) -> R,
-    ) -> Result<Option<R>, Error> {
+    pub fn try_receive_event<R>(&mut self, f: impl FnOnce(Content<'_>) -> R) -> Result<Option<R>, Error> {
         self.events.try_receive(f)
     }
 
@@ -455,11 +439,7 @@ impl<'d, TX: IoWrite, const MTU: usize> Control<'d, TX, MTU> {
     /// [`Error::NotRunning`] if [`Runner::run`] was not executing on entry, in
     /// which case nothing is transmitted. Otherwise [`Error::Serialize`] or
     /// [`Error::Write`].
-    pub async fn write<T: Serialize + ?Sized>(
-        &mut self,
-        addr: Address,
-        val: &T,
-    ) -> Result<(), Error> {
+    pub async fn write<T: Serialize + ?Sized>(&mut self, addr: Address, val: &T) -> Result<(), Error> {
         self.transfer(
             Expect::Ack,
             |buf, crc| {
@@ -484,18 +464,10 @@ impl<'d, TX: IoWrite, const MTU: usize> Control<'d, TX, MTU> {
     /// [`Error::NotRunning`] if [`Runner::run`] was not executing on entry, in
     /// which case nothing is transmitted. Otherwise [`Error::Serialize`],
     /// [`Error::Write`], or [`Error::Deserialize`].
-    pub async fn read<T: for<'a> Deserialize<'a>>(
-        &mut self,
-        addr: Address,
-        wlen: u8,
-    ) -> Result<T, Error> {
+    pub async fn read<T: for<'a> Deserialize<'a>>(&mut self, addr: Address, wlen: u8) -> Result<T, Error> {
         self.transfer(
             Expect::Read { addr, wlen },
-            |buf, crc| {
-                Ok(Request::with_slice(buf, addr, Read(wlen))?
-                    .finalize(crc)?
-                    .len())
-            },
+            |buf, crc| Ok(Request::with_slice(buf, addr, Read(wlen))?.finalize(crc)?.len()),
             |bytes| {
                 Content::new(addr, wlen, bytes)
                     .take::<T>()
@@ -613,11 +585,7 @@ impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
         // clears it on every exit path, cancellation included.
         let _guard = RunGuard::new(self.shared);
         loop {
-            let n = self
-                .rx
-                .read(rx_buf)
-                .await
-                .map_err(|e| Error::Read(e.kind()))?;
+            let n = self.rx.read(rx_buf).await.map_err(|e| Error::Read(e.kind()))?;
             if n == 0 {
                 return Err(Error::UnexpectedEof);
             }
@@ -641,8 +609,7 @@ impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
                                 // drop them.
                             }
                             Response::Data(content) => {
-                                if let Some((Expect::Read { addr: a, wlen: w }, seq)) =
-                                    self.shared.pending.get()
+                                if let Some((Expect::Read { addr: a, wlen: w }, seq)) = self.shared.pending.get()
                                     && a == content.addr()
                                     && w == content.wlen()
                                 {

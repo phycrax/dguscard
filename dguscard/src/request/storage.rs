@@ -2,11 +2,12 @@
 //!
 //! i.e., the output medium of the serialization, e.g. whether the data is serialized to a [`u8`] slice, or a [`Vec<u8, N>`][heapless::Vec].
 
+use core::ops::{Deref, DerefMut};
+
 #[cfg(feature = "heapless")]
 pub use hvec::*;
 
 use crate::{Error, Result};
-use core::ops::{Deref, DerefMut};
 
 /// Serialization storage, the output medium of the serialization
 ///
@@ -54,10 +55,7 @@ impl<'a> Storage for Slice<'a> {
 
     #[inline]
     fn try_push(&mut self, b: u8) -> Result<()> {
-        *self
-            .buf
-            .get_mut(self.index)
-            .ok_or(Error::RequestBufferFull)? = b;
+        *self.buf.get_mut(self.index).ok_or(Error::RequestBufferFull)? = b;
         self.index += 1;
         Ok(())
     }
@@ -83,8 +81,9 @@ impl DerefMut for Slice<'_> {
 
 #[cfg(feature = "heapless")]
 mod hvec {
-    use super::*;
     use heapless::Vec;
+
+    use super::*;
 
     /// A storage type that wraps [`Vec<u8, N>`][heapless::Vec]
     ///
@@ -105,9 +104,7 @@ mod hvec {
 
         #[inline]
         fn try_extend(&mut self, data: &[u8]) -> Result<()> {
-            self.0
-                .extend_from_slice(data)
-                .map_err(|_| Error::RequestBufferFull)
+            self.0.extend_from_slice(data).map_err(|_| Error::RequestBufferFull)
         }
 
         #[inline]

@@ -101,20 +101,22 @@ assert_eq!((msb, lsb), (0x10, 0x0B));
 
 ## Serde Data Model Support
 
+✅ both directions · 🔸 serialization only · ❌ unsupported
+
 - ✅ i8, i16, i32, i64, i128 - encoded as big endian
 - ✅ u8, u16, u32, u64, u128 - encoded as big endian
 - ✅ f32, f64 - encoded as big endian
 - ✅ bool - encoded as u16
-- ❌ char - serialization only
-- ❌ string - serialization only
-- ❌ byte array - serialization only
+- 🔸 char - encoded as UTF-8, 1-4 bytes
+- 🔸 string - encoded as UTF-8, no length prefix and no terminator
+- 🔸 byte array - encoded verbatim
 - ❌ option
 - ✅ unit - not encoded
 - ✅ unit_struct - not encoded
 - ✅ unit_variant - index encoded as u16
 - ✅ newtype_struct
 - ❌ newtype_variant
-- ❌ seq
+- 🔸 seq - elements concatenated, no length prefix
 - ✅ tuple
 - ✅ tuple_struct
 - ❌ tuple_variant

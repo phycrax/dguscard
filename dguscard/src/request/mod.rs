@@ -12,7 +12,7 @@ use self::serializer::Serializer;
 #[cfg(feature = "heapless")]
 pub use self::storage::HVec;
 pub use self::storage::{Slice, Storage};
-use crate::{Address, CRC, HEADER, Sealed};
+use crate::{Address, CRC, FRAME_OVERHEAD, HEADER, MAX_CONTENT_LEN, Sealed};
 
 /// Errors that can occur while building a request
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -182,10 +182,14 @@ where
     /// Finalizes the request with optional CRC and returns the output.
     pub fn finalize(mut self, crc: bool) -> Result<O, Error> {
         if crc {
-            let crc = CRC.checksum(&self.serializer.output[3..]).swap_bytes();
+            let crc = CRC.checksum(&self.serializer.output[FRAME_OVERHEAD..]).swap_bytes();
             crc.serialize(&mut self.serializer)?;
         }
-        self.serializer.output[2] = (self.serializer.output.len() - 3) as u8;
+        // Storage buffers are capped at `MAX_FRAME_LEN` when constructed, so the
+        // content always fits the length byte and cannot be truncated here.
+        let content_len = self.serializer.output.len() - FRAME_OVERHEAD;
+        debug_assert!(content_len <= MAX_CONTENT_LEN, "request outgrew the frame length byte");
+        self.serializer.output[2] = content_len as u8;
         Ok(self.serializer.output.finalize())
     }
 }
@@ -225,9 +229,9 @@ impl Command for Read {
     }
 }
 
-#[cfg(feature = "heapless")]
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "heapless")]
     use heapless::Vec;
 
     use super::*;
@@ -239,6 +243,41 @@ mod tests {
         fn new() -> Self {
             Self(0x5A00, 0x1234)
         }
+    }
+
+    #[test]
+    fn frame_fills_length_byte() {
+        let buf = &mut [0u8; crate::MAX_FRAME_LEN];
+        let mut frame = Request::with_slice(buf, Address::Word(0x1234), Write).unwrap();
+        // Command and address take 3 content bytes, so 126 words saturate the
+        // length byte exactly.
+        for _ in 0..126 {
+            frame.push(&0xABCDu16).unwrap();
+        }
+
+        let output = frame.finalize(false).unwrap();
+        assert_eq!(output.len(), crate::MAX_FRAME_LEN);
+        assert_eq!(output[2], MAX_CONTENT_LEN as u8);
+    }
+
+    #[test]
+    fn frame_cannot_outgrow_length_byte() {
+        let buf = &mut [0u8; crate::MAX_FRAME_LEN];
+        let mut frame = Request::with_slice(buf, Address::Word(0x1234), Write).unwrap();
+        for _ in 0..126 {
+            frame.push(&0xABCDu16).unwrap();
+        }
+
+        // The buffer cap turns "longer than the length byte can describe" into
+        // an ordinary full-buffer error rather than a truncated frame.
+        assert_eq!(frame.push(&0xABCDu16), Err(Error::BufferFull));
+    }
+
+    #[test]
+    #[should_panic(expected = "Request buffer should be <= 258 bytes")]
+    fn oversized_slice_buffer_panics() {
+        let buf = &mut [0u8; crate::MAX_FRAME_LEN + 1];
+        let _ = Request::with_slice(buf, Address::Word(0x1234), Write);
     }
 
     #[test]
@@ -265,6 +304,7 @@ mod tests {
         assert_eq!(output, expected);
     }
 
+    #[cfg(feature = "heapless")]
     #[test]
     fn tuple_to_hvec() {
         let expected: Vec<u8, 12> =
@@ -277,6 +317,7 @@ mod tests {
         assert_eq!(output, expected);
     }
 
+    #[cfg(feature = "heapless")]
     #[test]
     fn tuple_to_hvec_nocrc() {
         let expected: Vec<u8, 10> =

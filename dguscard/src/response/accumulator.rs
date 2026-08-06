@@ -1,5 +1,5 @@
 use crate::response::{Error, Response};
-use crate::{CRC, HEADER};
+use crate::{CRC, HEADER, MAX_CONTENT_LEN};
 
 /// An accumulator used to collect chunked response
 ///
@@ -104,7 +104,7 @@ impl<const N: usize> Accumulator<N> {
     pub const fn new(crc: bool) -> Self {
         const {
             assert!(N >= 5, "Accumulator buffer size should be >= 5");
-            assert!(N <= u8::MAX as usize, "Accumulator buffer size should be <= 255");
+            assert!(N <= MAX_CONTENT_LEN, "Accumulator buffer size should be <= 255");
         };
         Accumulator {
             buf: [0; N],
@@ -174,7 +174,7 @@ impl<const N: usize> Accumulator<N> {
                 if byte < min_len {
                     return Err(Error::BadLen);
                 }
-                if byte as usize >= N {
+                if byte as usize > N {
                     return Err(Error::FrameTooLarge);
                 }
                 FeedState::Length(byte)
@@ -238,11 +238,55 @@ mod test {
     fn frame_too_large() {
         let mut buf: Accumulator<8> = Accumulator::new(false);
 
-        let FeedResult::Error(e, remaining) = buf.feed(&[0x5A, 0xA5, 8, 0x83]) else {
+        let FeedResult::Error(e, remaining) = buf.feed(&[0x5A, 0xA5, 9, 0x83]) else {
             panic!("Expected an error")
         };
         assert_eq!(e, Error::FrameTooLarge);
         assert_eq!(remaining, &[0x83]);
+    }
+
+    #[test]
+    fn frame_exactly_fills_buffer() {
+        let mut buf: Accumulator<8> = Accumulator::new(false);
+        let ser = &[0x5A, 0xA5, 8, 0x83, 0x12, 0x34, 2, 0xAA, 0xBB, 0xCC, 0xDD];
+
+        let FeedResult::Success(response, remaining) = buf.feed(ser) else {
+            panic!("Expected a response")
+        };
+        let Response::Data(mut data) = response else {
+            panic!("Expected Data response")
+        };
+        assert_eq!(data.addr(), Address::Word(0x1234));
+        assert_eq!(data.wlen(), 2);
+        assert_eq!(data.take::<u32>().unwrap(), 0xAABB_CCDD);
+        assert!(remaining.is_empty());
+    }
+
+    #[test]
+    fn maximal_frame() {
+        let mut buf: Accumulator<{ MAX_CONTENT_LEN }> = Accumulator::new(false);
+
+        // A frame whose length byte is saturated: 255 content bytes, the most a
+        // DGUS frame can describe.
+        let mut ser = [0u8; crate::MAX_FRAME_LEN];
+        ser[0] = 0x5A;
+        ser[1] = 0xA5;
+        ser[2] = MAX_CONTENT_LEN as u8;
+        ser[3] = 0x83;
+        ser[4] = 0x12;
+        ser[5] = 0x34;
+        ser[6] = 125;
+
+        let FeedResult::Success(response, remaining) = buf.feed(&ser) else {
+            panic!("Expected a response")
+        };
+        let Response::Data(data) = response else {
+            panic!("Expected Data response")
+        };
+        assert_eq!(data.addr(), Address::Word(0x1234));
+        assert_eq!(data.wlen(), 125);
+        assert_eq!(data.len(), MAX_CONTENT_LEN - 4);
+        assert!(remaining.is_empty());
     }
 
     #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]

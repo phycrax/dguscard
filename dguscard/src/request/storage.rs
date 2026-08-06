@@ -7,6 +7,7 @@ use core::ops::{Deref, DerefMut};
 #[cfg(feature = "heapless")]
 pub use hvec::*;
 
+use crate::MAX_FRAME_LEN;
 use crate::request::Error;
 
 /// Serialization storage, the output medium of the serialization
@@ -27,6 +28,8 @@ pub trait Storage: Deref<Target = [u8]> + DerefMut<Target = [u8]> {
     }
 
     /// Can be used to push a single byte to be modified and/or stored.
+    ///
+    /// Implementors must refuse to grow beyond 258, returning [`Error::BufferFull`] instead.
     fn try_push(&mut self, data: u8) -> Result<(), Error>;
 
     /// Finalize the serialization process.
@@ -45,7 +48,12 @@ pub struct Slice<'a> {
 
 impl<'a> Slice<'a> {
     /// Create a new `Slice` from given backing buffer
+    ///
+    /// # Panics
+    ///
+    /// Panics if `buf` is longer than 258.
     pub const fn new(buf: &'a mut [u8]) -> Self {
+        assert!(buf.len() <= MAX_FRAME_LEN, "Request buffer should be <= 258 bytes");
         Self { buf, index: 0 }
     }
 }
@@ -89,13 +97,27 @@ mod hvec {
     ///
     /// Stores the serialized bytes and resolves into a [`Vec<u8, N>`][heapless::Vec].
     /// This is a stack allocated data structure, with a fixed maximum size and variable amount of contents.
-    #[derive(Default, Debug)]
+    #[derive(Debug)]
     pub struct HVec<const N: usize>(Vec<u8, N>);
 
     impl<const N: usize> HVec<N> {
         /// Create a new `HVec` to be used for storing serialized data.
+        ///
+        /// `N` may not exceed 258
         pub const fn new() -> Self {
+            const {
+                assert!(
+                    N <= MAX_FRAME_LEN,
+                    "Request buffer should be <= 258 bytes, the largest describable DGUS frame"
+                );
+            }
             Self(Vec::new())
+        }
+    }
+
+    impl<const N: usize> Default for HVec<N> {
+        fn default() -> Self {
+            Self::new()
         }
     }
 

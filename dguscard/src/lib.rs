@@ -14,6 +14,10 @@ use crc::{CRC_16_MODBUS, Crc};
 const CRC: Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
 const HEADER: u16 = 0x5AA5;
 
+const FRAME_OVERHEAD: usize = 3;
+const MAX_CONTENT_LEN: usize = u8::MAX as usize;
+const MAX_FRAME_LEN: usize = FRAME_OVERHEAD + MAX_CONTENT_LEN;
+
 trait Sealed {}
 
 /// Frame address

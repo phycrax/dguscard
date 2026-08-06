@@ -1,5 +1,5 @@
 use crate::response::{Error, Response};
-use crate::{CRC, HEADER, MAX_CONTENT_LEN};
+use crate::{CRC_LEN, Checksum, Crc, HEADER, MAX_CONTENT_LEN, MIN_CONTENT_LEN};
 
 /// An accumulator used to collect chunked response
 ///
@@ -11,7 +11,7 @@ use crate::{CRC, HEADER, MAX_CONTENT_LEN};
 /// Collect a response by reading chunks.
 ///
 /// ```rust
-/// use dguscard::response::{Response, Accumulator, FeedResult};
+/// use dguscard::{response::{Response, Accumulator, FeedResult}, Crc};
 /// # use std::io::Read;
 ///
 /// #[derive(serde::Deserialize, Debug, PartialEq, Eq)]
@@ -25,7 +25,7 @@ use crate::{CRC, HEADER, MAX_CONTENT_LEN};
 /// # &[0x5A, 0xA5, 12, 0x83, 0x12, 0x34, 4, 0xAA, 0xBB, 0x00, 0x01, 0xCC, 0xDD, 0xEE, 0xFF][..];
 /// let mut raw_buf = [0u8; 32];
 /// // Create a new Accumulator with CRC check disabled.
-/// let mut dgus_buf: Accumulator<128> = Accumulator::new(false);
+/// let mut dgus_buf: Accumulator<128> = Accumulator::new(Crc::off());
 ///
 /// while let Ok(ct) = uart.read(&mut raw_buf) {
 ///     // Finished reading input
@@ -65,10 +65,10 @@ use crate::{CRC, HEADER, MAX_CONTENT_LEN};
 /// ```
 ///
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Accumulator<const N: usize> {
+pub struct Accumulator<const N: usize, K: Checksum = Crc> {
     buf: [u8; N],
     idx: usize,
-    crc: bool,
+    crc: Option<K>,
     state: FeedState,
 }
 
@@ -92,18 +92,14 @@ enum FeedState {
     Data(u8),
 }
 
-impl<const N: usize> Default for Accumulator<N> {
-    /// CRC check is enabled by default.
-    fn default() -> Self {
-        Self::new(true)
-    }
-}
-
-impl<const N: usize> Accumulator<N> {
+impl<const N: usize, K: Checksum> Accumulator<N, K> {
     /// Create a new accumulator.
-    pub const fn new(crc: bool) -> Self {
+    ///
+    /// Pass [`Crc::on()`] or [`Crc::off()`] for `crc`, matching how the display
+    /// is configured, or `Some(..)` to supply your own [`Checksum`].
+    pub const fn new(crc: Option<K>) -> Self {
         const {
-            assert!(N >= 5, "Accumulator buffer size should be >= 5");
+            assert!(N >= MIN_CONTENT_LEN, "Accumulator buffer size should be >= 3");
             assert!(N <= MAX_CONTENT_LEN, "Accumulator buffer size should be <= 255");
         };
         Accumulator {
@@ -170,7 +166,8 @@ impl<const N: usize> Accumulator<N> {
                 }
             }
             FeedState::Header(true) => {
-                let min_len = if self.crc { 5 } else { 3 };
+                let trailer_len = if self.crc.is_some() { CRC_LEN } else { 0 };
+                let min_len = (MIN_CONTENT_LEN + trailer_len) as u8;
                 if byte < min_len {
                     return Err(Error::BadLen);
                 }
@@ -188,12 +185,12 @@ impl<const N: usize> Accumulator<N> {
         };
 
         if let FeedState::Data(0) = self.state {
-            if self.crc {
-                let checksum = u16::from_le_bytes([self.buf[self.idx - 2], self.buf[self.idx - 1]]);
-                if checksum != CRC.checksum(&self.buf[..self.idx - 2]) {
+            if let Some(crc) = self.crc.as_mut() {
+                let (content, trailer) = self.buf[..self.idx].split_at(self.idx - CRC_LEN);
+                if u16::from_le_bytes([trailer[0], trailer[1]]) != crc.compute(content) {
                     return Err(Error::BadCrc);
                 }
-                self.idx -= 2;
+                self.idx -= CRC_LEN;
             }
             Ok(Some(()))
         } else {
@@ -211,7 +208,7 @@ mod test {
 
     #[test]
     fn ack_crc() {
-        let mut buf: Accumulator<64> = Accumulator::new(true);
+        let mut buf: Accumulator<64> = Accumulator::new(Crc::on());
         let ser = &[0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 0, 0, 0, 0];
 
         if let FeedResult::Success(response, remaining) = buf.feed(ser) {
@@ -224,7 +221,7 @@ mod test {
 
     #[test]
     fn bad_header() {
-        let mut buf: Accumulator<64> = Accumulator::new(false);
+        let mut buf: Accumulator<64> = Accumulator::new(Crc::off());
 
         let FeedResult::Error(e, remaining) = buf.feed(&[0x11, 0x22, 0x33]) else {
             panic!("Expected an error")
@@ -236,7 +233,7 @@ mod test {
 
     #[test]
     fn frame_too_large() {
-        let mut buf: Accumulator<8> = Accumulator::new(false);
+        let mut buf: Accumulator<8> = Accumulator::new(Crc::off());
 
         let FeedResult::Error(e, remaining) = buf.feed(&[0x5A, 0xA5, 9, 0x83]) else {
             panic!("Expected an error")
@@ -246,8 +243,21 @@ mod test {
     }
 
     #[test]
+    fn minimal_buffer_without_crc() {
+        // An ACK is the shortest frame there is, and without a checksum it
+        // needs only three bytes of content. The previous `N >= 5` bound
+        // rejected this at compile time.
+        let mut buf: Accumulator<3> = Accumulator::new(Crc::off());
+
+        let FeedResult::Success(Response::Ack, remaining) = buf.feed(&[0x5A, 0xA5, 3, 0x82, b'O', b'K']) else {
+            panic!("Expected an ACK")
+        };
+        assert!(remaining.is_empty());
+    }
+
+    #[test]
     fn frame_exactly_fills_buffer() {
-        let mut buf: Accumulator<8> = Accumulator::new(false);
+        let mut buf: Accumulator<8> = Accumulator::new(Crc::off());
         let ser = &[0x5A, 0xA5, 8, 0x83, 0x12, 0x34, 2, 0xAA, 0xBB, 0xCC, 0xDD];
 
         let FeedResult::Success(response, remaining) = buf.feed(ser) else {
@@ -264,7 +274,7 @@ mod test {
 
     #[test]
     fn maximal_frame() {
-        let mut buf: Accumulator<{ MAX_CONTENT_LEN }> = Accumulator::new(false);
+        let mut buf: Accumulator<{ MAX_CONTENT_LEN }> = Accumulator::new(Crc::off());
 
         // A frame whose length byte is saturated: 255 content bytes, the most a
         // DGUS frame can describe.
@@ -298,7 +308,7 @@ mod test {
 
     #[test]
     fn demo() {
-        let mut buf: Accumulator<64> = Accumulator::new(false);
+        let mut buf: Accumulator<64> = Accumulator::new(Crc::off());
         let ser = &[
             0x5A, 0xA5, 12, 0x83, 0x12, 0x34, 4, 0xAA, 0xBB, 0x00, 0x01, 0xCC, 0xDD, 0xEE, 0xFF,
         ];
@@ -327,7 +337,7 @@ mod test {
 
     #[test]
     fn double_demo() {
-        let mut buf: Accumulator<64> = Accumulator::new(false);
+        let mut buf: Accumulator<64> = Accumulator::new(Crc::off());
         let ser = &[
             0x5A, 0xA5, 12, 0x83, 0x12, 0x34, 4, 0xAA, 0xBB, 0x00, 0x01, 0xCC, 0xDD, 0xEE, 0xFF, 0x5A, 0xA5, 12, 0x83,
             0x12, 0x34, 4, 0xBB, 0xAA, 0x00, 0x00, 0xFF, 0xEE, 0xDD, 0xCC,

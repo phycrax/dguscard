@@ -9,7 +9,7 @@ use serde::Deserialize;
 
 pub use self::accumulator::{Accumulator, FeedResult};
 use self::deserializer::Deserializer;
-use crate::{Address, CRC, HEADER};
+use crate::{Address, CRC_LEN, Checksum, HEADER, MIN_CONTENT_LEN};
 
 /// Errors that can occur while parsing a response or deserializing its content
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -132,7 +132,7 @@ impl<'de> Content<'de> {
 /// # Examples
 ///
 /// ```rust
-/// use dguscard::response::Response;
+/// use dguscard::{response::Response, Crc};
 /// # use std::io::Read;
 /// #[derive(serde::Deserialize)]
 /// struct MyData {
@@ -159,7 +159,7 @@ impl<'de> Content<'de> {
 /// // If this is not possible, take a look at the `Accumulator`.
 /// let _ = uart.read(buf).unwrap();
 /// // Look for a full response within the buffer.
-/// let mut response = Response::from_bytes(buf, false).unwrap();
+/// let mut response = Response::from_bytes(buf, Crc::off()).unwrap();
 /// // Handle the response.
 /// match response {
 ///     Response::Data(mut content) => {
@@ -188,7 +188,10 @@ impl<'de> Response<'de> {
     /// Looks for a response within a byte slice.
     /// The unused portion (if any) of the byte slice is not returned.
     /// The byte slice is expected to contain full response, including header, length, and CRC if enabled.
-    pub fn from_bytes(input: &'de [u8], crc: bool) -> Result<Self, Error> {
+    ///
+    /// Pass [`Crc::on()`][crate::Crc::on] or [`Crc::off()`][crate::Crc::off] for
+    /// `crc`, matching how the display is configured.
+    pub fn from_bytes<K: Checksum>(input: &'de [u8], crc: Option<K>) -> Result<Self, Error> {
         let (response, _) = Self::take_from_bytes(input, crc)?;
         Ok(response)
     }
@@ -196,7 +199,10 @@ impl<'de> Response<'de> {
     /// Looks for a response within a byte slice.
     /// The unused portion (if any) of the byte slice is returned for further usage.
     /// The byte slice is expected to contain full response, including header, length, and CRC if enabled.
-    pub fn take_from_bytes(input: &'de [u8], crc: bool) -> Result<(Self, &'de [u8]), Error> {
+    ///
+    /// Pass [`Crc::on()`][crate::Crc::on] or [`Crc::off()`][crate::Crc::off] for
+    /// `crc`, matching how the display is configured.
+    pub fn take_from_bytes<K: Checksum>(input: &'de [u8], crc: Option<K>) -> Result<(Self, &'de [u8]), Error> {
         let (input, rest) = Self::extract_content_bytes(input, crc)?;
         Ok((Self::from_content_bytes(input)?, rest))
     }
@@ -251,25 +257,28 @@ impl<'de> Response<'de> {
     /// Extracts the command+data part of the response from a byte slice.
     /// The unused portion (if any) of the byte slice is returned for further usage.
     /// The byte slice is expected to contain full DGUS response, including header, length, and CRC if enabled.
-    fn extract_content_bytes(input: &'de [u8], crc: bool) -> Result<(&'de [u8], &'de [u8]), Error> {
+    fn extract_content_bytes<K: Checksum>(
+        input: &'de [u8],
+        mut crc: Option<K>,
+    ) -> Result<(&'de [u8], &'de [u8]), Error> {
         // Strip header from input
         let input = input.strip_prefix(&u16::to_be_bytes(HEADER)).ok_or(Error::BadHeader)?;
 
         // Strip length from input
         let (len, input) = input.split_first().ok_or(Error::UnexpectedEnd)?;
         let len = *len as usize;
-        let min_len = if crc { 5 } else { 3 };
-        if len < min_len {
+        let trailer_len = if crc.is_some() { CRC_LEN } else { 0 };
+        if len < MIN_CONTENT_LEN + trailer_len {
             return Err(Error::BadLen);
         }
 
         // Split input with the length, the frame declares more bytes than we got
         let (input, rest) = input.split_at_checked(len).ok_or(Error::UnexpectedEnd)?;
 
-        // Strip CRC from input
-        let input = if crc {
-            let (input, crc) = input.split_last_chunk().ok_or(Error::UnexpectedEnd)?;
-            if u16::from_le_bytes(*crc) != CRC.checksum(input) {
+        // Strip and verify the checksum, which DGUS carries little-endian
+        let input = if let Some(crc) = crc.as_mut() {
+            let (input, trailer) = input.split_last_chunk().ok_or(Error::UnexpectedEnd)?;
+            if u16::from_le_bytes(*trailer) != crc.compute(input) {
                 return Err(Error::BadCrc);
             }
             input
@@ -284,11 +293,12 @@ impl<'de> Response<'de> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Crc;
 
     #[test]
     fn ack_crc() {
         let input = [0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 1, 2, 3, 4];
-        let (response, rest) = Response::take_from_bytes(&input, true).unwrap();
+        let (response, rest) = Response::take_from_bytes(&input, Crc::on()).unwrap();
         let Response::Ack = response else { panic!() };
         assert_eq!(rest, &[1, 2, 3, 4]);
     }
@@ -309,14 +319,14 @@ mod tests {
     #[test]
     fn data_content_register_and_dword() {
         let input = [0x5A, 0xA5, 4, 0x81, 0x00, 0x04, 1, 0xAA, 0xBB];
-        let Response::Data(content) = Response::from_bytes(&input, false).unwrap() else {
+        let Response::Data(content) = Response::from_bytes(&input, Crc::off()).unwrap() else {
             panic!("Expected Data response");
         };
         assert_eq!(content.addr(), Address::Register(0x00, 0x04));
         assert_eq!(content.wlen(), 1);
 
         let input = [0x5A, 0xA5, 6, 0x87, 0x00, 0x01, 0x02, 0x03, 1, 0xAA, 0xBB];
-        let Response::Data(content) = Response::from_bytes(&input, false).unwrap() else {
+        let Response::Data(content) = Response::from_bytes(&input, Crc::off()).unwrap() else {
             panic!("Expected Data response");
         };
         assert_eq!(content.addr(), Address::Dword(0x0001_0203));
@@ -327,7 +337,10 @@ mod tests {
     fn truncated_frame() {
         // The frame declares 10 bytes of content, but only 2 follow.
         let input = [0x5A, 0xA5, 10, 0x83, 0x12];
-        assert!(matches!(Response::from_bytes(&input, false), Err(Error::UnexpectedEnd)));
+        assert!(matches!(
+            Response::from_bytes(&input, Crc::off()),
+            Err(Error::UnexpectedEnd)
+        ));
     }
 
     #[test]

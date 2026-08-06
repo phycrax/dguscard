@@ -39,8 +39,8 @@ struct MyData {
 // Backing buffer for the request.
 let tx_buf = &mut [0u8; 50];
 
-// Build a write request to address 0x1000
-let mut request = Request::with_slice(tx_buf, Address::Word(0x1000), Write).unwrap();
+// Build a write request to address 0x1000, with CRC enabled
+let mut request = Request::with_slice(tx_buf, Address::Word(0x1000), Write, Crc::on()).unwrap();
 
 request.push(&0x1000_u16).unwrap();                                         // @0x1000 1 word
 request.push(&0x1001_1002_u32).unwrap();                                    // @0x1001 2 words
@@ -50,8 +50,8 @@ request.push(&data).unwrap();                                               // @
 request.push(&0x10_u8).unwrap();                                            // @0x100B half word MSB
 request.push(&0x0B_u8).unwrap();                                            // @0x100B half word LSB
 
-// Finalize with CRC and send
-let frame = request.finalize(true).unwrap();
+// Finalize and send
+let frame = request.finalize().unwrap();
 uart.write(frame);
 ```
 
@@ -59,14 +59,14 @@ Read the data back:
 
 ```rust
 // Read back the 12 words we just wrote, starting at address 0x1000
-let mut request = Request::with_slice(tx_buf, Address::Word(0x1000), Read(12)).unwrap();
-let frame = request.finalize(true).unwrap();
+let mut request = Request::with_slice(tx_buf, Address::Word(0x1000), Read(12), Crc::on()).unwrap();
+let frame = request.finalize().unwrap();
 uart.write(frame);
 
 // Backing buffer for the response.
 let rx_buf = &mut [0u8; 50];
 uart.read_until_idle(rx_buf);
-let mut response = Response::from_bytes(rx_buf, true).unwrap();
+let mut response = Response::from_bytes(rx_buf, Crc::on()).unwrap();
 let Response::Data(mut content) = response else {
     panic!("Unexpected response type");
 };

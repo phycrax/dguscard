@@ -79,7 +79,7 @@ use core::mem::MaybeUninit;
 use dguscard::request::{Read, Request, Write};
 pub use dguscard::response::Content;
 use dguscard::response::{Accumulator, FeedResult, Response};
-pub use dguscard::{Address, request, response};
+pub use dguscard::{Address, Crc, request, response};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::zerocopy_channel::{Channel, Receiver, Sender};
 use embedded_io_async::{Error as _, Read as IoRead, Write as IoWrite};
@@ -279,7 +279,7 @@ pub struct Control<'d, TX: IoWrite, const MTU: usize = DEFAULT_MTU> {
     resp_receiver: Receiver<'d, NoopRawMutex, ResponseFrame<MTU>>,
     shared: &'d Shared,
     seq: u8,
-    crc: bool,
+    crc: Option<Crc>,
 }
 
 /// Event half of the handle: receives unsolicited data frames queued by the
@@ -296,7 +296,7 @@ pub struct Runner<'d, RX: IoRead, const MTU: usize = DEFAULT_MTU> {
     resp_sender: Sender<'d, NoopRawMutex, ResponseFrame<MTU>>,
     event_sender: Sender<'d, NoopRawMutex, EventFrame<MTU>>,
     shared: &'d Shared,
-    crc: bool,
+    crc: Option<Crc>,
 }
 
 /// Creates a driver instance from a split transport.
@@ -313,7 +313,7 @@ where
     RX: IoRead,
     TX: IoWrite,
 {
-    let crc = config.crc;
+    let crc = if config.crc { Crc::on() } else { Crc::off() };
 
     // Self-referential init, mirroring `embassy-net-driver-channel`: the
     // channels in `StateInner` borrow `resources.resp_bufs` /
@@ -401,7 +401,7 @@ impl<'d, TX: IoWrite, const MTU: usize> Control<'d, TX, MTU> {
     async fn transfer<R>(
         &mut self,
         expect: Expect,
-        build: impl FnOnce(&mut [u8], bool) -> Result<usize, request::Error>,
+        build: impl FnOnce(&mut [u8], Option<Crc>) -> Result<usize, request::Error>,
         complete: impl FnOnce(&[u8]) -> Result<R, Error>,
     ) -> Result<R, Error> {
         // Nothing is receiving, so this frame could only ever time out. Fail
@@ -448,9 +448,9 @@ impl<'d, TX: IoWrite, const MTU: usize> Control<'d, TX, MTU> {
         self.transfer(
             Expect::Ack,
             |buf, crc| {
-                let mut req = Request::with_slice(buf, addr, Write)?;
+                let mut req = Request::with_slice(buf, addr, Write, crc)?;
                 req.push(val)?;
-                Ok(req.finalize(crc)?.len())
+                Ok(req.finalize()?.len())
             },
             |_| Ok(()),
         )
@@ -472,7 +472,7 @@ impl<'d, TX: IoWrite, const MTU: usize> Control<'d, TX, MTU> {
     pub async fn read<T: for<'a> Deserialize<'a>>(&mut self, addr: Address, wlen: u8) -> Result<T, Error> {
         self.transfer(
             Expect::Read { addr, wlen },
-            |buf, crc| Ok(Request::with_slice(buf, addr, Read(wlen))?.finalize(crc)?.len()),
+            |buf, crc| Ok(Request::with_slice(buf, addr, Read(wlen), crc)?.finalize()?.len()),
             |bytes| {
                 Content::new(addr, wlen, bytes)
                     .take::<T>()

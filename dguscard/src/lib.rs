@@ -9,16 +9,55 @@
 pub mod request;
 pub mod response;
 
-use crc::{CRC_16_MODBUS, Crc};
-
-const CRC: Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
+const CRC: crc::Crc<u16> = crc::Crc::<u16>::new(&crc::CRC_16_MODBUS);
 const HEADER: u16 = 0x5AA5;
 
 const FRAME_OVERHEAD: usize = 3;
 const MAX_CONTENT_LEN: usize = u8::MAX as usize;
 const MAX_FRAME_LEN: usize = FRAME_OVERHEAD + MAX_CONTENT_LEN;
 
+const CRC_LEN: usize = 2;
+const MIN_CONTENT_LEN: usize = 3;
+
 trait Sealed {}
+
+/// Computes the CRC-16/MODBUS checksum DGUS frames carry.
+///
+/// Implement it to drive an MCU CRC peripheral instead of the software impl.
+pub trait Checksum {
+    /// Computes the checksum over a frame's content.
+    fn compute(&mut self, data: &[u8]) -> u16;
+}
+
+/// CRC-16/MODBUS software impl.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Crc;
+
+impl Checksum for Crc {
+    fn compute(&mut self, data: &[u8]) -> u16 {
+        CRC.checksum(data)
+    }
+}
+
+/// Lets a borrowed peripheral be used wherever an owned one can.
+impl<T: Checksum + ?Sized> Checksum for &mut T {
+    fn compute(&mut self, data: &[u8]) -> u16 {
+        (**self).compute(data)
+    }
+}
+
+impl Crc {
+    /// Frames carry a CRC-16/MODBUS trailer.
+    pub const fn on() -> Option<Self> {
+        Some(Self)
+    }
+
+    /// Frames carry no checksum.
+    pub const fn off() -> Option<Self> {
+        None
+    }
+}
 
 /// Frame address
 ///

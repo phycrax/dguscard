@@ -12,7 +12,7 @@ use self::serializer::Serializer;
 #[cfg(feature = "heapless")]
 pub use self::storage::HVec;
 pub use self::storage::{Slice, Storage};
-use crate::{Address, CRC, FRAME_OVERHEAD, HEADER, MAX_CONTENT_LEN, Sealed};
+use crate::{Address, Checksum, Crc, FRAME_OVERHEAD, HEADER, MAX_CONTENT_LEN, Sealed};
 
 /// Errors that can occur while building a request
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -61,13 +61,16 @@ impl serde::ser::Error for Error {
 /// and [`HVec`]([`Vec<u8, N>`][heapless::Vec] newtype).
 ///
 /// A request is built from an [`Address`] and a command ([`Write`] or
-/// [`Read`]). Only a [`Request<Write, S>`] can be pushed
+/// [`Read`]). Only a [`Request<Write, S, K>`] can be pushed
 /// into, so a read request cannot carry data.
+///
+/// The builder is given its checksum up front — [`Crc::on()`], [`Crc::off()`],
+/// or `Some(&mut ..)` for your own [`Checksum`].
 ///
 /// # Example
 ///
 /// ```rust
-/// use dguscard::{request::{Request, Write}, Address};
+/// use dguscard::{request::{Request, Write}, Address, Crc};
 /// # use std::io::Write as IoWrite;
 /// #[derive(serde::Serialize)]
 /// struct MyData {
@@ -84,15 +87,16 @@ impl serde::ser::Error for Error {
 /// # Vec::new();
 /// // Backing buffer for the request.
 /// let buf = &mut [0u8; 50];
-/// // Get a request builder with the slice buffer/output type, writing to a variable address.
-/// let mut frame = Request::with_slice(buf, Address::Word(0x1234), Write).unwrap();
+/// // Get a request builder with the slice buffer/output type, writing to a
+/// // variable address, with CRC enabled.
+/// let mut frame = Request::with_slice(buf, Address::Word(0x1234), Write, Crc::on()).unwrap();
 /// // Push your data into the request.
 /// frame.push(&data).unwrap();
 /// // It's possible to push multiple different data types into the request.
 /// // As long as they implement `Serialize` and are compatible with the data model.
 /// frame.push(&[1u8,2,3,4]).unwrap();
-/// // Finalize the request with CRC and get the output.
-/// let tx_bytes = frame.finalize(true).unwrap();
+/// // Finalize the request and get the output.
+/// let tx_bytes = frame.finalize().unwrap();
 /// // Transmit the frame
 /// uart.write_all(tx_bytes).unwrap();
 /// ```
@@ -100,57 +104,66 @@ impl serde::ser::Error for Error {
 /// Reading instead, which takes no data:
 ///
 /// ```rust
-/// use dguscard::{request::{Request, Read}, Address};
+/// use dguscard::{request::{Request, Read}, Address, Crc};
 /// let buf = &mut [0u8; 50];
 /// // Read 4 words from the variable address 0x1234.
-/// let frame = Request::with_slice(buf, Address::Word(0x1234), Read(4))
+/// let frame = Request::with_slice(buf, Address::Word(0x1234), Read(4), Crc::on())
 ///     .unwrap()
-///     .finalize(true)
+///     .finalize()
 ///     .unwrap();
 /// ```
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Request<C, S: Storage> {
+pub struct Request<C, S: Storage, K: Checksum = Crc> {
     serializer: Serializer<S>,
+    crc: Option<K>,
     cmd: PhantomData<C>,
 }
 
-impl<'a, C: Command> Request<C, Slice<'a>> {
+impl<'a, C: Command, K: Checksum> Request<C, Slice<'a>, K> {
     /// Returns a new builder that uses a [`Slice`] as a given backing buffer.
     /// The request will be finalized as [`u8`] slice.
-    pub fn with_slice(buf: &'a mut [u8], addr: Address, cmd: C) -> Result<Self, Error> {
-        Self::new(Slice::new(buf), addr, cmd)
+    ///
+    /// Pass [`Crc::on()`] or [`Crc::off()`] for `crc`, or `Some(&mut ..)` to
+    /// lend your own [`Checksum`] implementation.
+    pub fn with_slice(buf: &'a mut [u8], addr: Address, cmd: C, crc: Option<K>) -> Result<Self, Error> {
+        Self::new(Slice::new(buf), addr, cmd, crc)
     }
 }
 
 #[cfg(feature = "heapless")]
-impl<C: Command, const N: usize> Request<C, HVec<N>> {
+impl<C: Command, K: Checksum, const N: usize> Request<C, HVec<N>, K> {
     /// Returns a new builder that uses [`HVec`] as a buffer.
     /// The request will be finalized as [`Vec<u8, N>`][heapless::Vec].
-    pub fn with_hvec(addr: Address, cmd: C) -> Result<Self, Error> {
-        Self::new(HVec::new(), addr, cmd)
+    ///
+    /// Pass [`Crc::on()`] or [`Crc::off()`] for `crc`, or `Some(&mut ..)` to
+    /// lend your own [`Checksum`] implementation.
+    pub fn with_hvec(addr: Address, cmd: C, crc: Option<K>) -> Result<Self, Error> {
+        Self::new(HVec::new(), addr, cmd, crc)
     }
 }
 
-impl<S, O> Request<Write, S>
+impl<S, O, K> Request<Write, S, K>
 where
     S: Storage<Output = O>,
+    K: Checksum,
 {
-    /// Appends a `T` into the [`Request<Write, S>`].
+    /// Appends a `T` into the [`Request<Write, S, K>`].
     pub fn push<T: Serialize + ?Sized>(&mut self, value: &T) -> Result<(), Error> {
         value.serialize(&mut self.serializer)
     }
 }
 
-impl<C, S, O> Request<C, S>
+impl<C, S, O, K> Request<C, S, K>
 where
     C: Command,
     S: Storage<Output = O>,
+    K: Checksum,
 {
     /// Returns a new builder with an output type that implements [`Storage`] trait.
     /// The request will be finalized as the given output type.
     /// It should rarely be necessary to directly use this function unless you implemented your own [`Storage`].
-    pub fn new(output: S, addr: Address, cmd: C) -> Result<Self, Error> {
+    pub fn new(output: S, addr: Address, cmd: C, crc: Option<K>) -> Result<Self, Error> {
         let mut serializer = Serializer { output };
         // Push header
         HEADER.serialize(&mut serializer)?;
@@ -175,15 +188,17 @@ where
         // Return the builder
         Ok(Self {
             serializer,
+            crc,
             cmd: PhantomData,
         })
     }
 
-    /// Finalizes the request with optional CRC and returns the output.
-    pub fn finalize(mut self, crc: bool) -> Result<O, Error> {
-        if crc {
-            let crc = CRC.checksum(&self.serializer.output[FRAME_OVERHEAD..]).swap_bytes();
-            crc.serialize(&mut self.serializer)?;
+    /// Finalizes the request, appending the checksum if the builder was given
+    /// one, and returns the output.
+    pub fn finalize(mut self) -> Result<O, Error> {
+        if let Some(crc) = self.crc.as_mut() {
+            let sum = crc.compute(&self.serializer.output[FRAME_OVERHEAD..]);
+            self.serializer.output.try_extend(&sum.to_le_bytes())?;
         }
         // Storage buffers are capped at `MAX_FRAME_LEN` when constructed, so the
         // content always fits the length byte and cannot be truncated here.
@@ -248,14 +263,14 @@ mod tests {
     #[test]
     fn frame_fills_length_byte() {
         let buf = &mut [0u8; crate::MAX_FRAME_LEN];
-        let mut frame = Request::with_slice(buf, Address::Word(0x1234), Write).unwrap();
+        let mut frame = Request::with_slice(buf, Address::Word(0x1234), Write, Crc::off()).unwrap();
         // Command and address take 3 content bytes, so 126 words saturate the
         // length byte exactly.
         for _ in 0..126 {
             frame.push(&0xABCDu16).unwrap();
         }
 
-        let output = frame.finalize(false).unwrap();
+        let output = frame.finalize().unwrap();
         assert_eq!(output.len(), crate::MAX_FRAME_LEN);
         assert_eq!(output[2], MAX_CONTENT_LEN as u8);
     }
@@ -263,7 +278,7 @@ mod tests {
     #[test]
     fn frame_cannot_outgrow_length_byte() {
         let buf = &mut [0u8; crate::MAX_FRAME_LEN];
-        let mut frame = Request::with_slice(buf, Address::Word(0x1234), Write).unwrap();
+        let mut frame = Request::with_slice(buf, Address::Word(0x1234), Write, Crc::off()).unwrap();
         for _ in 0..126 {
             frame.push(&0xABCDu16).unwrap();
         }
@@ -277,7 +292,7 @@ mod tests {
     #[should_panic(expected = "Request buffer should be <= 258 bytes")]
     fn oversized_slice_buffer_panics() {
         let buf = &mut [0u8; crate::MAX_FRAME_LEN + 1];
-        let _ = Request::with_slice(buf, Address::Word(0x1234), Write);
+        let _ = Request::with_slice(buf, Address::Word(0x1234), Write, Crc::off());
     }
 
     #[test]
@@ -286,9 +301,9 @@ mod tests {
         let expected = &[0x5A, 0xA5, 9, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34, 0x0E, 0xB4];
         let data = TestTuple::new();
 
-        let mut frame = Request::with_slice(buf, Address::Word(0x00DE), Write).unwrap();
+        let mut frame = Request::with_slice(buf, Address::Word(0x00DE), Write, Crc::on()).unwrap();
         frame.push(&data).unwrap();
-        let output = frame.finalize(true).unwrap();
+        let output = frame.finalize().unwrap();
         assert_eq!(output, expected);
     }
 
@@ -298,9 +313,9 @@ mod tests {
         let expected = &[0x5A, 0xA5, 7, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34];
         let data = TestTuple::new();
 
-        let mut frame = Request::with_slice(buf, Address::Word(0x00DE), Write).unwrap();
+        let mut frame = Request::with_slice(buf, Address::Word(0x00DE), Write, Crc::off()).unwrap();
         frame.push(&data).unwrap();
-        let output = frame.finalize(false).unwrap();
+        let output = frame.finalize().unwrap();
         assert_eq!(output, expected);
     }
 
@@ -311,9 +326,9 @@ mod tests {
             Vec::from_slice(&[0x5A, 0xA5, 9, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34, 0x0E, 0xB4]).unwrap();
         let data = TestTuple::new();
 
-        let mut frame = Request::with_hvec(Address::Word(0x00DE), Write).unwrap();
+        let mut frame = Request::with_hvec(Address::Word(0x00DE), Write, Crc::on()).unwrap();
         frame.push(&data).unwrap();
-        let output: Vec<u8, 12> = frame.finalize(true).unwrap();
+        let output: Vec<u8, 12> = frame.finalize().unwrap();
         assert_eq!(output, expected);
     }
 
@@ -324,9 +339,9 @@ mod tests {
             Vec::from_slice(&[0x5A, 0xA5, 7, 0x82, 0x00, 0xDE, 0x5A, 0x00, 0x12, 0x34]).unwrap();
         let data = TestTuple::new();
 
-        let mut frame = Request::with_hvec(Address::Word(0x00DE), Write).unwrap();
+        let mut frame = Request::with_hvec(Address::Word(0x00DE), Write, Crc::off()).unwrap();
         frame.push(&data).unwrap();
-        let output: Vec<u8, 10> = frame.finalize(false).unwrap();
+        let output: Vec<u8, 10> = frame.finalize().unwrap();
         assert_eq!(output, expected);
     }
 
@@ -335,9 +350,9 @@ mod tests {
         let buf = &mut [0u8; 20];
         let expected = &[0x5A, 0xA5, 4, 0x83, 0x12, 0x34, 4];
 
-        let output = Request::with_slice(buf, Address::Word(0x1234), Read(4))
+        let output = Request::with_slice(buf, Address::Word(0x1234), Read(4), Crc::off())
             .unwrap()
-            .finalize(false)
+            .finalize()
             .unwrap();
         assert_eq!(output, expected);
     }
@@ -347,9 +362,9 @@ mod tests {
         let buf = &mut [0u8; 20];
         let expected = &[0x5A, 0xA5, 4, 0x81, 0x01, 0x02, 3];
 
-        let output = Request::with_slice(buf, Address::Register(0x01, 0x02), Read(3))
+        let output = Request::with_slice(buf, Address::Register(0x01, 0x02), Read(3), Crc::off())
             .unwrap()
-            .finalize(false)
+            .finalize()
             .unwrap();
         assert_eq!(output, expected);
     }
@@ -359,9 +374,9 @@ mod tests {
         let buf = &mut [0u8; 20];
         let expected = &[0x5A, 0xA5, 6, 0x87, 0x00, 0x01, 0x02, 0x03, 2];
 
-        let output = Request::with_slice(buf, Address::Dword(0x0001_0203), Read(2))
+        let output = Request::with_slice(buf, Address::Dword(0x0001_0203), Read(2), Crc::off())
             .unwrap()
-            .finalize(false)
+            .finalize()
             .unwrap();
         assert_eq!(output, expected);
     }
@@ -371,9 +386,9 @@ mod tests {
         let buf = &mut [0u8; 20];
         let expected = &[0x5A, 0xA5, 4, 0x84, 0x01, 0x12, 0x34];
 
-        let mut frame = Request::with_slice(buf, Address::Curve(0x01), Write).unwrap();
+        let mut frame = Request::with_slice(buf, Address::Curve(0x01), Write, Crc::off()).unwrap();
         frame.push(&0x1234u16).unwrap();
-        let output = frame.finalize(false).unwrap();
+        let output = frame.finalize().unwrap();
         assert_eq!(output, expected);
     }
 
@@ -382,18 +397,46 @@ mod tests {
         let buf = &mut [0u8; 20];
         let expected = &[0x5A, 0xA5, 5, 0x82, 0x12, 0x34, 0x48, 0x69];
 
-        let mut frame = Request::with_slice(buf, Address::Word(0x1234), Write).unwrap();
+        let mut frame = Request::with_slice(buf, Address::Word(0x1234), Write, Crc::off()).unwrap();
         frame.push("Hi").unwrap();
-        let output = frame.finalize(false).unwrap();
+        let output = frame.finalize().unwrap();
         assert_eq!(output, expected);
     }
 
     // Compile test: push should not be available on a Read request
     /// ```compile_fail
     /// let buf = &mut [0u8; 20];
-    /// let mut frame = Request::with_slice(buf, Address::Word(0), Read(0)).unwrap();
+    /// let mut frame = Request::with_slice(buf, Address::Word(0), Read(0), Crc::off()).unwrap();
     /// frame.push(&42u8).unwrap(); // push is not available on a Read request
     /// ```
     #[test]
     fn read_request_push_should_not_compile() {}
+
+    /// A checksum that records what it was asked to cover and returns a fixed
+    /// value, so the trailer is unmistakable.
+    struct StubCrc {
+        covered: usize,
+    }
+
+    impl Checksum for StubCrc {
+        fn compute(&mut self, data: &[u8]) -> u16 {
+            self.covered = data.len();
+            0xAABB
+        }
+    }
+
+    #[test]
+    fn user_checksum_is_used_and_written_little_endian() {
+        let buf = &mut [0u8; 20];
+        let mut stub = StubCrc { covered: 0 };
+
+        let mut frame = Request::with_slice(buf, Address::Word(0x1234), Write, Some(&mut stub)).unwrap();
+        frame.push(&0x5566u16).unwrap();
+        let output = frame.finalize().unwrap();
+
+        // cmd + addr + payload, then the stub's value little-endian.
+        assert_eq!(output, &[0x5A, 0xA5, 7, 0x82, 0x12, 0x34, 0x55, 0x66, 0xBB, 0xAA]);
+        // The checksum covers everything after the length byte, not the header.
+        assert_eq!(stub.covered, 5);
+    }
 }

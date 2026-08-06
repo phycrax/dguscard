@@ -14,10 +14,21 @@ has_toolchain() {
   rustup toolchain list | grep -q "$1"
 }
 ensure_toolchain() {
-  has_toolchain "$1" || rustup toolchain install "$1"
+  # The runner's default rustup profile is `minimal`, so request components explicitly.
+  # `--allow-downgrade` picks the latest nightly that actually ships them.
+  has_toolchain "$1" || rustup toolchain install "$1" --profile=minimal --component=rustfmt --allow-downgrade
+}
+
+has_component() {
+  rustup component list --toolchain "$1" --installed | grep -q "$2"
+}
+ensure_component() {
+  has_component "$1" "$2" || rustup component add --toolchain "$1" "$2"
 }
 
 ensure_toolchain nightly
+# The toolchain may predate the check above (cached CI, local dev), so verify separately.
+ensure_component nightly rustfmt
 
 cargo_check() {
   cargo check --all "$@"

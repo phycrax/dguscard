@@ -159,11 +159,6 @@ struct Shared {
     /// Whether [`Runner::run`] is currently executing. Held by a [`RunGuard`]
     /// living in the `run` future, and read by every [`Control`] and [`Events`]
     /// call.
-    ///
-    /// Initialized to `true` rather than `false`: the handles and the runner
-    /// are typically driven from separate tasks, and the first request often
-    /// precedes the runner task's first poll. Starting `false` would fail that
-    /// request spuriously.
     running: Cell<bool>,
 }
 

@@ -1,6 +1,6 @@
 mod uart;
 
-use dguscard_driver::{Address, Config, Error, Resources, Runner};
+use dguscard_driver::{Address, Config, Resources, RunError, Runner};
 use embassy_executor::Spawner;
 use serde::Deserialize;
 use static_cell::ConstStaticCell;
@@ -145,8 +145,8 @@ async fn runner_task(mut runner: Runner<'static, UartRx>) {
     // itself is gone. Write errors surface at the `Control` call site instead.
     loop {
         match runner.run(rx_buf).await {
-            Err(Error::Accumulation(e)) => eprintln!("framing error, resyncing: {e:?}"),
-            Err(Error::EventQueueFull) => eprintln!("event queue full, frame dropped"),
+            Err(RunError::Accumulation(e)) => eprintln!("framing error, resyncing: {e:?}"),
+            Err(RunError::EventQueueFull) => eprintln!("event queue full, frame dropped"),
             Err(e) => panic!("receive failed: {e:?}"),
             Ok(_infallible) => unreachable!(),
         }

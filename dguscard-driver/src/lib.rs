@@ -33,6 +33,10 @@
 //! handles when requests and events are driven from separate tasks (e.g. a
 //! `select` loop that draws in response to touch events).
 //!
+//! The two sides fail in disjoint ways and have an error type each: the handles
+//! return [`Error`], the receive loop returns [`RunError`]. Neither type can
+//! carry a failure belonging to the other side.
+//!
 //! # Reliability notes
 //!
 //! - There are no built-in timeouts or retries. Wrap requests in
@@ -60,8 +64,8 @@
 //!   momentarily clear while the caller backs off between recoverable restarts,
 //!   and it never clears for a display that has simply gone quiet.
 //! - [`Runner::run`] returns errors instead of hiding them, and the *caller*
-//!   picks the recovery policy. Framing noise ([`Error::Accumulation`]) and a
-//!   full event queue ([`Error::EventQueueFull`]) are recoverable by calling
+//!   picks the recovery policy. Framing noise ([`RunError::Accumulation`]) and a
+//!   full event queue ([`RunError::EventQueueFull`]) are recoverable by calling
 //!   [`Runner::run`] again in a loop; transport errors mean the byte stream
 //!   itself is broken. See [`Runner::run`] for exactly what is lost across a
 //!   restart. Size the event queue with the `E` const on [`Resources`].
@@ -72,10 +76,10 @@ use core::cell::Cell;
 use core::convert::Infallible;
 use core::mem::MaybeUninit;
 
-pub use dguscard::Address;
 use dguscard::request::{Read, Request, Write};
 pub use dguscard::response::Content;
 use dguscard::response::{Accumulator, FeedResult, Response};
+pub use dguscard::{Address, request, response};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::zerocopy_channel::{Channel, Receiver, Sender};
 use embedded_io_async::{Error as _, Read as IoRead, Write as IoWrite};
@@ -83,27 +87,33 @@ use serde::{Deserialize, Serialize};
 
 const DEFAULT_MTU: usize = 128;
 
-/// Driver errors.
-#[derive(Debug)]
+/// Errors returned by the application-facing handles, [`Control`] and [`Events`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
-    /// Frame accumulation failed.
-    Accumulation(dguscard::Error),
-    /// Request serialization failed.
-    Serialize(dguscard::Error),
-    /// Response deserialization failed for the given address.
-    Deserialize(Address, dguscard::Error),
-    /// Transport read reached EOF.
-    UnexpectedEof,
-    /// Transport read error.
-    Read(embedded_io_async::ErrorKind),
-    /// Transport write error.
-    Write(embedded_io_async::ErrorKind),
-    /// An unsolicited frame arrived while the event queue was full.
-    EventQueueFull,
     /// [`Runner::run`] was not executing when the call was made, so nothing
     /// would have received the reply or queued the event.
     NotRunning,
+    /// Request serialization failed.
+    Serialize(request::Error),
+    /// Transport write error.
+    Io(embedded_io_async::ErrorKind),
+    /// Response deserialization failed for the given address.
+    Deserialize(Address, response::Error),
+}
+
+/// Errors that can stop [`Runner::run`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum RunError {
+    /// Frame accumulation failed.
+    Accumulation(response::Error),
+    /// Transport read reached EOF.
+    UnexpectedEof,
+    /// Transport read error.
+    Io(embedded_io_async::ErrorKind),
+    /// An unsolicited frame arrived while the event queue was full.
+    EventQueueFull,
 }
 
 /// Driver configuration, passed to [`new`].
@@ -396,7 +406,7 @@ impl<'d, TX: IoWrite, const MTU: usize> Control<'d, TX, MTU> {
     async fn transfer<R>(
         &mut self,
         expect: Expect,
-        build: impl FnOnce(&mut [u8], bool) -> Result<usize, dguscard::Error>,
+        build: impl FnOnce(&mut [u8], bool) -> Result<usize, request::Error>,
         complete: impl FnOnce(&[u8]) -> Result<R, Error>,
     ) -> Result<R, Error> {
         // Nothing is receiving, so this frame could only ever time out. Fail
@@ -413,7 +423,7 @@ impl<'d, TX: IoWrite, const MTU: usize> Control<'d, TX, MTU> {
         self.shared.pending.set(Some((expect, seq)));
         if let Err(e) = self.tx.write_all(&self.buf[..len]).await {
             self.shared.pending.set(None);
-            return Err(Error::Write(e.kind()));
+            return Err(Error::Io(e.kind()));
         }
 
         loop {
@@ -438,7 +448,7 @@ impl<'d, TX: IoWrite, const MTU: usize> Control<'d, TX, MTU> {
     ///
     /// [`Error::NotRunning`] if [`Runner::run`] was not executing on entry, in
     /// which case nothing is transmitted. Otherwise [`Error::Serialize`] or
-    /// [`Error::Write`].
+    /// [`Error::Io`].
     pub async fn write<T: Serialize + ?Sized>(&mut self, addr: Address, val: &T) -> Result<(), Error> {
         self.transfer(
             Expect::Ack,
@@ -463,7 +473,7 @@ impl<'d, TX: IoWrite, const MTU: usize> Control<'d, TX, MTU> {
     ///
     /// [`Error::NotRunning`] if [`Runner::run`] was not executing on entry, in
     /// which case nothing is transmitted. Otherwise [`Error::Serialize`],
-    /// [`Error::Write`], or [`Error::Deserialize`].
+    /// [`Error::Io`], or [`Error::Deserialize`].
     pub async fn read<T: for<'a> Deserialize<'a>>(&mut self, addr: Address, wlen: u8) -> Result<T, Error> {
         self.transfer(
             Expect::Read { addr, wlen },
@@ -549,16 +559,16 @@ impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
     /// recovery policy by matching on the error and, for recoverable ones,
     /// calling `run` again in a loop:
     ///
-    /// - [`Error::Accumulation`]: framing noise (stray bytes, a partial frame
+    /// - [`RunError::Accumulation`]: framing noise (stray bytes, a partial frame
     ///   at startup, a CRC mismatch). Restarting resynchronizes on the next
     ///   frame header. The partially accumulated frame and the unprocessed
     ///   remainder of the current read window are lost; a request whose
     ///   response was in that data hangs until the caller's timeout and can
     ///   then be retried.
-    /// - [`Error::EventQueueFull`]: an unsolicited frame arrived while the
+    /// - [`RunError::EventQueueFull`]: an unsolicited frame arrived while the
     ///   event queue was full. That frame is lost; restarting resumes normal
     ///   operation. Size the queue with the `E` const on [`Resources`].
-    /// - [`Error::Read`] / [`Error::UnexpectedEof`]: the transport itself
+    /// - [`RunError::Io`] / [`RunError::UnexpectedEof`]: the transport itself
     ///   failed; restart only after the underlying stream has been repaired.
     ///
     /// Transmission is unaffected by any of this — [`Control`] owns the
@@ -579,22 +589,22 @@ impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
     /// that window fail — which is usually what you want, but it means
     /// [`Error::NotRunning`] reports "the receive loop is not running", not "the
     /// display is unreachable".
-    pub async fn run(&mut self, rx_buf: &mut [u8]) -> Result<Infallible, Error> {
+    pub async fn run(&mut self, rx_buf: &mut [u8]) -> Result<Infallible, RunError> {
         let mut acc = Accumulator::<MTU>::new(self.crc);
         // Publishes `running` for exactly as long as this call runs; its `Drop`
         // clears it on every exit path, cancellation included.
         let _guard = RunGuard::new(self.shared);
         loop {
-            let n = self.rx.read(rx_buf).await.map_err(|e| Error::Read(e.kind()))?;
+            let n = self.rx.read(rx_buf).await.map_err(|e| RunError::Io(e.kind()))?;
             if n == 0 {
-                return Err(Error::UnexpectedEof);
+                return Err(RunError::UnexpectedEof);
             }
 
             let mut window: &[u8] = &rx_buf[..n];
             while !window.is_empty() {
                 window = match acc.feed(window) {
                     FeedResult::Consumed => break,
-                    FeedResult::Error(e, _) => return Err(Error::Accumulation(e)),
+                    FeedResult::Error(e, _) => return Err(RunError::Accumulation(e)),
                     FeedResult::Success(response, rest) => {
                         match response {
                             Response::Ack => {
@@ -627,7 +637,7 @@ impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
                                     let (addr, wlen) = (content.addr(), content.wlen());
                                     let bytes = content.as_bytes();
                                     let Some(slot) = self.event_sender.try_send() else {
-                                        return Err(Error::EventQueueFull);
+                                        return Err(RunError::EventQueueFull);
                                     };
                                     slot.addr = addr;
                                     slot.wlen = wlen;

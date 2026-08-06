@@ -1,6 +1,6 @@
 use serde::de::{self, DeserializeSeed, IntoDeserializer, Visitor};
 
-use crate::{Error, Result};
+use super::Error;
 
 /// `serde` compatible deserializer.
 #[derive(Debug)]
@@ -9,9 +9,21 @@ pub struct Deserializer<'de> {
     pub input: &'de [u8],
 }
 
+impl Deserializer<'_> {
+    /// Takes a fixed size chunk off the front of the input, if there is enough left.
+    ///
+    /// Lets the response parser read framing fields without going through `serde`.
+    #[inline]
+    pub(super) fn take_chunk<const N: usize>(&mut self) -> Option<[u8; N]> {
+        let (bytes, rest) = self.input.split_first_chunk::<N>()?;
+        self.input = rest;
+        Some(*bytes)
+    }
+}
+
 // Generic trait for blanket impl of big endian deserialization
 trait DeserializeBigEndian<T> {
-    fn deserialize_be(&mut self) -> Result<T>;
+    fn deserialize_be(&mut self) -> Result<T, Error>;
 }
 
 // Big endian deserialization macro
@@ -19,10 +31,8 @@ macro_rules! impl_deserialize_be{
     ($($ty:ident)+) => ($(
         impl DeserializeBigEndian<$ty> for Deserializer<'_> {
             #[inline]
-            fn deserialize_be(&mut self) -> Result<$ty> {
-                let (bytes, rest) = self.input.split_first_chunk().ok_or(Error::DeserializeUnexpectedEnd)?;
-                self.input = rest;
-                Ok($ty::from_be_bytes(*bytes))
+            fn deserialize_be(&mut self) -> Result<$ty, Error> {
+                self.take_chunk().map($ty::from_be_bytes).ok_or(Error::UnexpectedEnd)
             }
         }
     )+)
@@ -41,15 +51,15 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value>
+    fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
-        Err(Error::WontImplement)
+        Err(Error::Unsupported)
     }
 
     #[inline]
-    fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
@@ -58,13 +68,13 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
         let v = match v {
             0 => false,
             1 => true,
-            _ => return Err(Error::DeserializeBadBool),
+            _ => return Err(Error::BadBool),
         };
         visitor.visit_bool(v)
     }
 
     #[inline]
-    fn deserialize_i8<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_i8<V>(self, visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
@@ -72,7 +82,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_i16<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_i16<V>(self, visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
@@ -80,7 +90,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_i32<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_i32<V>(self, visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
@@ -88,7 +98,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_i64<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_i64<V>(self, visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
@@ -96,7 +106,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_i128<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_i128<V>(self, visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
@@ -104,7 +114,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_u8<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_u8<V>(self, visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
@@ -112,7 +122,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_u16<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_u16<V>(self, visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
@@ -120,7 +130,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_u32<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_u32<V>(self, visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
@@ -128,7 +138,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_u64<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_u64<V>(self, visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
@@ -136,7 +146,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_u128<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_u128<V>(self, visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
@@ -144,7 +154,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_f32<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_f32<V>(self, visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
@@ -152,7 +162,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_f64<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_f64<V>(self, visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
@@ -160,55 +170,55 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_char<V>(self, _visitor: V) -> Result<V::Value>
+    fn deserialize_char<V>(self, _visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
-        Err(Error::NotYetImplemented)
+        Err(Error::Unsupported)
     }
 
     #[inline]
-    fn deserialize_str<V>(self, _visitor: V) -> Result<V::Value>
+    fn deserialize_str<V>(self, _visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
-        Err(Error::NotYetImplemented)
+        Err(Error::Unsupported)
     }
 
     #[inline]
-    fn deserialize_string<V>(self, _visitor: V) -> Result<V::Value>
+    fn deserialize_string<V>(self, _visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
-        Err(Error::NotYetImplemented)
+        Err(Error::Unsupported)
     }
 
     #[inline]
-    fn deserialize_bytes<V>(self, _visitor: V) -> Result<V::Value>
+    fn deserialize_bytes<V>(self, _visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
-        Err(Error::NotYetImplemented)
+        Err(Error::Unsupported)
     }
 
     #[inline]
-    fn deserialize_byte_buf<V>(self, _visitor: V) -> Result<V::Value>
+    fn deserialize_byte_buf<V>(self, _visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
-        Err(Error::NotYetImplemented)
+        Err(Error::Unsupported)
     }
 
     #[inline]
-    fn deserialize_option<V>(self, _visitor: V) -> Result<V::Value>
+    fn deserialize_option<V>(self, _visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
-        Err(Error::NotYetImplemented)
+        Err(Error::Unsupported)
     }
 
     #[inline]
-    fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
@@ -216,7 +226,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_unit_struct<V>(self, _name: &'static str, visitor: V) -> Result<V::Value>
+    fn deserialize_unit_struct<V>(self, _name: &'static str, visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
@@ -224,7 +234,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_newtype_struct<V>(self, _name: &'static str, visitor: V) -> Result<V::Value>
+    fn deserialize_newtype_struct<V>(self, _name: &'static str, visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
@@ -232,15 +242,15 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_seq<V>(self, _visitor: V) -> Result<V::Value>
+    fn deserialize_seq<V>(self, _visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
-        Err(Error::NotYetImplemented)
+        Err(Error::Unsupported)
     }
 
     #[inline]
-    fn deserialize_tuple<V>(self, len: usize, visitor: V) -> Result<V::Value>
+    fn deserialize_tuple<V>(self, len: usize, visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
@@ -251,7 +261,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_tuple_struct<V>(self, _name: &'static str, len: usize, visitor: V) -> Result<V::Value>
+    fn deserialize_tuple_struct<V>(self, _name: &'static str, len: usize, visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
@@ -259,15 +269,20 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_map<V>(self, _visitor: V) -> Result<V::Value>
+    fn deserialize_map<V>(self, _visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
-        Err(Error::NotYetImplemented)
+        Err(Error::Unsupported)
     }
 
     #[inline]
-    fn deserialize_struct<V>(self, _name: &'static str, fields: &'static [&'static str], visitor: V) -> Result<V::Value>
+    fn deserialize_struct<V>(
+        self,
+        _name: &'static str,
+        fields: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
@@ -280,7 +295,7 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
         _name: &'static str,
         _variants: &'static [&'static str],
         visitor: V,
-    ) -> Result<V::Value>
+    ) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
@@ -288,19 +303,19 @@ impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'de> {
     }
 
     #[inline]
-    fn deserialize_identifier<V>(self, _visitor: V) -> Result<V::Value>
+    fn deserialize_identifier<V>(self, _visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
-        Err(Error::WontImplement)
+        Err(Error::Unsupported)
     }
 
     #[inline]
-    fn deserialize_ignored_any<V>(self, _visitor: V) -> Result<V::Value>
+    fn deserialize_ignored_any<V>(self, _visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
-        Err(Error::WontImplement)
+        Err(Error::Unsupported)
     }
 }
 
@@ -308,23 +323,23 @@ impl<'de> serde::de::VariantAccess<'de> for &'_ mut Deserializer<'de> {
     type Error = Error;
 
     #[inline]
-    fn unit_variant(self) -> Result<()> {
+    fn unit_variant(self) -> Result<(), Error> {
         Ok(())
     }
 
     #[inline]
-    fn newtype_variant_seed<V: DeserializeSeed<'de>>(self, seed: V) -> Result<V::Value> {
+    fn newtype_variant_seed<V: DeserializeSeed<'de>>(self, seed: V) -> Result<V::Value, Error> {
         DeserializeSeed::deserialize(seed, self)
     }
 
     #[inline]
-    fn tuple_variant<V: Visitor<'de>>(self, _len: usize, _visitor: V) -> Result<V::Value> {
-        Err(Error::NotYetImplemented)
+    fn tuple_variant<V: Visitor<'de>>(self, _len: usize, _visitor: V) -> Result<V::Value, Error> {
+        Err(Error::Unsupported)
     }
 
     #[inline]
-    fn struct_variant<V: Visitor<'de>>(self, _fields: &'static [&'static str], _visitor: V) -> Result<V::Value> {
-        Err(Error::NotYetImplemented)
+    fn struct_variant<V: Visitor<'de>>(self, _fields: &'static [&'static str], _visitor: V) -> Result<V::Value, Error> {
+        Err(Error::Unsupported)
     }
 }
 
@@ -333,7 +348,7 @@ impl<'de> serde::de::EnumAccess<'de> for &'_ mut Deserializer<'de> {
     type Variant = Self;
 
     #[inline]
-    fn variant_seed<V: DeserializeSeed<'de>>(self, seed: V) -> Result<(V::Value, Self)> {
+    fn variant_seed<V: DeserializeSeed<'de>>(self, seed: V) -> Result<(V::Value, Self), Error> {
         let v: u16 = self.deserialize_be()?;
         let v = DeserializeSeed::deserialize(seed, v.into_deserializer())?;
         Ok((v, self))
@@ -349,7 +364,7 @@ impl<'a, 'b: 'a> serde::de::SeqAccess<'b> for SeqAccess<'a, 'b> {
     type Error = Error;
 
     #[inline]
-    fn next_element_seed<V: DeserializeSeed<'b>>(&mut self, seed: V) -> Result<Option<V::Value>> {
+    fn next_element_seed<V: DeserializeSeed<'b>>(&mut self, seed: V) -> Result<Option<V::Value>, Error> {
         if self.len > 0 {
             self.len -= 1;
             Ok(Some(DeserializeSeed::deserialize(seed, &mut *self.deserializer)?))
@@ -479,7 +494,7 @@ mod tests {
     fn bool_bad() {
         let input = &[0x01, 0x00];
         let mut de = Deserializer { input };
-        assert_eq!(Err(Error::DeserializeBadBool), bool::deserialize(&mut de));
+        assert_eq!(Err(Error::BadBool), bool::deserialize(&mut de));
         assert!(de.input.is_empty());
     }
 

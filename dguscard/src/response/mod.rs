@@ -3,11 +3,71 @@
 mod accumulator;
 mod deserializer;
 
+use core::fmt::Formatter;
+
 use serde::Deserialize;
 
 pub use self::accumulator::{Accumulator, FeedResult};
 use self::deserializer::Deserializer;
-use crate::{Address, CRC, Error, HEADER, Result};
+use crate::{Address, CRC, HEADER};
+
+/// Errors that can occur while parsing a response or deserializing its content
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Error {
+    /// Bad response header
+    BadHeader,
+    /// Response length is less than the minimum response length
+    BadLen,
+    /// Response does not fit in the accumulator buffer
+    FrameTooLarge,
+    /// Response CRC mismatch
+    BadCrc,
+    /// Unknown response command
+    UnknownCmd,
+    /// Bad ACK in response
+    BadAck,
+    /// Hit the end of the input, expected more data
+    UnexpectedEnd,
+    /// Found a bool that wasn't 0 or 1
+    BadBool,
+    /// The type is not representable in the DGUS wire format
+    Unsupported,
+    /// Serde deserialization error
+    Serde,
+}
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Error::BadHeader => "Bad response header",
+                Error::BadLen => "Response length is less than the minimum response length",
+                Error::FrameTooLarge => "Response does not fit in the accumulator buffer",
+                Error::BadCrc => "Response CRC mismatch",
+                Error::UnknownCmd => "Unknown response command",
+                Error::BadAck => "Bad ACK in response",
+                Error::UnexpectedEnd => "Hit the end of the input, expected more data",
+                Error::BadBool => "Found a bool that wasn't 0 or 1",
+                Error::Unsupported => "The type is not representable in the DGUS wire format",
+                Error::Serde => "Serde deserialization error",
+            }
+        )
+    }
+}
+
+impl core::error::Error for Error {}
+
+impl serde::de::Error for Error {
+    fn custom<T>(_msg: T) -> Self
+    where
+        T: core::fmt::Display,
+    {
+        Error::Serde
+    }
+}
 
 /// A data response: where it came from, how long it is, and a [`serde`]
 /// compatible deserializer over its not-yet-taken data.
@@ -52,7 +112,7 @@ impl<'de> Content<'de> {
     }
 
     /// Removes a `T` from content and returns it.
-    pub fn take<T: Deserialize<'de>>(&mut self) -> Result<T> {
+    pub fn take<T: Deserialize<'de>>(&mut self) -> Result<T, Error> {
         T::deserialize(&mut self.deserializer)
     }
 
@@ -128,7 +188,7 @@ impl<'de> Response<'de> {
     /// Looks for a response within a byte slice.
     /// The unused portion (if any) of the byte slice is not returned.
     /// The byte slice is expected to contain full response, including header, length, and CRC if enabled.
-    pub fn from_bytes(input: &'de [u8], crc: bool) -> Result<Self> {
+    pub fn from_bytes(input: &'de [u8], crc: bool) -> Result<Self, Error> {
         let (response, _) = Self::take_from_bytes(input, crc)?;
         Ok(response)
     }
@@ -136,7 +196,7 @@ impl<'de> Response<'de> {
     /// Looks for a response within a byte slice.
     /// The unused portion (if any) of the byte slice is returned for further usage.
     /// The byte slice is expected to contain full response, including header, length, and CRC if enabled.
-    pub fn take_from_bytes(input: &'de [u8], crc: bool) -> Result<(Self, &'de [u8])> {
+    pub fn take_from_bytes(input: &'de [u8], crc: bool) -> Result<(Self, &'de [u8]), Error> {
         let (input, rest) = Self::extract_content_bytes(input, crc)?;
         Ok((Self::from_content_bytes(input)?, rest))
     }
@@ -146,20 +206,26 @@ impl<'de> Response<'de> {
     /// The data byte slice is expected to contain command and data section of the response,
     /// i.e. excluding header, length, and CRC if enabled.
     /// Intended to be used with an Accumulator.
-    pub fn from_content_bytes(input: &'de [u8]) -> Result<Self> {
+    pub fn from_content_bytes(input: &'de [u8]) -> Result<Self, Error> {
         let mut deserializer = Deserializer { input };
+        // Take the framing fields directly, framing is not deserialization
+        macro_rules! take {
+            ($ty:ty) => {
+                <$ty>::from_be_bytes(deserializer.take_chunk().ok_or(Error::UnexpectedEnd)?)
+            };
+        }
         // Strip command code from input
-        let opcode = u8::deserialize(&mut deserializer)?;
+        let opcode = take!(u8);
         // Is it ACK?
         if opcode % 2 == 0 {
             // Validate the write command code
             match opcode {
                 Address::REGISTER | Address::WORD | Address::CURVE | Address::DWORD => {}
-                _ => return Err(Error::ResponseUnknownCmd),
+                _ => return Err(Error::UnknownCmd),
             }
             // Verify ACK bytes
-            if u16::deserialize(&mut deserializer)? != u16::from_be_bytes(*b"OK") {
-                return Err(Error::ResponseBadAck);
+            if take!(u16) != u16::from_be_bytes(*b"OK") {
+                return Err(Error::BadAck);
             }
             Ok(Response::Ack)
         }
@@ -167,15 +233,13 @@ impl<'de> Response<'de> {
         else {
             // Strip address from input
             let addr = match opcode - 1 {
-                Address::REGISTER => {
-                    Address::Register(u8::deserialize(&mut deserializer)?, u8::deserialize(&mut deserializer)?)
-                }
-                Address::WORD => Address::Word(u16::deserialize(&mut deserializer)?),
-                Address::DWORD => Address::Dword(u32::deserialize(&mut deserializer)?),
-                _ => return Err(Error::ResponseUnknownCmd),
+                Address::REGISTER => Address::Register(take!(u8), take!(u8)),
+                Address::WORD => Address::Word(take!(u16)),
+                Address::DWORD => Address::Dword(take!(u32)),
+                _ => return Err(Error::UnknownCmd),
             };
             // Strip word length from input
-            let wlen = u8::deserialize(&mut deserializer)?;
+            let wlen = take!(u8);
             Ok(Response::Data(Content {
                 addr,
                 wlen,
@@ -187,28 +251,26 @@ impl<'de> Response<'de> {
     /// Extracts the command+data part of the response from a byte slice.
     /// The unused portion (if any) of the byte slice is returned for further usage.
     /// The byte slice is expected to contain full DGUS response, including header, length, and CRC if enabled.
-    fn extract_content_bytes(input: &'de [u8], crc: bool) -> Result<(&'de [u8], &'de [u8])> {
+    fn extract_content_bytes(input: &'de [u8], crc: bool) -> Result<(&'de [u8], &'de [u8]), Error> {
         // Strip header from input
-        let input = input
-            .strip_prefix(&u16::to_be_bytes(HEADER))
-            .ok_or(Error::ResponseBadHeader)?;
+        let input = input.strip_prefix(&u16::to_be_bytes(HEADER)).ok_or(Error::BadHeader)?;
 
         // Strip length from input
-        let (len, input) = input.split_first().ok_or(Error::DeserializeUnexpectedEnd)?;
+        let (len, input) = input.split_first().ok_or(Error::UnexpectedEnd)?;
         let len = *len as usize;
         let min_len = if crc { 5 } else { 3 };
         if len < min_len {
-            return Err(Error::ResponseBadLen);
+            return Err(Error::BadLen);
         }
 
-        // Split input with the length
-        let (input, rest) = input.split_at_checked(len).ok_or(Error::ResponseTooLarge)?;
+        // Split input with the length, the frame declares more bytes than we got
+        let (input, rest) = input.split_at_checked(len).ok_or(Error::UnexpectedEnd)?;
 
         // Strip CRC from input
         let input = if crc {
-            let (input, crc) = input.split_last_chunk().ok_or(Error::DeserializeUnexpectedEnd)?;
+            let (input, crc) = input.split_last_chunk().ok_or(Error::UnexpectedEnd)?;
             if u16::from_le_bytes(*crc) != CRC.checksum(input) {
-                return Err(Error::ResponseBadCrc);
+                return Err(Error::BadCrc);
             }
             input
         } else {
@@ -262,11 +324,18 @@ mod tests {
     }
 
     #[test]
+    fn truncated_frame() {
+        // The frame declares 10 bytes of content, but only 2 follow.
+        let input = [0x5A, 0xA5, 10, 0x83, 0x12];
+        assert!(matches!(Response::from_bytes(&input, false), Err(Error::UnexpectedEnd)));
+    }
+
+    #[test]
     fn unknown_cmd() {
         // The curve buffer is write only, so there is no 0x85 response.
         assert!(matches!(
             Response::from_content_bytes(&[0x85, 0x00, 1, 0xAA, 0xBB]),
-            Err(Error::ResponseUnknownCmd)
+            Err(Error::UnknownCmd)
         ));
     }
 }

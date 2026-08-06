@@ -6,13 +6,10 @@
 //! ## Feature flags
 #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
 
-mod error;
-
 pub mod request;
 pub mod response;
 
 use crc::{CRC_16_MODBUS, Crc};
-pub use error::{Error, Result};
 
 const CRC: Crc<u16> = Crc::<u16>::new(&CRC_16_MODBUS);
 const HEADER: u16 = 0x5AA5;

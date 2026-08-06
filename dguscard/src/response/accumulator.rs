@@ -1,5 +1,5 @@
-use crate::response::Response;
-use crate::{CRC, Error, HEADER, Result};
+use crate::response::{Error, Response};
+use crate::{CRC, HEADER};
 
 /// An accumulator used to collect chunked response
 ///
@@ -104,7 +104,7 @@ impl<const N: usize> Accumulator<N> {
     pub const fn new(crc: bool) -> Self {
         const {
             assert!(N >= 5, "Accumulator buffer size should be >= 5");
-            assert!(N <= u8::MAX as usize, "Accumulator buffer size should be <= 256");
+            assert!(N <= u8::MAX as usize, "Accumulator buffer size should be <= 255");
         };
         Accumulator {
             buf: [0; N],
@@ -153,34 +153,35 @@ impl<const N: usize> Accumulator<N> {
     }
 
     /// Feeds a single byte to the internal buffer.
-    fn feed_byte(&mut self, byte: u8) -> Result<Option<()>> {
+    fn feed_byte(&mut self, byte: u8) -> Result<Option<()>, Error> {
         self.state = match self.state {
             FeedState::Empty => {
                 if byte == HEADER.to_be_bytes()[0] {
                     FeedState::Header(false)
                 } else {
-                    return Err(Error::ResponseBadHeader);
+                    return Err(Error::BadHeader);
                 }
             }
             FeedState::Header(false) => {
                 if byte == HEADER.to_be_bytes()[1] {
                     FeedState::Header(true)
                 } else {
-                    return Err(Error::ResponseBadHeader);
+                    return Err(Error::BadHeader);
                 }
             }
             FeedState::Header(true) => {
                 let min_len = if self.crc { 5 } else { 3 };
                 if byte < min_len {
-                    return Err(Error::ResponseBadLen);
+                    return Err(Error::BadLen);
                 }
                 if byte as usize >= N {
-                    return Err(Error::ResponseTooLarge);
+                    return Err(Error::FrameTooLarge);
                 }
                 FeedState::Length(byte)
             }
             FeedState::Length(length) | FeedState::Data(length) => {
-                *self.buf.get_mut(self.idx).ok_or(Error::AccumulateBufferFull)? = byte;
+                // `length` was bounded by `N` above, so `idx` stays within the buffer.
+                self.buf[self.idx] = byte;
                 self.idx += 1;
                 FeedState::Data(length - 1)
             }
@@ -190,7 +191,7 @@ impl<const N: usize> Accumulator<N> {
             if self.crc {
                 let checksum = u16::from_le_bytes([self.buf[self.idx - 2], self.buf[self.idx - 1]]);
                 if checksum != CRC.checksum(&self.buf[..self.idx - 2]) {
-                    return Err(Error::ResponseBadCrc);
+                    return Err(Error::BadCrc);
                 }
                 self.idx -= 2;
             }
@@ -219,6 +220,29 @@ mod test {
         } else {
             panic!()
         }
+    }
+
+    #[test]
+    fn bad_header() {
+        let mut buf: Accumulator<64> = Accumulator::new(false);
+
+        let FeedResult::Error(e, remaining) = buf.feed(&[0x11, 0x22, 0x33]) else {
+            panic!("Expected an error")
+        };
+        assert_eq!(e, Error::BadHeader);
+        // The rest of the input is handed back so the caller can resync.
+        assert_eq!(remaining, &[0x22, 0x33]);
+    }
+
+    #[test]
+    fn frame_too_large() {
+        let mut buf: Accumulator<8> = Accumulator::new(false);
+
+        let FeedResult::Error(e, remaining) = buf.feed(&[0x5A, 0xA5, 8, 0x83]) else {
+            panic!("Expected an error")
+        };
+        assert_eq!(e, Error::FrameTooLarge);
+        assert_eq!(remaining, &[0x83]);
     }
 
     #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]

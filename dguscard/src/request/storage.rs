@@ -7,7 +7,7 @@ use core::ops::{Deref, DerefMut};
 #[cfg(feature = "heapless")]
 pub use hvec::*;
 
-use crate::{Error, Result};
+use crate::request::Error;
 
 /// Serialization storage, the output medium of the serialization
 ///
@@ -22,12 +22,12 @@ pub trait Storage: Deref<Target = [u8]> + DerefMut<Target = [u8]> {
     /// multiple bytes at once, such as copying a slice to the output, rather than iterating over one byte
     /// at a time.
     #[inline]
-    fn try_extend(&mut self, data: &[u8]) -> Result<()> {
+    fn try_extend(&mut self, data: &[u8]) -> Result<(), Error> {
         data.iter().try_for_each(|d| self.try_push(*d))
     }
 
     /// Can be used to push a single byte to be modified and/or stored.
-    fn try_push(&mut self, data: u8) -> Result<()>;
+    fn try_push(&mut self, data: u8) -> Result<(), Error>;
 
     /// Finalize the serialization process.
     fn finalize(self) -> Self::Output;
@@ -54,8 +54,8 @@ impl<'a> Storage for Slice<'a> {
     type Output = &'a mut [u8];
 
     #[inline]
-    fn try_push(&mut self, b: u8) -> Result<()> {
-        *self.buf.get_mut(self.index).ok_or(Error::RequestBufferFull)? = b;
+    fn try_push(&mut self, b: u8) -> Result<(), Error> {
+        *self.buf.get_mut(self.index).ok_or(Error::BufferFull)? = b;
         self.index += 1;
         Ok(())
     }
@@ -103,13 +103,13 @@ mod hvec {
         type Output = Vec<u8, N>;
 
         #[inline]
-        fn try_extend(&mut self, data: &[u8]) -> Result<()> {
-            self.0.extend_from_slice(data).map_err(|_| Error::RequestBufferFull)
+        fn try_extend(&mut self, data: &[u8]) -> Result<(), Error> {
+            self.0.extend_from_slice(data).map_err(|_| Error::BufferFull)
         }
 
         #[inline]
-        fn try_push(&mut self, data: u8) -> Result<()> {
-            self.0.push(data).map_err(|_| Error::RequestBufferFull)
+        fn try_push(&mut self, data: u8) -> Result<(), Error> {
+            self.0.push(data).map_err(|_| Error::BufferFull)
         }
 
         fn finalize(self) -> Self::Output {

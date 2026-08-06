@@ -3,6 +3,7 @@
 mod serializer;
 mod storage;
 
+use core::fmt::Formatter;
 use core::marker::PhantomData;
 
 use serde::Serialize;
@@ -11,7 +12,47 @@ use self::serializer::Serializer;
 #[cfg(feature = "heapless")]
 pub use self::storage::HVec;
 pub use self::storage::{Slice, Storage};
-use crate::{Address, CRC, HEADER, Result, Sealed};
+use crate::{Address, CRC, HEADER, Sealed};
+
+/// Errors that can occur while building a request
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Error {
+    /// Request buffer is full
+    BufferFull,
+    /// Found an enum discriminant that was > [`u16::MAX`]
+    BadEnum,
+    /// The type is not representable in the DGUS wire format
+    Unsupported,
+    /// Serde serialization error
+    Serde,
+}
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Error::BufferFull => "Request buffer is full",
+                Error::BadEnum => "Found an enum discriminant that was > u16::MAX",
+                Error::Unsupported => "The type is not representable in the DGUS wire format",
+                Error::Serde => "Serde serialization error",
+            }
+        )
+    }
+}
+
+impl core::error::Error for Error {}
+
+impl serde::ser::Error for Error {
+    fn custom<T>(_msg: T) -> Self
+    where
+        T: core::fmt::Display,
+    {
+        Error::Serde
+    }
+}
 
 /// Request builder
 ///
@@ -77,7 +118,7 @@ pub struct Request<C, S: Storage> {
 impl<'a, C: Command> Request<C, Slice<'a>> {
     /// Returns a new builder that uses a [`Slice`] as a given backing buffer.
     /// The request will be finalized as [`u8`] slice.
-    pub fn with_slice(buf: &'a mut [u8], addr: Address, cmd: C) -> Result<Self> {
+    pub fn with_slice(buf: &'a mut [u8], addr: Address, cmd: C) -> Result<Self, Error> {
         Self::new(Slice::new(buf), addr, cmd)
     }
 }
@@ -86,7 +127,7 @@ impl<'a, C: Command> Request<C, Slice<'a>> {
 impl<C: Command, const N: usize> Request<C, HVec<N>> {
     /// Returns a new builder that uses [`HVec`] as a buffer.
     /// The request will be finalized as [`Vec<u8, N>`][heapless::Vec].
-    pub fn with_hvec(addr: Address, cmd: C) -> Result<Self> {
+    pub fn with_hvec(addr: Address, cmd: C) -> Result<Self, Error> {
         Self::new(HVec::new(), addr, cmd)
     }
 }
@@ -96,7 +137,7 @@ where
     S: Storage<Output = O>,
 {
     /// Appends a `T` into the [`Request<Write, S>`].
-    pub fn push<T: Serialize + ?Sized>(&mut self, value: &T) -> Result<()> {
+    pub fn push<T: Serialize + ?Sized>(&mut self, value: &T) -> Result<(), Error> {
         value.serialize(&mut self.serializer)
     }
 }
@@ -109,7 +150,7 @@ where
     /// Returns a new builder with an output type that implements [`Storage`] trait.
     /// The request will be finalized as the given output type.
     /// It should rarely be necessary to directly use this function unless you implemented your own [`Storage`].
-    pub fn new(output: S, addr: Address, cmd: C) -> Result<Self> {
+    pub fn new(output: S, addr: Address, cmd: C) -> Result<Self, Error> {
         let mut serializer = Serializer { output };
         // Push header
         HEADER.serialize(&mut serializer)?;
@@ -139,7 +180,7 @@ where
     }
 
     /// Finalizes the request with optional CRC and returns the output.
-    pub fn finalize(mut self, crc: bool) -> Result<O> {
+    pub fn finalize(mut self, crc: bool) -> Result<O, Error> {
         if crc {
             let crc = CRC.checksum(&self.serializer.output[3..]).swap_bytes();
             crc.serialize(&mut self.serializer)?;

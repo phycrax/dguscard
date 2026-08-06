@@ -67,8 +67,10 @@
 //!   picks the recovery policy. Framing noise ([`RunError::Accumulation`]) and a
 //!   full event queue ([`RunError::EventQueueFull`]) are recoverable by calling
 //!   [`Runner::run`] again in a loop; transport errors mean the byte stream
-//!   itself is broken. See [`Runner::run`] for exactly what is lost across a
-//!   restart. Size the event queue with the `E` const on [`Resources`].
+//!   itself is broken. Neither costs more than the one frame that failed — the
+//!   read window is drained before the error is returned, and accumulation
+//!   state survives the restart. See [`Runner::run`] for exactly what is lost.
+//!   Size the event queue with the `E` const on [`Resources`].
 //!
 //! [`NoopRawMutex`]: embassy_sync::blocking_mutex::raw::NoopRawMutex
 
@@ -293,10 +295,10 @@ pub struct Events<'d, const MTU: usize = DEFAULT_MTU> {
 /// completions and event delivery to make progress.
 pub struct Runner<'d, RX: IoRead, const MTU: usize = DEFAULT_MTU> {
     rx: RX,
+    acc: Accumulator<MTU>,
     resp_sender: Sender<'d, NoopRawMutex, ResponseFrame<MTU>>,
     event_sender: Sender<'d, NoopRawMutex, EventFrame<MTU>>,
     shared: &'d Shared,
-    crc: Option<Crc>,
 }
 
 /// Creates a driver instance from a split transport.
@@ -348,10 +350,10 @@ where
     };
     let runner = Runner {
         rx,
+        acc: Accumulator::new(crc),
         resp_sender,
         event_sender,
         shared,
-        crc,
     };
     (device, runner)
 }
@@ -555,21 +557,32 @@ impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
     /// calling `run` again in a loop:
     ///
     /// - [`RunError::Accumulation`]: framing noise (stray bytes, a partial frame
-    ///   at startup, a CRC mismatch). Restarting resynchronizes on the next
-    ///   frame header. The partially accumulated frame and the unprocessed
-    ///   remainder of the current read window are lost; a request whose
-    ///   response was in that data hangs until the caller's timeout and can
-    ///   then be retried.
+    ///   at startup, a CRC mismatch). Only the bytes of the corrupt frame itself
+    ///   are lost: the accumulator resynchronizes on the next frame header
+    ///   within the same read, and every frame behind the failure is still
+    ///   dispatched before the error is returned. A request whose response was
+    ///   in the corrupt frame hangs until the caller's timeout and can then be
+    ///   retried.
     /// - [`RunError::EventQueueFull`]: an unsolicited frame arrived while the
-    ///   event queue was full. That frame is lost; restarting resumes normal
+    ///   event queue was full. That one frame is lost — frames behind it in the
+    ///   same read are still delivered — and restarting resumes normal
     ///   operation. Size the queue with the `E` const on [`Resources`].
     /// - [`RunError::Io`] / [`RunError::UnexpectedEof`]: the transport itself
     ///   failed; restart only after the underlying stream has been repaired.
     ///
+    /// A read window is always drained completely: the first failure in it is
+    /// held back and returned once every remaining byte has been fed, so
+    /// nothing the transport already delivered is discarded. When a window
+    /// contains more than one failure, the first is the one returned.
+    ///
     /// Transmission is unaffected by any of this — [`Control`] owns the
     /// transmitter — so a restart never truncates an outgoing frame. Request
-    /// correlation lives in shared state rather than in this future, so it
-    /// survives a restart untouched.
+    /// correlation lives in shared state and frame accumulation state lives in
+    /// the [`Runner`], not in this future, so both survive a restart untouched:
+    /// a frame split across the boundary still completes. The one wrinkle is a
+    /// transport failure mid-frame, where the retained half-frame is only
+    /// discarded once it fails its length or checksum check on the repaired
+    /// stream.
     ///
     /// # Run state
     ///
@@ -585,9 +598,6 @@ impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
     /// [`Error::NotRunning`] reports "the receive loop is not running", not "the
     /// display is unreachable".
     pub async fn run(&mut self, rx_buf: &mut [u8]) -> Result<Infallible, RunError> {
-        let mut acc = Accumulator::<MTU>::new(self.crc);
-        // Publishes `running` for exactly as long as this call runs; its `Drop`
-        // clears it on every exit path, cancellation included.
         let _guard = RunGuard::new(self.shared);
         loop {
             let n = self.rx.read(rx_buf).await.map_err(|e| RunError::Io(e.kind()))?;
@@ -595,11 +605,15 @@ impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
                 return Err(RunError::UnexpectedEof);
             }
 
+            let mut failed: Option<RunError> = None;
             let mut window: &[u8] = &rx_buf[..n];
             while !window.is_empty() {
-                window = match acc.feed(window) {
+                window = match self.acc.feed(window) {
                     FeedResult::Consumed => break,
-                    FeedResult::Error(e, _) => return Err(RunError::Accumulation(e)),
+                    FeedResult::Error(e, rest) => {
+                        failed.get_or_insert(RunError::Accumulation(e));
+                        rest
+                    }
                     FeedResult::Success(response, rest) => {
                         match response {
                             Response::Ack => {
@@ -610,8 +624,7 @@ impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
                                     slot.len = 0;
                                     self.resp_sender.send_done();
                                 }
-                                // Unmatched ACKs belong to cancelled requests;
-                                // drop them.
+                                // Unmatched ACKs belong to cancelled requests, drop them.
                             }
                             Response::Data(content) => {
                                 if let Some((Expect::Read { addr: a, wlen: w }, seq)) = self.shared.pending.get()
@@ -626,25 +639,29 @@ impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
                                     slot.seq = seq;
                                     self.resp_sender.send_done();
                                 } else {
-                                    // Unsolicited (including a data frame
-                                    // arriving while a write awaits its ACK):
-                                    // queue for `Events`.
+                                    // Unsolicited queue for `Events`.
                                     let (addr, wlen) = (content.addr(), content.wlen());
                                     let bytes = content.as_bytes();
-                                    let Some(slot) = self.event_sender.try_send() else {
-                                        return Err(RunError::EventQueueFull);
-                                    };
-                                    slot.addr = addr;
-                                    slot.wlen = wlen;
-                                    slot.buf[..bytes.len()].copy_from_slice(bytes);
-                                    slot.len = bytes.len();
-                                    self.event_sender.send_done();
+                                    if let Some(slot) = self.event_sender.try_send() {
+                                        slot.addr = addr;
+                                        slot.wlen = wlen;
+                                        slot.buf[..bytes.len()].copy_from_slice(bytes);
+                                        slot.len = bytes.len();
+                                        self.event_sender.send_done();
+                                    } else {
+                                        // Only this frame is dropped, the rest of the window is still processed.
+                                        failed.get_or_insert(RunError::EventQueueFull);
+                                    }
                                 }
                             }
                         }
                         rest
                     }
                 };
+            }
+
+            if let Some(e) = failed {
+                return Err(e);
             }
         }
     }

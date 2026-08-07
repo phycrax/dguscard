@@ -269,7 +269,7 @@ impl<'d, TX: IoWrite, const MTU: usize> Control<'d, TX, MTU> {
 }
 
 impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
-    pub async fn run<D: Dispatcher>(&mut self, rx_buf: &mut [u8], dispatcher: &mut D) -> Result<Infallible, RunError> {
+    pub async fn run<D: Dispatcher>(&mut self, rx_buf: &mut [u8], ctx: &mut D::Context, dispatcher: &mut D) -> Result<Infallible, RunError> {
         let _guard = RunGuard::new(self.shared);
         loop {
             let n = self.rx.read(rx_buf).await.map_err(|e| RunError::Io(e.kind()))?;
@@ -312,7 +312,7 @@ impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
                                     self.resp_sender.send_done();
                                 }
                                 // Or is this an unsolicited event?
-                                else if let Err(e) = dispatcher.dispatch(content) {
+                                else if let Err(e) = dispatcher.dispatch(ctx, content) {
                                     // Dispatch failed. Only this frame is dropped, the rest of the window is still processed.
                                     failed.get_or_insert(RunError::Dispatch(e));
                                 }

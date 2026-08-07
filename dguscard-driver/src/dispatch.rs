@@ -12,6 +12,8 @@ pub enum DispatchError {
 }
 
 pub trait Dispatcher {
+    type Context;
+
     /// Handles one unsolicited data frame.
-    fn dispatch(&mut self, content: Content<'_>) -> Result<(), DispatchError>;
+    fn dispatch(&mut self, ctx: &mut Self::Context, content: Content<'_>) -> Result<(), DispatchError>;
 }

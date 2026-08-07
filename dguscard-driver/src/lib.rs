@@ -39,6 +39,8 @@ pub enum RunError {
     Accumulation(response::Error),
     /// An ack arrived that matched no request in flight.
     UnmatchedAck,
+    /// The reply to a cancelled read arrived and was dropped.
+    LateReply(Address, u8),
     /// Transport read reached EOF.
     UnexpectedEof,
     /// Transport read error.
@@ -76,6 +78,7 @@ enum Expect {
 
 struct Shared {
     pending: Cell<Option<(Expect, u8)>>,
+    abandoned_read: Cell<Option<(Address, u8)>>,
     running: Cell<bool>,
 }
 
@@ -83,6 +86,7 @@ impl Shared {
     const fn new() -> Self {
         Self {
             pending: Cell::new(None),
+            abandoned_read: Cell::new(None),
             running: Cell::new(false),
         }
     }
@@ -118,7 +122,9 @@ impl<'d> PendingGuard<'d> {
 
 impl Drop for PendingGuard<'_> {
     fn drop(&mut self) {
-        self.shared.pending.set(None);
+        if let Some((Expect::Read { addr, wlen }, _)) = self.shared.pending.take() {
+            self.shared.abandoned_read.set(Some((addr, wlen)));
+        }
     }
 }
 
@@ -337,6 +343,11 @@ impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
                                     slot.len = bytes.len();
                                     slot.seq = seq;
                                     self.resp_sender.send_done();
+                                }
+                                // Or the late reply to a read nobody waits for any more? Drop it.
+                                else if self.shared.abandoned_read.get() == Some((content.addr(), content.wlen())) {
+                                    self.shared.abandoned_read.set(None);
+                                    failed.get_or_insert(RunError::LateReply(content.addr(), content.wlen()));
                                 }
                                 // Or is this an unsolicited event?
                                 else if let Err(e) = dispatcher.dispatch(ctx, content) {

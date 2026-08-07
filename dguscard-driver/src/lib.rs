@@ -37,6 +37,8 @@ pub enum Error {
 pub enum RunError {
     /// Frame accumulation failed.
     Accumulation(response::Error),
+    /// An ack arrived that matched no request in flight.
+    UnmatchedAck,
     /// Transport read reached EOF.
     UnexpectedEof,
     /// Transport read error.
@@ -100,6 +102,23 @@ impl<'d> RunGuard<'d> {
 impl Drop for RunGuard<'_> {
     fn drop(&mut self) {
         self.shared.running.set(false);
+    }
+}
+
+struct PendingGuard<'d> {
+    shared: &'d Shared,
+}
+
+impl<'d> PendingGuard<'d> {
+    fn new(shared: &'d Shared, expect: Expect, seq: u8) -> Self {
+        shared.pending.set(Some((expect, seq)));
+        Self { shared }
+    }
+}
+
+impl Drop for PendingGuard<'_> {
+    fn drop(&mut self) {
+        self.shared.pending.set(None);
     }
 }
 
@@ -205,6 +224,7 @@ where
 impl<'d, TX: IoWrite, const MTU: usize> Control<'d, TX, MTU> {
     fn begin_request(&mut self) -> u8 {
         while self.resp_receiver.try_receive().is_some() {
+            // Hey! You dropped here: unmatched frame
             self.resp_receiver.receive_done();
         }
         self.seq = self.seq.wrapping_add(1);
@@ -224,9 +244,8 @@ impl<'d, TX: IoWrite, const MTU: usize> Control<'d, TX, MTU> {
         let seq = self.begin_request();
         let len = build(&mut self.buf[..], self.crc).map_err(Error::Serialize)?;
 
-        self.shared.pending.set(Some((expect, seq)));
+        let _pending = PendingGuard::new(self.shared, expect, seq);
         if let Err(e) = self.tx.write_all(&self.buf[..len]).await {
-            self.shared.pending.set(None);
             return Err(Error::Io(e.kind()));
         }
 
@@ -289,12 +308,15 @@ impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
                     FeedResult::Success(response, rest) => {
                         match response {
                             Response::Ack => {
+                                // Is it a matching ACK?
                                 if let Some((Expect::Ack, seq)) = self.shared.pending.get() {
                                     self.shared.pending.set(None);
                                     let slot = self.resp_sender.send().await;
                                     slot.seq = seq;
                                     slot.len = 0;
                                     self.resp_sender.send_done();
+                                } else {
+                                    failed.get_or_insert(RunError::UnmatchedAck);
                                 }
                             }
                             Response::Data(content) => {

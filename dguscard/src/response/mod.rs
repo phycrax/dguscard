@@ -69,8 +69,7 @@ impl serde::de::Error for Error {
     }
 }
 
-/// A data response: where it came from, how long it is, and a [`serde`]
-/// compatible deserializer over its not-yet-taken data.
+/// A data response with a [`serde`] compatible deserializer over its not-yet-taken data.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Content<'de> {

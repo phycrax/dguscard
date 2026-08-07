@@ -166,7 +166,7 @@ impl<const MTU: usize> Default for Resources<MTU> {
     }
 }
 
-pub struct Control<'d, TX: IoWrite, const MTU: usize = DEFAULT_MTU> {
+pub struct Display<'d, TX: IoWrite, const MTU: usize = DEFAULT_MTU> {
     tx: TX,
     buf: &'d mut [u8],
     resp_receiver: Receiver<'d, NoopRawMutex, ResponseFrame<MTU>>,
@@ -187,7 +187,7 @@ pub fn new<'d, RX, TX, const MTU: usize>(
     rx: RX,
     tx: TX,
     config: Config,
-) -> (Control<'d, TX, MTU>, Runner<'d, RX, MTU>)
+) -> (Display<'d, TX, MTU>, Runner<'d, RX, MTU>)
 where
     RX: IoRead,
     TX: IoWrite,
@@ -204,7 +204,7 @@ where
     let (resp_sender, resp_receiver) = inner.resp.split();
     let shared = &inner.shared;
 
-    let control = Control {
+    let display = Display {
         tx,
         buf: &mut resources.req_buf[..],
         resp_receiver,
@@ -218,10 +218,10 @@ where
         resp_sender,
         shared,
     };
-    (control, runner)
+    (display, runner)
 }
 
-impl<'d, TX: IoWrite, const MTU: usize> Control<'d, TX, MTU> {
+impl<'d, TX: IoWrite, const MTU: usize> Display<'d, TX, MTU> {
     fn begin_request(&mut self) -> u8 {
         while self.resp_receiver.try_receive().is_some() {
             // Hey! You dropped here: unmatched frame
@@ -288,7 +288,12 @@ impl<'d, TX: IoWrite, const MTU: usize> Control<'d, TX, MTU> {
 }
 
 impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
-    pub async fn run<D: Dispatcher>(&mut self, rx_buf: &mut [u8], ctx: &mut D::Context, dispatcher: &mut D) -> Result<Infallible, RunError> {
+    pub async fn run<D: Dispatcher>(
+        &mut self,
+        rx_buf: &mut [u8],
+        ctx: &mut D::Context,
+        dispatcher: &mut D,
+    ) -> Result<Infallible, RunError> {
         let _guard = RunGuard::new(self.shared);
         loop {
             let n = self.rx.read(rx_buf).await.map_err(|e| RunError::Io(e.kind()))?;

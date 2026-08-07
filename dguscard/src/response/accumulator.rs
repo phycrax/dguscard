@@ -1,5 +1,5 @@
 use crate::response::{Error, Response};
-use crate::{CRC_LEN, Checksum, Crc, HEADER, MAX_CONTENT_LEN, MIN_CONTENT_LEN};
+use crate::{CRC_LEN, Checksum, Crc, HEADER, MIN_CONTENT_LEN};
 
 /// An [`Accumulator`] that owns a `[u8; N]` buffer.
 ///
@@ -126,22 +126,7 @@ impl<const N: usize, K: Checksum> ArrayAccumulator<N, K> {
     ///
     /// Pass [`Crc::on()`] or [`Crc::off()`] for `crc`, matching how the display
     /// is configured, or `Some(..)` to supply your own [`Checksum`].
-    ///
-    /// `N` may not exceed 255, the longest content a DGUS frame can describe.
-    /// This is checked at compile time.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `N` is smaller than the shortest content a DGUS frame can
-    /// carry: 3 without CRC, 5 with CRC.
     pub const fn new(crc: Option<K>) -> Self {
-        const {
-            assert!(N <= MAX_CONTENT_LEN, "Accumulator buffer size should be <= 255");
-        };
-        assert!(
-            N >= min_content_len(crc.is_some()),
-            "Accumulator buffer size should be >= 3, or >= 5 with CRC enabled"
-        );
         Accumulator {
             buf: [0; N],
             idx: 0,
@@ -156,16 +141,7 @@ impl<'a, K: Checksum> SliceAccumulator<'a, K> {
     ///
     /// Pass [`Crc::on()`] or [`Crc::off()`] for `crc`, matching how the display
     /// is configured, or `Some(..)` to supply your own [`Checksum`].
-    ///
-    /// # Panics
-    ///
-    /// Panics if `N` is smaller than the shortest content a DGUS frame can
-    /// carry: 3 without CRC, 5 with CRC.
     pub const fn new(buf: &'a mut [u8], crc: Option<K>) -> Self {
-        assert!(
-            buf.len() >= min_content_len(crc.is_some()),
-            "Accumulator buffer should be >= 3 bytes, or >= 5 with CRC enabled"
-        );
         Accumulator {
             buf,
             idx: 0,
@@ -183,16 +159,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>, K: Checksum> Accumulator<B, K> {
     ///
     /// Pass [`Crc::on()`] or [`Crc::off()`] for `crc`, matching how the display
     /// is configured, or `Some(..)` to supply your own [`Checksum`].
-    ///
-    /// # Panics
-    ///
-    /// Panics if `N` is smaller than the shortest content a DGUS frame can
-    /// carry: 3 without CRC, 5 with CRC.
-    pub fn with_buffer(buf: B, crc: Option<K>) -> Self {
-        assert!(
-            buf.as_ref().len() >= min_content_len(crc.is_some()),
-            "Accumulator buffer should be >= 3 bytes, or >= 5 with CRC enabled"
-        );
+    pub const fn with_buffer(buf: B, crc: Option<K>) -> Self {
         Accumulator {
             buf,
             idx: 0,
@@ -292,7 +259,7 @@ mod test {
     use serde::{Deserialize, Serialize};
 
     use super::*;
-    use crate::Address;
+    use crate::{Address, MAX_CONTENT_LEN};
 
     #[test]
     fn ack_crc() {

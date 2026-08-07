@@ -20,6 +20,8 @@ use crate::{Address, Checksum, Crc, FRAME_OVERHEAD, HEADER, MAX_CONTENT_LEN, Sea
 pub enum Error {
     /// Request buffer is full
     BufferFull,
+    /// Request content is longer than the frame length byte can describe
+    OversizedFrame,
     /// Found an enum discriminant that was > [`u16::MAX`]
     BadEnum,
     /// The type is not representable in the DGUS wire format
@@ -35,6 +37,7 @@ impl core::fmt::Display for Error {
             "{}",
             match self {
                 Error::BufferFull => "Request buffer is full",
+                Error::OversizedFrame => "Request content is longer than the frame length byte can describe",
                 Error::BadEnum => "Found an enum discriminant that was > u16::MAX",
                 Error::Unsupported => "The type is not representable in the DGUS wire format",
                 Error::Serde => "Serde serialization error",
@@ -200,10 +203,10 @@ where
             let sum = crc.compute(&self.serializer.output[FRAME_OVERHEAD..]);
             self.serializer.output.try_extend(&sum.to_le_bytes())?;
         }
-        // Storage buffers are capped at `MAX_FRAME_LEN` when constructed, so the
-        // content always fits the length byte and cannot be truncated here.
         let content_len = self.serializer.output.len() - FRAME_OVERHEAD;
-        debug_assert!(content_len <= MAX_CONTENT_LEN, "request outgrew the frame length byte");
+        if content_len > MAX_CONTENT_LEN {
+            return Err(Error::OversizedFrame);
+        }
         self.serializer.output[2] = content_len as u8;
         Ok(self.serializer.output.finalize())
     }
@@ -283,16 +286,36 @@ mod tests {
             frame.push(&0xABCDu16).unwrap();
         }
 
-        // The buffer cap turns "longer than the length byte can describe" into
-        // an ordinary full-buffer error rather than a truncated frame.
+        // This buffer is exactly one frame long, so running out of room is what
+        // stops the frame growing, before `finalize` gets to measure it.
         assert_eq!(frame.push(&0xABCDu16), Err(Error::BufferFull));
     }
 
     #[test]
-    #[should_panic(expected = "Request buffer should be <= 258 bytes")]
-    fn oversized_slice_buffer_panics() {
-        let buf = &mut [0u8; crate::MAX_FRAME_LEN + 1];
-        let _ = Request::with_slice(buf, Address::Word(0x1234), Write, Crc::off());
+    fn oversized_frame_errors_at_finalize() {
+        // A larger-than-a-frame buffer is the caller's business, so it is
+        // accepted; the frame it describes is what has to stay in range.
+        let buf = &mut [0u8; crate::MAX_FRAME_LEN + 8];
+        let mut frame = Request::with_slice(buf, Address::Word(0x1234), Write, Crc::off()).unwrap();
+        // One word past what the length byte can describe: 3 + 127 * 2 = 257.
+        for _ in 0..127 {
+            frame.push(&0xABCDu16).unwrap();
+        }
+
+        assert_eq!(frame.finalize(), Err(Error::OversizedFrame));
+    }
+
+    #[test]
+    fn oversized_frame_counts_the_crc() {
+        // 255 content bytes fit, but only without a trailer: the checksum is
+        // appended before the length is measured, so this overflows by two.
+        let buf = &mut [0u8; crate::MAX_FRAME_LEN + 8];
+        let mut frame = Request::with_slice(buf, Address::Word(0x1234), Write, Crc::on()).unwrap();
+        for _ in 0..126 {
+            frame.push(&0xABCDu16).unwrap();
+        }
+
+        assert_eq!(frame.finalize(), Err(Error::OversizedFrame));
     }
 
     #[test]

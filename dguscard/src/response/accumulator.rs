@@ -259,7 +259,9 @@ mod test {
     use serde::{Deserialize, Serialize};
 
     use super::*;
-    use crate::{Address, MAX_CONTENT_LEN};
+    use crate::{Address, FRAME_OVERHEAD, MAX_CONTENT_LEN};
+
+    const MAX_FRAME_LEN: usize = u8::MAX as usize + FRAME_OVERHEAD;
 
     #[test]
     fn ack_crc() {
@@ -333,7 +335,7 @@ mod test {
 
         // A frame whose length byte is saturated: 255 content bytes, the most a
         // DGUS frame can describe.
-        let mut ser = [0u8; crate::MAX_FRAME_LEN];
+        let mut ser = [0u8; MAX_FRAME_LEN];
         ser[0] = 0x5A;
         ser[1] = 0xA5;
         ser[2] = MAX_CONTENT_LEN as u8;

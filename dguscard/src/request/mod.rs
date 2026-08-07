@@ -254,6 +254,8 @@ mod tests {
 
     use super::*;
 
+    const MAX_FRAME_LEN: usize = u8::MAX as usize + FRAME_OVERHEAD;
+
     #[derive(Serialize)]
     struct TestTuple(u16, u16);
 
@@ -265,7 +267,7 @@ mod tests {
 
     #[test]
     fn frame_fills_length_byte() {
-        let buf = &mut [0u8; crate::MAX_FRAME_LEN];
+        let buf = &mut [0u8; MAX_FRAME_LEN];
         let mut frame = Request::with_slice(buf, Address::Word(0x1234), Write, Crc::off()).unwrap();
         // Command and address take 3 content bytes, so 126 words saturate the
         // length byte exactly.
@@ -274,13 +276,13 @@ mod tests {
         }
 
         let output = frame.finalize().unwrap();
-        assert_eq!(output.len(), crate::MAX_FRAME_LEN);
+        assert_eq!(output.len(), MAX_FRAME_LEN);
         assert_eq!(output[2], MAX_CONTENT_LEN as u8);
     }
 
     #[test]
     fn frame_cannot_outgrow_length_byte() {
-        let buf = &mut [0u8; crate::MAX_FRAME_LEN];
+        let buf = &mut [0u8; MAX_FRAME_LEN];
         let mut frame = Request::with_slice(buf, Address::Word(0x1234), Write, Crc::off()).unwrap();
         for _ in 0..126 {
             frame.push(&0xABCDu16).unwrap();
@@ -295,7 +297,7 @@ mod tests {
     fn oversized_frame_errors_at_finalize() {
         // A larger-than-a-frame buffer is the caller's business, so it is
         // accepted; the frame it describes is what has to stay in range.
-        let buf = &mut [0u8; crate::MAX_FRAME_LEN + 8];
+        let buf = &mut [0u8; MAX_FRAME_LEN + 8];
         let mut frame = Request::with_slice(buf, Address::Word(0x1234), Write, Crc::off()).unwrap();
         // One word past what the length byte can describe: 3 + 127 * 2 = 257.
         for _ in 0..127 {
@@ -309,7 +311,7 @@ mod tests {
     fn oversized_frame_counts_the_crc() {
         // 255 content bytes fit, but only without a trailer: the checksum is
         // appended before the length is measured, so this overflows by two.
-        let buf = &mut [0u8; crate::MAX_FRAME_LEN + 8];
+        let buf = &mut [0u8; MAX_FRAME_LEN + 8];
         let mut frame = Request::with_slice(buf, Address::Word(0x1234), Write, Crc::on()).unwrap();
         for _ in 0..126 {
             frame.push(&0xABCDu16).unwrap();

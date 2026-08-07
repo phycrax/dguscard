@@ -14,8 +14,6 @@ const HEADER: u16 = 0x5AA5;
 
 const FRAME_OVERHEAD: usize = 3;
 const MAX_CONTENT_LEN: usize = u8::MAX as usize;
-const MAX_FRAME_LEN: usize = FRAME_OVERHEAD + MAX_CONTENT_LEN;
-
 const CRC_LEN: usize = 2;
 const MIN_CONTENT_LEN: usize = 3;
 

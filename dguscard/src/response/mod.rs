@@ -7,7 +7,7 @@ use core::fmt::Formatter;
 
 use serde::Deserialize;
 
-pub use self::accumulator::{Accumulator, FeedResult};
+pub use self::accumulator::{Accumulator, ArrayAccumulator, FeedResult, SliceAccumulator};
 use self::deserializer::Deserializer;
 use crate::{Address, CRC_LEN, Checksum, HEADER, MIN_CONTENT_LEN};
 

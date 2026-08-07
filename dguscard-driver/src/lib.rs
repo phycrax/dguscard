@@ -6,9 +6,10 @@
 //! [`dguscard`] as the sans-io frame codec. The split follows `embassy-net`:
 //! [`new`] takes caller-provided [`Resources`] storage plus both halves of the
 //! transport, and returns a [`Device`] handle owning the **transmitter**
-//! alongside a [`Runner`] owning the **receiver**. [`Runner::run`] must be
-//! polled continuously — typically from its own task — or no response and no
-//! event will ever arrive.
+//! alongside a [`Runner`] owning the **receiver**. Every frame-sized buffer
+//! lives in [`Resources`], so both are pointer-sized and cheap to move into a
+//! task. [`Runner::run`] must be polled continuously — typically from its own
+//! task — or no response and no event will ever arrive.
 //!
 //! Requests go straight to the transport from [`Control`]: there is no queue
 //! between the application and the wire. [`Device::write`] and [`Device::read`]
@@ -80,7 +81,7 @@ use core::mem::MaybeUninit;
 
 use dguscard::request::{Read, Request, Write};
 pub use dguscard::response::Content;
-use dguscard::response::{Accumulator, FeedResult, Response};
+use dguscard::response::{ArrayAccumulator, FeedResult, Response};
 pub use dguscard::{Address, Crc, request, response};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::zerocopy_channel::{Channel, Receiver, Sender};
@@ -226,21 +227,30 @@ impl<const MTU: usize> EventFrame<MTU> {
 }
 
 /// State shared between [`Control`] and [`Runner`]: the two zero-copy channels,
-/// borrowing the buffer arrays in [`Resources`], plus the flags in [`Shared`].
+/// borrowing the buffer arrays in [`Resources`], plus the receive accumulator
+/// and the flags in [`Shared`].
 struct StateInner<'a, const MTU: usize> {
     resp: Channel<'a, NoopRawMutex, ResponseFrame<MTU>>,
     events: Channel<'a, NoopRawMutex, EventFrame<MTU>>,
+    acc: ArrayAccumulator<MTU>,
     shared: Shared,
 }
 
 /// Caller-provided storage for the driver, like `embassy_net::StackResources`.
 ///
-/// `MTU` bounds the largest sendable/receivable frame. `E` is the depth
-/// of the unsolicited event queue — size it for the worst-case burst of
-/// touch events between two [`Events::receive`] calls.
+/// Holds every frame-sized buffer the driver needs — the completion and event
+/// queues, the receive accumulator, and the request serialization scratch — so
+/// the handles and the [`Runner`] [`new`] returns are pointer-sized and cheap
+/// to move into a task.
+///
+/// `MTU` bounds the largest sendable/receivable frame, and cannot exceed 255,
+/// the longest content a DGUS frame can describe. `E` is the depth of the
+/// unsolicited event queue — size it for the worst-case burst of touch events
+/// between two [`Events::receive`] calls.
 pub struct Resources<const MTU: usize = DEFAULT_MTU, const E: usize = 4> {
     resp_bufs: [ResponseFrame<MTU>; 1],
     event_bufs: [EventFrame<MTU>; E],
+    req_buf: [u8; MTU],
     inner: MaybeUninit<StateInner<'static, MTU>>,
 }
 
@@ -250,6 +260,7 @@ impl<const MTU: usize, const E: usize> Resources<MTU, E> {
         Self {
             resp_bufs: [ResponseFrame::INIT; 1],
             event_bufs: [EventFrame::INIT; E],
+            req_buf: [0; MTU],
             inner: MaybeUninit::uninit(),
         }
     }
@@ -275,9 +286,10 @@ pub struct Device<'d, TX: IoWrite, const MTU: usize = DEFAULT_MTU> {
 /// [`Runner`].
 pub struct Control<'d, TX: IoWrite, const MTU: usize = DEFAULT_MTU> {
     tx: TX,
-    /// Serialization scratch for the request being sent. Only one request is
-    /// in flight at a time (enforced by `&mut self`), so one buffer suffices.
-    buf: [u8; MTU],
+    /// Serialization scratch for the request being sent, borrowed from
+    /// [`Resources`]. Only one request is in flight at a time (enforced by
+    /// `&mut self`), so one buffer suffices.
+    buf: &'d mut [u8],
     resp_receiver: Receiver<'d, NoopRawMutex, ResponseFrame<MTU>>,
     shared: &'d Shared,
     seq: u8,
@@ -295,7 +307,10 @@ pub struct Events<'d, const MTU: usize = DEFAULT_MTU> {
 /// completions and event delivery to make progress.
 pub struct Runner<'d, RX: IoRead, const MTU: usize = DEFAULT_MTU> {
     rx: RX,
-    acc: Accumulator<MTU>,
+    /// Frame accumulation state, borrowed from [`Resources`]. It lives there
+    /// rather than in the [`Runner::run`] future so a frame split across a
+    /// `run` restart still completes.
+    acc: &'d mut ArrayAccumulator<MTU>,
     resp_sender: Sender<'d, NoopRawMutex, ResponseFrame<MTU>>,
     event_sender: Sender<'d, NoopRawMutex, EventFrame<MTU>>,
     shared: &'d Shared,
@@ -330,17 +345,19 @@ where
     let inner = unsafe { &mut *inner_uninit }.write(StateInner {
         resp: Channel::new(&mut resources.resp_bufs[..]),
         events: Channel::new(&mut resources.event_bufs[..]),
+        acc: ArrayAccumulator::new(crc),
         shared: Shared::new(),
     });
 
     let (resp_sender, resp_receiver) = inner.resp.split();
     let (event_sender, event_receiver) = inner.events.split();
+    let acc = &mut inner.acc;
     let shared = &inner.shared;
 
     let device = Device {
         control: Control {
             tx,
-            buf: [0; MTU],
+            buf: &mut resources.req_buf[..],
             resp_receiver,
             shared,
             seq: 0,
@@ -350,7 +367,7 @@ where
     };
     let runner = Runner {
         rx,
-        acc: Accumulator::new(crc),
+        acc,
         resp_sender,
         event_sender,
         shared,
@@ -413,7 +430,7 @@ impl<'d, TX: IoWrite, const MTU: usize> Control<'d, TX, MTU> {
         }
 
         let seq = self.begin_request();
-        let len = build(&mut self.buf, self.crc).map_err(Error::Serialize)?;
+        let len = build(&mut self.buf[..], self.crc).map_err(Error::Serialize)?;
 
         // Arm correlation before the frame hits the wire, so the reply cannot
         // be observed before the runner knows to expect it.
@@ -577,9 +594,9 @@ impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
     ///
     /// Transmission is unaffected by any of this — [`Control`] owns the
     /// transmitter — so a restart never truncates an outgoing frame. Request
-    /// correlation lives in shared state and frame accumulation state lives in
-    /// the [`Runner`], not in this future, so both survive a restart untouched:
-    /// a frame split across the boundary still completes. The one wrinkle is a
+    /// correlation and frame accumulation both live in [`Resources`] rather
+    /// than in this future, so they survive a restart untouched: a frame split
+    /// across the boundary still completes. The one wrinkle is a
     /// transport failure mid-frame, where the retained half-frame is only
     /// discarded once it fails its length or checksum check on the repaired
     /// stream.

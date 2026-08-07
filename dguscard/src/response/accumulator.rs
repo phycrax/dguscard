@@ -1,6 +1,16 @@
 use crate::response::{Error, Response};
 use crate::{CRC_LEN, Checksum, Crc, HEADER, MAX_CONTENT_LEN, MIN_CONTENT_LEN};
 
+/// An [`Accumulator`] that owns a `[u8; N]` buffer.
+///
+/// Construct with [`ArrayAccumulator::new`].
+pub type ArrayAccumulator<const N: usize, K = Crc> = Accumulator<[u8; N], K>;
+
+/// An [`Accumulator`] that borrows its buffer.
+///
+/// Construct with [`SliceAccumulator::new`].
+pub type SliceAccumulator<'a, K = Crc> = Accumulator<&'a mut [u8], K>;
+
 /// An accumulator used to collect chunked response
 ///
 /// This is often useful when you receive "parts" of the response at a time, for example when draining
@@ -11,7 +21,7 @@ use crate::{CRC_LEN, Checksum, Crc, HEADER, MAX_CONTENT_LEN, MIN_CONTENT_LEN};
 /// Collect a response by reading chunks.
 ///
 /// ```rust
-/// use dguscard::{response::{Response, Accumulator, FeedResult}, Crc};
+/// use dguscard::{response::{Response, ArrayAccumulator, FeedResult}, Crc};
 /// # use std::io::Read;
 ///
 /// #[derive(serde::Deserialize, Debug, PartialEq, Eq)]
@@ -25,7 +35,7 @@ use crate::{CRC_LEN, Checksum, Crc, HEADER, MAX_CONTENT_LEN, MIN_CONTENT_LEN};
 /// # &[0x5A, 0xA5, 12, 0x83, 0x12, 0x34, 4, 0xAA, 0xBB, 0x00, 0x01, 0xCC, 0xDD, 0xEE, 0xFF][..];
 /// let mut raw_buf = [0u8; 32];
 /// // Create a new Accumulator with CRC check disabled.
-/// let mut dgus_buf: Accumulator<128> = Accumulator::new(Crc::off());
+/// let mut dgus_buf = ArrayAccumulator::<128>::new(Crc::off());
 ///
 /// while let Ok(ct) = uart.read(&mut raw_buf) {
 ///     // Finished reading input
@@ -64,9 +74,24 @@ use crate::{CRC_LEN, Checksum, Crc, HEADER, MAX_CONTENT_LEN, MIN_CONTENT_LEN};
 /// }
 /// ```
 ///
+/// Use a borrowed buffer instead.
+///
+/// ```rust
+/// use dguscard::{response::{FeedResult, Response, SliceAccumulator}, Crc};
+///
+/// let mut buf = [0u8; 128];
+/// let mut dgus_buf = SliceAccumulator::new(&mut buf, Crc::off());
+///
+/// let FeedResult::Success(Response::Ack, remaining) =
+///     dgus_buf.feed(&[0x5A, 0xA5, 3, 0x82, b'O', b'K'])
+/// else {
+///     panic!("expected an ACK")
+/// };
+/// ```
+///
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Accumulator<const N: usize, K: Checksum = Crc> {
-    buf: [u8; N],
+pub struct Accumulator<B: AsRef<[u8]> + AsMut<[u8]>, K: Checksum = Crc> {
+    buf: B,
     idx: usize,
     crc: Option<K>,
     state: FeedState,
@@ -92,18 +117,84 @@ enum FeedState {
     Data(u8),
 }
 
-impl<const N: usize, K: Checksum> Accumulator<N, K> {
-    /// Create a new accumulator.
+const fn min_content_len(crc: bool) -> usize {
+    MIN_CONTENT_LEN + if crc { CRC_LEN } else { 0 }
+}
+
+impl<const N: usize, K: Checksum> ArrayAccumulator<N, K> {
+    /// Create a new accumulator backed by an owned `[u8; N]`.
     ///
     /// Pass [`Crc::on()`] or [`Crc::off()`] for `crc`, matching how the display
     /// is configured, or `Some(..)` to supply your own [`Checksum`].
+    ///
+    /// `N` may not exceed 255, the longest content a DGUS frame can describe.
+    /// This is checked at compile time.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `N` is smaller than the shortest content a DGUS frame can
+    /// carry: 3 without CRC, 5 with CRC.
     pub const fn new(crc: Option<K>) -> Self {
         const {
-            assert!(N >= MIN_CONTENT_LEN, "Accumulator buffer size should be >= 3");
             assert!(N <= MAX_CONTENT_LEN, "Accumulator buffer size should be <= 255");
         };
+        assert!(
+            N >= min_content_len(crc.is_some()),
+            "Accumulator buffer size should be >= 3, or >= 5 with CRC enabled"
+        );
         Accumulator {
             buf: [0; N],
+            idx: 0,
+            crc,
+            state: FeedState::Empty,
+        }
+    }
+}
+
+impl<'a, K: Checksum> SliceAccumulator<'a, K> {
+    /// Create a new accumulator backed by a borrowed buffer.
+    ///
+    /// Pass [`Crc::on()`] or [`Crc::off()`] for `crc`, matching how the display
+    /// is configured, or `Some(..)` to supply your own [`Checksum`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `N` is smaller than the shortest content a DGUS frame can
+    /// carry: 3 without CRC, 5 with CRC.
+    pub const fn new(buf: &'a mut [u8], crc: Option<K>) -> Self {
+        assert!(
+            buf.len() >= min_content_len(crc.is_some()),
+            "Accumulator buffer should be >= 3 bytes, or >= 5 with CRC enabled"
+        );
+        Accumulator {
+            buf,
+            idx: 0,
+            crc,
+            state: FeedState::Empty,
+        }
+    }
+}
+
+impl<B: AsRef<[u8]> + AsMut<[u8]>, K: Checksum> Accumulator<B, K> {
+    /// Create a new accumulator.
+    ///
+    /// It should rarely be necessary to call this directly:
+    /// [`ArrayAccumulator::new`] and [`SliceAccumulator::new`] cover the two common cases.
+    ///
+    /// Pass [`Crc::on()`] or [`Crc::off()`] for `crc`, matching how the display
+    /// is configured, or `Some(..)` to supply your own [`Checksum`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `N` is smaller than the shortest content a DGUS frame can
+    /// carry: 3 without CRC, 5 with CRC.
+    pub fn with_buffer(buf: B, crc: Option<K>) -> Self {
+        assert!(
+            buf.as_ref().len() >= min_content_len(crc.is_some()),
+            "Accumulator buffer should be >= 3 bytes, or >= 5 with CRC enabled"
+        );
+        Accumulator {
+            buf,
             idx: 0,
             crc,
             state: FeedState::Empty,
@@ -119,11 +210,10 @@ impl<const N: usize, K: Checksum> Accumulator<N, K> {
     /// Appends data to the internal buffer and attempts to grab a [`Response`].
     pub fn feed<'de, 'a>(&'de mut self, mut input: &'a [u8]) -> FeedResult<'de, 'a> {
         loop {
-            if input.is_empty() {
+            let Some((&byte, remaining)) = input.split_first() else {
                 break FeedResult::Consumed;
-            }
+            };
 
-            let (&byte, remaining) = input.split_first().unwrap();
             input = remaining;
             break match self.feed_byte(byte) {
                 // Consumed byte, still need more
@@ -139,7 +229,7 @@ impl<const N: usize, K: Checksum> Accumulator<N, K> {
                     let idx = self.idx;
                     self.reset();
                     // Construct the response
-                    match Response::from_content_bytes(&self.buf[..idx]) {
+                    match Response::from_content_bytes(&self.buf.as_ref()[..idx]) {
                         Ok(response) => FeedResult::Success(response, remaining),
                         Err(e) => FeedResult::Error(e, remaining),
                     }
@@ -166,19 +256,17 @@ impl<const N: usize, K: Checksum> Accumulator<N, K> {
                 }
             }
             FeedState::Header(true) => {
-                let trailer_len = if self.crc.is_some() { CRC_LEN } else { 0 };
-                let min_len = (MIN_CONTENT_LEN + trailer_len) as u8;
-                if byte < min_len {
+                if (byte as usize) < min_content_len(self.crc.is_some()) {
                     return Err(Error::BadLen);
                 }
-                if byte as usize > N {
+                if byte as usize > self.buf.as_ref().len() {
                     return Err(Error::FrameTooLarge);
                 }
                 FeedState::Length(byte)
             }
             FeedState::Length(length) | FeedState::Data(length) => {
-                // `length` was bounded by `N` above, so `idx` stays within the buffer.
-                self.buf[self.idx] = byte;
+                // `length` was bounded by the buffer length above, so `idx` stays within it.
+                self.buf.as_mut()[self.idx] = byte;
                 self.idx += 1;
                 FeedState::Data(length - 1)
             }
@@ -186,7 +274,7 @@ impl<const N: usize, K: Checksum> Accumulator<N, K> {
 
         if let FeedState::Data(0) = self.state {
             if let Some(crc) = self.crc.as_mut() {
-                let (content, trailer) = self.buf[..self.idx].split_at(self.idx - CRC_LEN);
+                let (content, trailer) = self.buf.as_ref()[..self.idx].split_at(self.idx - CRC_LEN);
                 if u16::from_le_bytes([trailer[0], trailer[1]]) != crc.compute(content) {
                     return Err(Error::BadCrc);
                 }
@@ -208,7 +296,7 @@ mod test {
 
     #[test]
     fn ack_crc() {
-        let mut buf: Accumulator<64> = Accumulator::new(Crc::on());
+        let mut buf = ArrayAccumulator::<64>::new(Crc::on());
         let ser = &[0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 0, 0, 0, 0];
 
         if let FeedResult::Success(response, remaining) = buf.feed(ser) {
@@ -221,7 +309,7 @@ mod test {
 
     #[test]
     fn bad_header() {
-        let mut buf: Accumulator<64> = Accumulator::new(Crc::off());
+        let mut buf = ArrayAccumulator::<64>::new(Crc::off());
 
         let FeedResult::Error(e, remaining) = buf.feed(&[0x11, 0x22, 0x33]) else {
             panic!("Expected an error")
@@ -233,7 +321,7 @@ mod test {
 
     #[test]
     fn frame_too_large() {
-        let mut buf: Accumulator<8> = Accumulator::new(Crc::off());
+        let mut buf = ArrayAccumulator::<8>::new(Crc::off());
 
         let FeedResult::Error(e, remaining) = buf.feed(&[0x5A, 0xA5, 9, 0x83]) else {
             panic!("Expected an error")
@@ -247,7 +335,7 @@ mod test {
         // An ACK is the shortest frame there is, and without a checksum it
         // needs only three bytes of content. The previous `N >= 5` bound
         // rejected this at compile time.
-        let mut buf: Accumulator<3> = Accumulator::new(Crc::off());
+        let mut buf = ArrayAccumulator::<3>::new(Crc::off());
 
         let FeedResult::Success(Response::Ack, remaining) = buf.feed(&[0x5A, 0xA5, 3, 0x82, b'O', b'K']) else {
             panic!("Expected an ACK")
@@ -257,7 +345,7 @@ mod test {
 
     #[test]
     fn frame_exactly_fills_buffer() {
-        let mut buf: Accumulator<8> = Accumulator::new(Crc::off());
+        let mut buf = ArrayAccumulator::<8>::new(Crc::off());
         let ser = &[0x5A, 0xA5, 8, 0x83, 0x12, 0x34, 2, 0xAA, 0xBB, 0xCC, 0xDD];
 
         let FeedResult::Success(response, remaining) = buf.feed(ser) else {
@@ -274,7 +362,7 @@ mod test {
 
     #[test]
     fn maximal_frame() {
-        let mut buf: Accumulator<{ MAX_CONTENT_LEN }> = Accumulator::new(Crc::off());
+        let mut buf = ArrayAccumulator::<MAX_CONTENT_LEN>::new(Crc::off());
 
         // A frame whose length byte is saturated: 255 content bytes, the most a
         // DGUS frame can describe.
@@ -308,7 +396,7 @@ mod test {
 
     #[test]
     fn demo() {
-        let mut buf: Accumulator<64> = Accumulator::new(Crc::off());
+        let mut buf = ArrayAccumulator::<64>::new(Crc::off());
         let ser = &[
             0x5A, 0xA5, 12, 0x83, 0x12, 0x34, 4, 0xAA, 0xBB, 0x00, 0x01, 0xCC, 0xDD, 0xEE, 0xFF,
         ];
@@ -337,7 +425,7 @@ mod test {
 
     #[test]
     fn double_demo() {
-        let mut buf: Accumulator<64> = Accumulator::new(Crc::off());
+        let mut buf = ArrayAccumulator::<64>::new(Crc::off());
         let ser = &[
             0x5A, 0xA5, 12, 0x83, 0x12, 0x34, 4, 0xAA, 0xBB, 0x00, 0x01, 0xCC, 0xDD, 0xEE, 0xFF, 0x5A, 0xA5, 12, 0x83,
             0x12, 0x34, 4, 0xBB, 0xAA, 0x00, 0x00, 0xFF, 0xEE, 0xDD, 0xCC,
@@ -379,6 +467,108 @@ mod test {
                 a: 0xBBAA,
                 b: false,
                 c: 0xFFEE_DDCC,
+            },
+            data.take().unwrap()
+        );
+        assert!(remaining.is_empty());
+    }
+
+    #[test]
+    fn slice_ack_crc() {
+        let mut backing = [0u8; 64];
+        let mut buf = SliceAccumulator::new(&mut backing, Crc::on());
+        let ser = &[0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF, 0, 0, 0, 0];
+
+        let FeedResult::Success(Response::Ack, remaining) = buf.feed(ser) else {
+            panic!("Expected an ACK")
+        };
+        assert_eq!(remaining.len(), 4);
+    }
+
+    #[test]
+    fn slice_frame_too_large() {
+        let mut backing = [0u8; 8];
+        let mut buf = SliceAccumulator::new(&mut backing, Crc::off());
+
+        let FeedResult::Error(e, remaining) = buf.feed(&[0x5A, 0xA5, 9, 0x83]) else {
+            panic!("Expected an error")
+        };
+        assert_eq!(e, Error::FrameTooLarge);
+        assert_eq!(remaining, &[0x83]);
+    }
+
+    #[test]
+    fn slice_minimal_buffer() {
+        let mut backing = [0u8; MIN_CONTENT_LEN];
+        let mut buf = SliceAccumulator::new(&mut backing, Crc::off());
+
+        let FeedResult::Success(Response::Ack, remaining) = buf.feed(&[0x5A, 0xA5, 3, 0x82, b'O', b'K']) else {
+            panic!("Expected an ACK")
+        };
+        assert!(remaining.is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "Accumulator buffer should be >= 3 bytes")]
+    fn slice_too_small_panics() {
+        let mut backing = [0u8; MIN_CONTENT_LEN - 1];
+        let _ = SliceAccumulator::new(&mut backing, Crc::off());
+    }
+
+    #[test]
+    fn minimal_buffer_with_crc() {
+        // With a checksum the trailer is accumulated alongside the content, so
+        // the shortest ACK declares five bytes and needs five bytes of buffer.
+        let mut backing = [0u8; MIN_CONTENT_LEN + CRC_LEN];
+        let mut buf = SliceAccumulator::new(&mut backing, Crc::on());
+
+        let FeedResult::Success(Response::Ack, remaining) = buf.feed(&[0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF])
+        else {
+            panic!("Expected an ACK")
+        };
+        assert!(remaining.is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = ">= 5 with CRC enabled")]
+    fn slice_too_small_for_crc_panics() {
+        // Four bytes clears the no-CRC floor but can never hold a checksummed frame.
+        let mut backing = [0u8; MIN_CONTENT_LEN + CRC_LEN - 1];
+        let _ = SliceAccumulator::new(&mut backing, Crc::on());
+    }
+
+    #[test]
+    #[should_panic(expected = ">= 5 with CRC enabled")]
+    fn array_too_small_for_crc_panics() {
+        // `N` passes the compile-time bound, so this can only fail at the call.
+        let _ = ArrayAccumulator::<{ MIN_CONTENT_LEN + CRC_LEN - 1 }>::new(Crc::on());
+    }
+
+    #[test]
+    fn slice_split_feed() {
+        // The frame arrives in two chunks, so accumulation state has to survive
+        // the boundary between the two `feed` calls.
+        let mut backing = [0u8; 64];
+        let mut buf = SliceAccumulator::new(&mut backing, Crc::off());
+        let ser = &[
+            0x5A, 0xA5, 12, 0x83, 0x12, 0x34, 4, 0xAA, 0xBB, 0x00, 0x01, 0xCC, 0xDD, 0xEE, 0xFF,
+        ];
+        let (head, tail) = ser.split_at(7);
+
+        let FeedResult::Consumed = buf.feed(head) else {
+            panic!("Expected the first chunk to be consumed")
+        };
+
+        let FeedResult::Success(Response::Data(mut data), remaining) = buf.feed(tail) else {
+            panic!("Expected Data response")
+        };
+        assert_eq!(data.addr(), Address::Word(0x1234));
+        assert_eq!(data.wlen(), 4);
+        assert_eq!(
+            Demo {
+                a: 0xAABB,
+                b: true,
+                c: 0xCCDD_EEFF
             },
             data.take().unwrap()
         );

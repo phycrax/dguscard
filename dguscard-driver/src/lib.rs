@@ -75,6 +75,8 @@
 //!
 //! [`NoopRawMutex`]: embassy_sync::blocking_mutex::raw::NoopRawMutex
 
+mod dispatch;
+
 use core::cell::Cell;
 use core::convert::Infallible;
 use core::mem::MaybeUninit;

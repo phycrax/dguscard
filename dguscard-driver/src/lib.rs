@@ -8,7 +8,7 @@ use core::mem::MaybeUninit;
 
 use dguscard::request::{Read, Request, Write};
 pub use dguscard::response::Content;
-use dguscard::response::{ArrayAccumulator, FeedResult, Response};
+use dguscard::response::{FeedResult, Response, SliceAccumulator};
 pub use dguscard::{Address, Crc, request, response};
 pub use dispatch::{DispatchError, Dispatcher};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
@@ -119,13 +119,13 @@ impl<const MTU: usize> ResponseFrame<MTU> {
 
 struct StateInner<'a, const MTU: usize> {
     resp: Channel<'a, NoopRawMutex, ResponseFrame<MTU>>,
-    acc: ArrayAccumulator<MTU>,
     shared: Shared,
 }
 
 pub struct Resources<const MTU: usize = DEFAULT_MTU> {
     resp_bufs: [ResponseFrame<MTU>; 1],
     req_buf: [u8; MTU],
+    acc_buf: [u8; MTU],
     inner: MaybeUninit<StateInner<'static, MTU>>,
 }
 
@@ -135,6 +135,7 @@ impl<const MTU: usize> Resources<MTU> {
         Self {
             resp_bufs: [ResponseFrame::INIT; 1],
             req_buf: [0; MTU],
+            acc_buf: [0; MTU],
             inner: MaybeUninit::uninit(),
         }
     }
@@ -157,7 +158,7 @@ pub struct Control<'d, TX: IoWrite, const MTU: usize = DEFAULT_MTU> {
 
 pub struct Runner<'d, RX: IoRead, const MTU: usize = DEFAULT_MTU> {
     rx: RX,
-    acc: &'d mut ArrayAccumulator<MTU>,
+    acc: SliceAccumulator<'d>,
     resp_sender: Sender<'d, NoopRawMutex, ResponseFrame<MTU>>,
     shared: &'d Shared,
 }
@@ -178,25 +179,23 @@ where
         (&mut resources.inner as *mut MaybeUninit<StateInner<'static, MTU>>).cast();
     let inner = unsafe { &mut *inner_uninit }.write(StateInner {
         resp: Channel::new(&mut resources.resp_bufs[..]),
-        acc: ArrayAccumulator::new(crc),
         shared: Shared::new(),
     });
 
     let (resp_sender, resp_receiver) = inner.resp.split();
-    let acc = &mut inner.acc;
     let shared = &inner.shared;
 
     let control = Control {
-            tx,
-            buf: &mut resources.req_buf[..],
-            resp_receiver,
-            shared,
-            seq: 0,
-            crc,
+        tx,
+        buf: &mut resources.req_buf[..],
+        resp_receiver,
+        shared,
+        seq: 0,
+        crc,
     };
     let runner = Runner {
         rx,
-        acc,
+        acc: SliceAccumulator::new(&mut resources.acc_buf[..], crc),
         resp_sender,
         shared,
     };

@@ -1,3 +1,5 @@
+//! Nothing to see here, move along
+
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 use serialport::SerialPort;

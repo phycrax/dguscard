@@ -1,14 +1,16 @@
 mod uart;
 
-use dguscard_driver::{Address, Config, Resources, RunError, Runner};
+use dguscard_driver::{Address, Config, Content, Resources, RouteError, Router, RunError, Runner};
 use embassy_executor::Spawner;
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::signal::Signal;
 use serde::Deserialize;
-use static_cell::ConstStaticCell;
+use static_cell::{ConstStaticCell, StaticCell};
 
 use crate::uart::UartRx;
 
 /// Application state, mutated by the event loop in [`main`].
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct FanApp {
     /// Current speed.
     speed: Speed,
@@ -17,8 +19,6 @@ struct FanApp {
 }
 
 /// Fan speed, auto-uploaded at VP 0x1000 (one word).
-///
-/// Unit variants decode from their index, so `Off = 0 .. High = 3`.
 #[derive(Deserialize, Debug, Default, Clone, Copy)]
 enum Speed {
     #[default]
@@ -55,20 +55,38 @@ enum Adjust {
     Increase,
 }
 
-/// A decoded auto-upload, produced inside the `Events::receive` closure.
-///
-/// The closure only borrows the queue slot for as long as it runs, so it
-/// decodes and hands back an owned value; acting on it (including issuing
-/// requests, which needs an `await`) happens after `receive` returns.
-enum Input {
+/// A decoded auto-upload, produced by [`FanRouter`].
+enum Event {
     /// Direct speed selection at VP 0x1000.
     Speed(Speed),
     /// Step up/down at VP 0x1001.
     Adjust(Adjust),
     /// Oscillation toggle at VP 0x1002.
     Rotate(bool),
-    /// Unmapped frame.
-    Ignored,
+}
+
+/// Decodes the display's auto-uploads and signals them to [`main`].
+struct FanRouter {
+    events: &'static Signal<NoopRawMutex, Event>,
+}
+
+impl Router for FanRouter {
+    fn route(&mut self, mut content: Content<'_>) -> Result<(), RouteError> {
+        let addr = content.addr();
+        let de = |e| RouteError::Deserialize(addr, e);
+        let event = match (addr, content.wlen()) {
+            (Address::Word(0x1000), 1) => Event::Speed(content.take().map_err(de)?),
+            (Address::Word(0x1001), 1) => Event::Adjust(content.take().map_err(de)?),
+            // The `bool` decodes from a word (0 = off, 1 = on).
+            (Address::Word(0x1002), 1) => Event::Rotate(content.take().map_err(de)?),
+            // Fallthrough for unmapped events
+            (addr, wlen) => return Err(RouteError::Unhandled(addr, wlen)),
+        };
+
+        self.events.signal(event);
+
+        Ok(())
+    }
 }
 
 #[embassy_executor::main]
@@ -78,77 +96,64 @@ async fn main(spawner: Spawner) {
     static RESOURCES: ConstStaticCell<Resources> = ConstStaticCell::new(Resources::new());
     let resources = RESOURCES.take();
 
-    // The device owns the UART transmitter and writes to it inline; the runner
-    // owns the receiver and feeds completions and events back over the channels.
-    let (mut device, runner) = dguscard_driver::new(resources, rx, tx, Config::new());
+    /// Decoded auto-uploads, from the runner task to the event loop in [`main`].
+    static EVENTS: StaticCell<Signal<NoopRawMutex, Event>> = StaticCell::new();
+    let events: &'static Signal<NoopRawMutex, Event> = EVENTS.init(Signal::new());
 
-    spawner.spawn(runner_task(runner).unwrap());
+    // Display handle owns the tx, runner owns the rx.
+    let (mut display, runner) = dguscard_driver::new(resources, rx, tx, Config::new());
+
+    spawner.spawn(runner_task(runner, FanRouter { events }).unwrap());
 
     // Switch to page 1 (system VP 0x0084), then read the active page back
     // (system VP 0x0014) to confirm it took effect.
-    device.write(Address::Word(0x0084), &(0x5A01u16, 1u16)).await.unwrap();
-    let page: u16 = device.read(Address::Word(0x0014), 1).await.unwrap();
+    display.write(Address::Word(0x0084), &(0x5A01u16, 1u16)).await.unwrap();
+    let page: u16 = display.read(Address::Word(0x0014), 1).await.unwrap();
     println!("current page: {page}");
 
-    // Split so the event loop keeps a `Control` to echo state back with.
-    let (mut ctl, mut events) = device.split();
     let mut app = FanApp::default();
 
     loop {
-        // Decode inside the closure: it borrows the queue slot, which is
-        // released the moment it returns.
-        let input = events
-            .receive(|mut content| match (content.addr(), content.wlen()) {
-                (Address::Word(0x1000), 1) => Input::Speed(content.take().unwrap()),
-                (Address::Word(0x1001), 1) => Input::Adjust(content.take().unwrap()),
-                // The `bool` decodes from a word (0 = off, 1 = on).
-                (Address::Word(0x1002), 1) => Input::Rotate(content.take().unwrap()),
-                _ => Input::Ignored,
-            })
-            .await
-            // The runner task panics on a fatal error rather than returning, so
-            // a down link here means it is gone for good.
-            .expect("runner stopped");
-
-        // Act outside it, where awaiting a request is allowed.
-        match input {
-            // Direct selection: set the speed to the chosen level.
-            Input::Speed(speed) => {
+        match events.wait().await {
+            Event::Speed(speed) => {
                 app.speed = speed;
                 println!("speed set to {:?}", app.speed);
             }
-            // Step the speed one level up or down, then echo the new level back
-            // to the display so its indicator follows.
-            Input::Adjust(adjust) => {
+            Event::Adjust(adjust) => {
                 app.speed = match adjust {
                     Adjust::Increase => app.speed.increased(),
                     Adjust::Decrease => app.speed.decreased(),
                 };
                 println!("speed adjusted to {:?}", app.speed);
-                ctl.write(Address::Word(0x1000), &(app.speed as u16)).await.unwrap();
+                display.write(Address::Word(0x1000), &(app.speed as u16)).await.unwrap();
             }
-            // Toggle oscillation.
-            Input::Rotate(rotating) => {
+            Event::Rotate(rotating) => {
                 app.rotating = rotating;
                 println!("rotating: {}", app.rotating);
             }
-            Input::Ignored => {}
         }
+
+        // Print app state
+        dbg!(&app);
     }
 }
 
 #[embassy_executor::task]
-async fn runner_task(mut runner: Runner<'static, UartRx>) {
+async fn runner_task(mut runner: Runner<'static, UartRx>, mut router: FanRouter) {
+    // Buffer for reading into from uart driver.
     let rx_buf = &mut [0; 16];
-    // The caller picks the recovery policy: framing noise and event-queue
-    // overflow are survivable by restarting `run`; a read error means the UART
-    // itself is gone. Write errors surface at the `Control` call site instead.
+    // The caller picks the recovery policy for the runner.
     loop {
-        match runner.run(rx_buf).await {
-            Err(RunError::Accumulation(e)) => eprintln!("framing error, resyncing: {e:?}"),
-            Err(RunError::EventQueueFull) => eprintln!("event queue full, frame dropped"),
-            Err(e) => panic!("receive failed: {e:?}"),
-            Ok(_infallible) => unreachable!(),
+        // `run` only ever returns `Err`, so this is total.
+        let e = runner.run(rx_buf, &mut router).await.unwrap_err();
+        match e {
+            // Survivable: the offending frame is dropped and the transport is
+            // still there, so restart `run`.
+            RunError::Accumulation(_) | RunError::Route(_) | RunError::UnmatchedAck | RunError::LateReply(..) => {
+                eprintln!("recoverable receive error: {e:?}")
+            }
+            // The UART itself is gone; there is nothing to recover to.
+            RunError::Io(_) | RunError::UnexpectedEof => panic!("receive failed: {e:?}"),
         }
     }
 }

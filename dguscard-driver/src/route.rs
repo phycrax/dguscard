@@ -12,8 +12,6 @@ pub enum RouteError {
 }
 
 pub trait Router {
-    type Context;
-
     /// Routes one unsolicited data frame.
-    fn route(&mut self, ctx: &mut Self::Context, content: Content<'_>) -> Result<(), RouteError>;
+    fn route(&mut self, content: Content<'_>) -> Result<(), RouteError>;
 }

@@ -10,10 +10,10 @@ use dguscard::request::{Read, Request, Write};
 pub use dguscard::response::Content;
 use dguscard::response::{FeedResult, Response, SliceAccumulator};
 pub use dguscard::{Address, Crc, request, response};
-pub use route::{RouteError, Router};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::zerocopy_channel::{Channel, Receiver, Sender};
 use embedded_io_async::{Error as _, Read as IoRead, Write as IoWrite};
+pub use route::{RouteError, Router};
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_MTU: usize = 128;
@@ -294,21 +294,16 @@ impl<'d, TX: IoWrite, const MTU: usize> Display<'d, TX, MTU> {
 }
 
 impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
-    pub async fn run<R: Router>(
-        &mut self,
-        rx_buf: &mut [u8],
-        ctx: &mut R::Context,
-        router: &mut R,
-    ) -> Result<Infallible, RunError> {
+    pub async fn run<R: Router>(&mut self, buf: &mut [u8], router: &mut R) -> Result<Infallible, RunError> {
         let _guard = RunGuard::new(self.shared);
         loop {
-            let n = self.rx.read(rx_buf).await.map_err(|e| RunError::Io(e.kind()))?;
+            let n = self.rx.read(buf).await.map_err(|e| RunError::Io(e.kind()))?;
             if n == 0 {
                 return Err(RunError::UnexpectedEof);
             }
 
             let mut failed: Option<RunError> = None;
-            let mut window: &[u8] = &rx_buf[..n];
+            let mut window: &[u8] = &buf[..n];
             while !window.is_empty() {
                 window = match self.acc.feed(window) {
                     FeedResult::Consumed => break,
@@ -350,7 +345,7 @@ impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
                                     failed.get_or_insert(RunError::LateReply(content.addr(), content.wlen()));
                                 }
                                 // Or is this an unsolicited event?
-                                else if let Err(e) = router.route(ctx, content) {
+                                else if let Err(e) = router.route(content) {
                                     // Routing failed. Only this frame is dropped, the rest of the window is still processed.
                                     failed.get_or_insert(RunError::Route(e));
                                 }

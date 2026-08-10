@@ -4,16 +4,16 @@ use dguscard::{Address, response};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
-pub enum DispatchError {
+pub enum RouteError {
     /// No route is registered for this address and word length.
     Unhandled(Address, u8),
     /// A route matched, but its payload failed to deserialize.
     Deserialize(Address, response::Error),
 }
 
-pub trait Dispatcher {
+pub trait Router {
     type Context;
 
-    /// Handles one unsolicited data frame.
-    fn dispatch(&mut self, ctx: &mut Self::Context, content: Content<'_>) -> Result<(), DispatchError>;
+    /// Routes one unsolicited data frame.
+    fn route(&mut self, ctx: &mut Self::Context, content: Content<'_>) -> Result<(), RouteError>;
 }

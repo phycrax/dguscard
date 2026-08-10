@@ -1,6 +1,6 @@
 #![no_std]
 
-mod dispatch;
+mod route;
 
 use core::cell::Cell;
 use core::convert::Infallible;
@@ -10,7 +10,7 @@ use dguscard::request::{Read, Request, Write};
 pub use dguscard::response::Content;
 use dguscard::response::{FeedResult, Response, SliceAccumulator};
 pub use dguscard::{Address, Crc, request, response};
-pub use dispatch::{DispatchError, Dispatcher};
+pub use route::{RouteError, Router};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::zerocopy_channel::{Channel, Receiver, Sender};
 use embedded_io_async::{Error as _, Read as IoRead, Write as IoWrite};
@@ -45,8 +45,8 @@ pub enum RunError {
     UnexpectedEof,
     /// Transport read error.
     Io(embedded_io_async::ErrorKind),
-    /// [`Dispatch`] failed for an unsolicited frame.
-    Dispatch(DispatchError),
+    /// Routing failed for an unsolicited frame.
+    Route(RouteError),
 }
 
 /// Driver configuration, passed to [`new`].
@@ -230,7 +230,7 @@ where
 impl<'d, TX: IoWrite, const MTU: usize> Display<'d, TX, MTU> {
     fn begin_request(&mut self) -> u8 {
         while self.resp_receiver.try_receive().is_some() {
-            // Hey! You dropped here: unmatched frame
+            // Hey! You dropped here: unmatched response
             self.resp_receiver.receive_done();
         }
         self.seq = self.seq.wrapping_add(1);
@@ -294,11 +294,11 @@ impl<'d, TX: IoWrite, const MTU: usize> Display<'d, TX, MTU> {
 }
 
 impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
-    pub async fn run<D: Dispatcher>(
+    pub async fn run<R: Router>(
         &mut self,
         rx_buf: &mut [u8],
-        ctx: &mut D::Context,
-        dispatcher: &mut D,
+        ctx: &mut R::Context,
+        router: &mut R,
     ) -> Result<Infallible, RunError> {
         let _guard = RunGuard::new(self.shared);
         loop {
@@ -350,9 +350,9 @@ impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
                                     failed.get_or_insert(RunError::LateReply(content.addr(), content.wlen()));
                                 }
                                 // Or is this an unsolicited event?
-                                else if let Err(e) = dispatcher.dispatch(ctx, content) {
-                                    // Dispatch failed. Only this frame is dropped, the rest of the window is still processed.
-                                    failed.get_or_insert(RunError::Dispatch(e));
+                                else if let Err(e) = router.route(ctx, content) {
+                                    // Routing failed. Only this frame is dropped, the rest of the window is still processed.
+                                    failed.get_or_insert(RunError::Route(e));
                                 }
                             }
                         }

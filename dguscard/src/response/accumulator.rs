@@ -478,10 +478,17 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "Accumulator buffer should be >= 3 bytes")]
-    fn slice_too_small_panics() {
+    fn slice_too_small_rejects_frames() {
+        // Construction accepts an undersized buffer; the length check in `feed`
+        // rejects every frame instead, since none can fit.
         let mut backing = [0u8; MIN_CONTENT_LEN - 1];
-        let _ = SliceAccumulator::new(&mut backing, Crc::off());
+        let mut buf = SliceAccumulator::new(&mut backing, Crc::off());
+
+        let FeedResult::Error(e, remaining) = buf.feed(&[0x5A, 0xA5, 3, 0x82, b'O', b'K']) else {
+            panic!("Expected an error")
+        };
+        assert_eq!(e, Error::FrameTooLarge);
+        assert_eq!(remaining, &[0x82, b'O', b'K']);
     }
 
     #[test]
@@ -499,18 +506,27 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = ">= 5 with CRC enabled")]
-    fn slice_too_small_for_crc_panics() {
+    fn slice_too_small_for_crc_rejects_frames() {
         // Four bytes clears the no-CRC floor but can never hold a checksummed frame.
         let mut backing = [0u8; MIN_CONTENT_LEN + CRC_LEN - 1];
-        let _ = SliceAccumulator::new(&mut backing, Crc::on());
+        let mut buf = SliceAccumulator::new(&mut backing, Crc::on());
+
+        let FeedResult::Error(e, remaining) = buf.feed(&[0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF]) else {
+            panic!("Expected an error")
+        };
+        assert_eq!(e, Error::FrameTooLarge);
+        assert_eq!(remaining, &[0x82, b'O', b'K', 0xA5, 0xEF]);
     }
 
     #[test]
-    #[should_panic(expected = ">= 5 with CRC enabled")]
-    fn array_too_small_for_crc_panics() {
-        // `N` passes the compile-time bound, so this can only fail at the call.
-        let _ = ArrayAccumulator::<{ MIN_CONTENT_LEN + CRC_LEN - 1 }>::new(Crc::on());
+    fn array_too_small_for_crc_rejects_frames() {
+        let mut buf = ArrayAccumulator::<{ MIN_CONTENT_LEN + CRC_LEN - 1 }>::new(Crc::on());
+
+        let FeedResult::Error(e, remaining) = buf.feed(&[0x5A, 0xA5, 5, 0x82, b'O', b'K', 0xA5, 0xEF]) else {
+            panic!("Expected an error")
+        };
+        assert_eq!(e, Error::FrameTooLarge);
+        assert_eq!(remaining, &[0x82, b'O', b'K', 0xA5, 0xEF]);
     }
 
     #[test]

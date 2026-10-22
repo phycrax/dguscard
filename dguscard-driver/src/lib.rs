@@ -10,7 +10,8 @@ use dguscard::request::{Read, Request, Write};
 pub use dguscard::response::Content;
 use dguscard::response::{FeedResult, Response, SliceAccumulator};
 pub use dguscard::{Address, Crc, request, response};
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::zerocopy_channel::{Channel, Receiver, Sender};
 use embedded_io_async::{Error as _, Read as IoRead, Write as IoWrite};
 pub use route::{RouteError, Router};
@@ -76,55 +77,74 @@ enum Expect {
     Read { addr: Address, wlen: u8 },
 }
 
-struct Shared {
-    pending: Cell<Option<(Expect, u8)>>,
-    abandoned_read: Cell<Option<(Address, u8)>>,
-    running: Cell<bool>,
+#[derive(Clone, Copy)]
+struct State {
+    pending: Option<(Expect, u8)>,
+    abandoned_read: Option<(Address, u8)>,
+    running: bool,
 }
 
-impl Shared {
+struct Shared<M: RawMutex> {
+    state: Mutex<M, Cell<State>>,
+}
+
+impl<M: RawMutex> Shared<M> {
     const fn new() -> Self {
         Self {
-            pending: Cell::new(None),
-            abandoned_read: Cell::new(None),
-            running: Cell::new(false),
+            state: Mutex::new(Cell::new(State {
+                pending: None,
+                abandoned_read: None,
+                running: false,
+            })),
         }
+    }
+
+    /// Runs `f` on the state under the lock.
+    fn with<R>(&self, f: impl FnOnce(&mut State) -> R) -> R {
+        self.state.lock(|cell| {
+            let mut state = cell.get();
+            let out = f(&mut state);
+            cell.set(state);
+            out
+        })
     }
 }
 
-struct RunGuard<'d> {
-    shared: &'d Shared,
+struct RunGuard<'d, M: RawMutex> {
+    shared: &'d Shared<M>,
 }
 
-impl<'d> RunGuard<'d> {
-    fn new(shared: &'d Shared) -> Self {
-        shared.running.set(true);
+impl<'d, M: RawMutex> RunGuard<'d, M> {
+    fn new(shared: &'d Shared<M>) -> Self {
+        shared.with(|s| s.running = true);
         Self { shared }
     }
 }
 
-impl Drop for RunGuard<'_> {
+impl<M: RawMutex> Drop for RunGuard<'_, M> {
     fn drop(&mut self) {
-        self.shared.running.set(false);
+        self.shared.with(|s| s.running = false);
     }
 }
 
-struct PendingGuard<'d> {
-    shared: &'d Shared,
+struct PendingGuard<'d, M: RawMutex> {
+    shared: &'d Shared<M>,
 }
 
-impl<'d> PendingGuard<'d> {
-    fn new(shared: &'d Shared, expect: Expect, seq: u8) -> Self {
-        shared.pending.set(Some((expect, seq)));
+impl<'d, M: RawMutex> PendingGuard<'d, M> {
+    fn new(shared: &'d Shared<M>, expect: Expect, seq: u8) -> Self {
+        shared.with(|s| s.pending = Some((expect, seq)));
         Self { shared }
     }
 }
 
-impl Drop for PendingGuard<'_> {
+impl<M: RawMutex> Drop for PendingGuard<'_, M> {
     fn drop(&mut self) {
-        if let Some((Expect::Read { addr, wlen }, _)) = self.shared.pending.take() {
-            self.shared.abandoned_read.set(Some((addr, wlen)));
-        }
+        self.shared.with(|s| {
+            if let Some((Expect::Read { addr, wlen }, _)) = s.pending.take() {
+                s.abandoned_read = Some((addr, wlen));
+            }
+        });
     }
 }
 
@@ -142,19 +162,19 @@ impl<const MTU: usize> ResponseFrame<MTU> {
     };
 }
 
-struct StateInner<'a, const MTU: usize> {
-    resp: Channel<'a, NoopRawMutex, ResponseFrame<MTU>>,
-    shared: Shared,
+struct StateInner<'a, M: RawMutex, const MTU: usize> {
+    resp: Channel<'a, M, ResponseFrame<MTU>>,
+    shared: Shared<M>,
 }
 
-pub struct Resources<const MTU: usize = DEFAULT_MTU> {
+pub struct Resources<M: RawMutex, const MTU: usize = DEFAULT_MTU> {
     resp_bufs: [ResponseFrame<MTU>; 1],
     req_buf: [u8; MTU],
     acc_buf: [u8; MTU],
-    inner: MaybeUninit<StateInner<'static, MTU>>,
+    inner: MaybeUninit<StateInner<'static, M, MTU>>,
 }
 
-impl<const MTU: usize> Resources<MTU> {
+impl<M: RawMutex, const MTU: usize> Resources<M, MTU> {
     /// Creates new driver resources.
     pub const fn new() -> Self {
         Self {
@@ -166,42 +186,43 @@ impl<const MTU: usize> Resources<MTU> {
     }
 }
 
-impl<const MTU: usize> Default for Resources<MTU> {
+impl<M: RawMutex, const MTU: usize> Default for Resources<M, MTU> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-pub struct Display<'d, TX: IoWrite, const MTU: usize = DEFAULT_MTU> {
+pub struct Display<'d, M: RawMutex, TX: IoWrite, const MTU: usize = DEFAULT_MTU> {
     tx: TX,
     buf: &'d mut [u8],
-    resp_receiver: Receiver<'d, NoopRawMutex, ResponseFrame<MTU>>,
-    shared: &'d Shared,
+    resp_receiver: Receiver<'d, M, ResponseFrame<MTU>>,
+    shared: &'d Shared<M>,
     seq: u8,
     crc: Option<Crc>,
 }
 
-pub struct Runner<'d, RX: IoRead, const MTU: usize = DEFAULT_MTU> {
+pub struct Runner<'d, M: RawMutex, RX: IoRead, const MTU: usize = DEFAULT_MTU> {
     rx: RX,
     acc: SliceAccumulator<'d>,
-    resp_sender: Sender<'d, NoopRawMutex, ResponseFrame<MTU>>,
-    shared: &'d Shared,
+    resp_sender: Sender<'d, M, ResponseFrame<MTU>>,
+    shared: &'d Shared<M>,
 }
 
-pub fn new<'d, RX, TX, const MTU: usize>(
-    resources: &'d mut Resources<MTU>,
+pub fn new<'d, M, RX, TX, const MTU: usize>(
+    resources: &'d mut Resources<M, MTU>,
     rx: RX,
     tx: TX,
     config: Config,
-) -> (Display<'d, TX, MTU>, Runner<'d, RX, MTU>)
+) -> (Display<'d, M, TX, MTU>, Runner<'d, M, RX, MTU>)
 where
+    M: RawMutex,
     RX: IoRead,
     TX: IoWrite,
 {
     let crc = if config.crc { Crc::on() } else { Crc::off() };
 
-    let inner_uninit: *mut MaybeUninit<StateInner<'d, MTU>> =
-        (&mut resources.inner as *mut MaybeUninit<StateInner<'static, MTU>>).cast();
+    let inner_uninit: *mut MaybeUninit<StateInner<'d, M, MTU>> =
+        (&mut resources.inner as *mut MaybeUninit<StateInner<'static, M, MTU>>).cast();
     let inner = unsafe { &mut *inner_uninit }.write(StateInner {
         resp: Channel::new(&mut resources.resp_bufs[..]),
         shared: Shared::new(),
@@ -227,7 +248,7 @@ where
     (display, runner)
 }
 
-impl<'d, TX: IoWrite, const MTU: usize> Display<'d, TX, MTU> {
+impl<'d, M: RawMutex, TX: IoWrite, const MTU: usize> Display<'d, M, TX, MTU> {
     fn begin_request(&mut self) -> u8 {
         while self.resp_receiver.try_receive().is_some() {
             // Hey! You dropped here: unmatched response
@@ -243,7 +264,7 @@ impl<'d, TX: IoWrite, const MTU: usize> Display<'d, TX, MTU> {
         build: impl FnOnce(&mut [u8], Option<Crc>) -> Result<usize, request::Error>,
         complete: impl FnOnce(&[u8]) -> Result<R, Error>,
     ) -> Result<R, Error> {
-        if !self.shared.running.get() {
+        if !self.shared.with(|s| s.running) {
             return Err(Error::NotRunning);
         }
 
@@ -293,7 +314,7 @@ impl<'d, TX: IoWrite, const MTU: usize> Display<'d, TX, MTU> {
     }
 }
 
-impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
+impl<'d, M: RawMutex, RX: IoRead, const MTU: usize> Runner<'d, M, RX, MTU> {
     pub async fn run<R: Router>(&mut self, buf: &mut [u8], router: &mut R) -> Result<Infallible, RunError> {
         let _guard = RunGuard::new(self.shared);
         loop {
@@ -315,8 +336,9 @@ impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
                         match response {
                             Response::Ack => {
                                 // Is it a matching ACK?
-                                if let Some((Expect::Ack, seq)) = self.shared.pending.get() {
-                                    self.shared.pending.set(None);
+                                if let Some((_, seq)) =
+                                    self.shared.with(|s| s.pending.take_if(|(e, _)| *e == Expect::Ack))
+                                {
                                     let slot = self.resp_sender.send().await;
                                     slot.seq = seq;
                                     slot.len = 0;
@@ -326,12 +348,12 @@ impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
                                 }
                             }
                             Response::Data(content) => {
+                                let (addr, wlen) = (content.addr(), content.wlen());
                                 // Are we waiting for a response (with matching address, wlen, seq)?
-                                if let Some((Expect::Read { addr: a, wlen: w }, seq)) = self.shared.pending.get()
-                                    && a == content.addr()
-                                    && w == content.wlen()
+                                if let Some((_, seq)) = self
+                                    .shared
+                                    .with(|s| s.pending.take_if(|(e, _)| *e == Expect::Read { addr, wlen }))
                                 {
-                                    self.shared.pending.set(None);
                                     let bytes = content.as_bytes();
                                     let slot = self.resp_sender.send().await;
                                     slot.buf[..bytes.len()].copy_from_slice(bytes);
@@ -340,9 +362,12 @@ impl<'d, RX: IoRead, const MTU: usize> Runner<'d, RX, MTU> {
                                     self.resp_sender.send_done();
                                 }
                                 // Or the late reply to a read nobody waits for any more? Drop it.
-                                else if self.shared.abandoned_read.get() == Some((content.addr(), content.wlen())) {
-                                    self.shared.abandoned_read.set(None);
-                                    failed.get_or_insert(RunError::LateReply(content.addr(), content.wlen()));
+                                else if self
+                                    .shared
+                                    .with(|s| s.abandoned_read.take_if(|r| *r == (addr, wlen)))
+                                    .is_some()
+                                {
+                                    failed.get_or_insert(RunError::LateReply(addr, wlen));
                                 }
                                 // Or is this an unsolicited event?
                                 else if let Err(e) = router.route(content) {

@@ -93,7 +93,7 @@ impl Router for FanRouter {
 async fn main(spawner: Spawner) {
     let (tx, rx) = uart::new();
 
-    static RESOURCES: ConstStaticCell<Resources> = ConstStaticCell::new(Resources::new());
+    static RESOURCES: ConstStaticCell<Resources<NoopRawMutex>> = ConstStaticCell::new(Resources::new());
     let resources = RESOURCES.take();
 
     /// Decoded auto-uploads, from the runner task to the event loop in [`main`].
@@ -139,7 +139,7 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn runner_task(mut runner: Runner<'static, UartRx>, mut router: FanRouter) {
+async fn runner_task(mut runner: Runner<'static, NoopRawMutex, UartRx>, mut router: FanRouter) {
     // Buffer for reading into from uart driver.
     let rx_buf = &mut [0; 16];
     // The caller picks the recovery policy for the runner.

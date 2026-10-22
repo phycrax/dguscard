@@ -17,8 +17,6 @@ use embedded_io_async::{Error as _, Read as IoRead, Write as IoWrite};
 pub use route::{RouteError, Router};
 use serde::{Deserialize, Serialize};
 
-const DEFAULT_MTU: usize = 128;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
@@ -167,7 +165,7 @@ struct StateInner<'a, M: RawMutex, const MTU: usize> {
     shared: Shared<M>,
 }
 
-pub struct Resources<M: RawMutex, const MTU: usize = DEFAULT_MTU> {
+pub struct Resources<M: RawMutex, const MTU: usize> {
     resp_bufs: [ResponseFrame<MTU>; 1],
     req_buf: [u8; MTU],
     acc_buf: [u8; MTU],
@@ -192,7 +190,7 @@ impl<M: RawMutex, const MTU: usize> Default for Resources<M, MTU> {
     }
 }
 
-pub struct Display<'d, M: RawMutex, TX: IoWrite, const MTU: usize = DEFAULT_MTU> {
+pub struct Display<'d, M: RawMutex, TX: IoWrite, const MTU: usize> {
     tx: TX,
     buf: &'d mut [u8],
     resp_receiver: Receiver<'d, M, ResponseFrame<MTU>>,
@@ -201,7 +199,7 @@ pub struct Display<'d, M: RawMutex, TX: IoWrite, const MTU: usize = DEFAULT_MTU>
     crc: Option<Crc>,
 }
 
-pub struct Runner<'d, M: RawMutex, RX: IoRead, const MTU: usize = DEFAULT_MTU> {
+pub struct Runner<'d, M: RawMutex, RX: IoRead, const MTU: usize> {
     rx: RX,
     acc: SliceAccumulator<'d>,
     resp_sender: Sender<'d, M, ResponseFrame<MTU>>,

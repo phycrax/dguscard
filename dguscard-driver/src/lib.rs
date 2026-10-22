@@ -248,9 +248,9 @@ where
 
 impl<'d, M: RawMutex, TX: IoWrite, const MTU: usize> Display<'d, M, TX, MTU> {
     fn begin_request(&mut self) -> u8 {
-        while self.resp_receiver.try_receive().is_some() {
+        while let Some(slot) = self.resp_receiver.try_receive() {
             // Hey! You dropped here: unmatched response
-            self.resp_receiver.receive_done();
+            slot.receive_done();
         }
         self.seq = self.seq.wrapping_add(1);
         self.seq
@@ -278,10 +278,10 @@ impl<'d, M: RawMutex, TX: IoWrite, const MTU: usize> Display<'d, M, TX, MTU> {
             let resp = self.resp_receiver.receive().await;
             if resp.seq == seq {
                 let out = complete(&resp.buf[..resp.len]);
-                self.resp_receiver.receive_done();
+                resp.receive_done();
                 return out;
             }
-            self.resp_receiver.receive_done();
+            resp.receive_done();
         }
     }
 
@@ -337,10 +337,10 @@ impl<'d, M: RawMutex, RX: IoRead, const MTU: usize> Runner<'d, M, RX, MTU> {
                                 if let Some((_, seq)) =
                                     self.shared.with(|s| s.pending.take_if(|(e, _)| *e == Expect::Ack))
                                 {
-                                    let slot = self.resp_sender.send().await;
+                                    let mut slot = self.resp_sender.send().await;
                                     slot.seq = seq;
                                     slot.len = 0;
-                                    self.resp_sender.send_done();
+                                    slot.send_done();
                                 } else {
                                     failed.get_or_insert(RunError::UnmatchedAck);
                                 }
@@ -353,11 +353,11 @@ impl<'d, M: RawMutex, RX: IoRead, const MTU: usize> Runner<'d, M, RX, MTU> {
                                     .with(|s| s.pending.take_if(|(e, _)| *e == Expect::Read { addr, wlen }))
                                 {
                                     let bytes = content.as_bytes();
-                                    let slot = self.resp_sender.send().await;
+                                    let mut slot = self.resp_sender.send().await;
                                     slot.buf[..bytes.len()].copy_from_slice(bytes);
                                     slot.len = bytes.len();
                                     slot.seq = seq;
-                                    self.resp_sender.send_done();
+                                    slot.send_done();
                                 }
                                 // Or the late reply to a read nobody waits for any more? Drop it.
                                 else if self

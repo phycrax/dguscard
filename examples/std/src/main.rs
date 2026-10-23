@@ -9,8 +9,10 @@ use static_cell::{ConstStaticCell, StaticCell};
 
 use crate::uart::UartRx;
 
-/// Largest frame the driver buffers, in bytes.
-const MTU: usize = 128;
+/// Largest frame sent to the display, in bytes.
+const REQ_MTU: usize = 128;
+/// Largest frame received from the display, in bytes.
+const RESP_MTU: usize = 128;
 
 /// Application state, mutated by the event loop in [`main`].
 #[derive(Default, Debug)]
@@ -96,7 +98,8 @@ impl Router for FanRouter {
 async fn main(spawner: Spawner) {
     let (tx, rx) = uart::new();
 
-    static RESOURCES: ConstStaticCell<Resources<NoopRawMutex, MTU>> = ConstStaticCell::new(Resources::new());
+    static RESOURCES: ConstStaticCell<Resources<NoopRawMutex, REQ_MTU, RESP_MTU>> =
+        ConstStaticCell::new(Resources::new());
     let resources = RESOURCES.take();
 
     /// Decoded auto-uploads, from the runner task to the event loop in [`main`].

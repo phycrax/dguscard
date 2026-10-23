@@ -149,26 +149,34 @@ impl<M: RawMutex> Drop for PendingGuard<'_, M> {
     }
 }
 
-pub struct Resources<M: RawMutex, const MTU: usize> {
-    req_buf: [u8; MTU],
-    acc_buf: [u8; MTU],
-    reply_buf: AsyncMutex<M, [u8; MTU]>,
+/// Driver buffers, passed to [`new`].
+///
+/// `REQ` bounds the frames sent: the largest write, framing and CRC included. A longer one
+/// fails with [`request::Error::BufferFull`].
+///
+/// `RESP` bounds the frames received, auto-uploads and read replies alike, from the command
+/// byte through the CRC. A longer one fails with [`response::Error::FrameTooLarge`].
+pub struct Resources<M: RawMutex, const REQ: usize, const RESP: usize> {
+    req_buf: [u8; REQ],
+    acc_buf: [u8; RESP],
+    /// The data of a read reply, part of a response so it always fits.
+    reply_buf: AsyncMutex<M, [u8; RESP]>,
     shared: Shared<M>,
 }
 
-impl<M: RawMutex, const MTU: usize> Resources<M, MTU> {
+impl<M: RawMutex, const REQ: usize, const RESP: usize> Resources<M, REQ, RESP> {
     /// Creates new driver resources.
     pub const fn new() -> Self {
         Self {
-            req_buf: [0; MTU],
-            acc_buf: [0; MTU],
-            reply_buf: AsyncMutex::new([0; MTU]),
+            req_buf: [0; REQ],
+            acc_buf: [0; RESP],
+            reply_buf: AsyncMutex::new([0; RESP]),
             shared: Shared::new(),
         }
     }
 }
 
-impl<M: RawMutex, const MTU: usize> Default for Resources<M, MTU> {
+impl<M: RawMutex, const REQ: usize, const RESP: usize> Default for Resources<M, REQ, RESP> {
     fn default() -> Self {
         Self::new()
     }
@@ -190,8 +198,8 @@ pub struct Runner<'d, M: RawMutex, RX: IoRead> {
     shared: &'d Shared<M>,
 }
 
-pub fn new<'d, M, RX, TX, const MTU: usize>(
-    resources: &'d mut Resources<M, MTU>,
+pub fn new<'d, M, RX, TX, const REQ: usize, const RESP: usize>(
+    resources: &'d mut Resources<M, REQ, RESP>,
     rx: RX,
     tx: TX,
     config: Config,

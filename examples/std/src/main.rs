@@ -142,7 +142,7 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn runner_task(mut runner: Runner<'static, NoopRawMutex, UartRx, MTU>, mut router: FanRouter) {
+async fn runner_task(mut runner: Runner<'static, NoopRawMutex, UartRx>, mut router: FanRouter) {
     // Buffer for reading into from uart driver.
     let rx_buf = &mut [0; 16];
     // The caller picks the recovery policy for the runner.

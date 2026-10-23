@@ -4,7 +4,6 @@ mod route;
 
 use core::cell::Cell;
 use core::convert::Infallible;
-use core::mem::MaybeUninit;
 
 use dguscard::request::{Read, Request, Write};
 pub use dguscard::response::Content;
@@ -12,7 +11,8 @@ use dguscard::response::{FeedResult, Response, SliceAccumulator};
 pub use dguscard::{Address, Crc, request, response};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::RawMutex;
-use embassy_sync::zerocopy_channel::{Channel, Receiver, Sender};
+use embassy_sync::mutex::Mutex as AsyncMutex;
+use embassy_sync::signal::Signal;
 use embedded_io_async::{Error as _, Read as IoRead, Write as IoWrite};
 pub use route::{RouteError, Router};
 use serde::{Deserialize, Serialize};
@@ -84,6 +84,8 @@ struct State {
 
 struct Shared<M: RawMutex> {
     state: Mutex<M, Cell<State>>,
+    /// `(seq, len)` of the reply the runner put in the reply buffer, `len` is 0 for an ack.
+    replied: Signal<M, (u8, usize)>,
 }
 
 impl<M: RawMutex> Shared<M> {
@@ -94,6 +96,7 @@ impl<M: RawMutex> Shared<M> {
                 abandoned_read: None,
                 running: false,
             })),
+            replied: Signal::new(),
         }
     }
 
@@ -146,40 +149,21 @@ impl<M: RawMutex> Drop for PendingGuard<'_, M> {
     }
 }
 
-struct ResponseFrame<const MTU: usize> {
-    seq: u8,
-    len: usize,
-    buf: [u8; MTU],
-}
-
-impl<const MTU: usize> ResponseFrame<MTU> {
-    const INIT: Self = Self {
-        seq: 0,
-        len: 0,
-        buf: [0; MTU],
-    };
-}
-
-struct StateInner<'a, M: RawMutex, const MTU: usize> {
-    resp: Channel<'a, M, ResponseFrame<MTU>>,
-    shared: Shared<M>,
-}
-
 pub struct Resources<M: RawMutex, const MTU: usize> {
-    resp_bufs: [ResponseFrame<MTU>; 1],
     req_buf: [u8; MTU],
     acc_buf: [u8; MTU],
-    inner: MaybeUninit<StateInner<'static, M, MTU>>,
+    reply_buf: AsyncMutex<M, [u8; MTU]>,
+    shared: Shared<M>,
 }
 
 impl<M: RawMutex, const MTU: usize> Resources<M, MTU> {
     /// Creates new driver resources.
     pub const fn new() -> Self {
         Self {
-            resp_bufs: [ResponseFrame::INIT; 1],
             req_buf: [0; MTU],
             acc_buf: [0; MTU],
-            inner: MaybeUninit::uninit(),
+            reply_buf: AsyncMutex::new([0; MTU]),
+            shared: Shared::new(),
         }
     }
 }
@@ -190,19 +174,19 @@ impl<M: RawMutex, const MTU: usize> Default for Resources<M, MTU> {
     }
 }
 
-pub struct Display<'d, M: RawMutex, TX: IoWrite, const MTU: usize> {
+pub struct Display<'d, M: RawMutex, TX: IoWrite> {
     tx: TX,
     buf: &'d mut [u8],
-    resp_receiver: Receiver<'d, M, ResponseFrame<MTU>>,
+    reply_buf: &'d AsyncMutex<M, [u8]>,
     shared: &'d Shared<M>,
     seq: u8,
     crc: Option<Crc>,
 }
 
-pub struct Runner<'d, M: RawMutex, RX: IoRead, const MTU: usize> {
+pub struct Runner<'d, M: RawMutex, RX: IoRead> {
     rx: RX,
     acc: SliceAccumulator<'d>,
-    resp_sender: Sender<'d, M, ResponseFrame<MTU>>,
+    reply_buf: &'d AsyncMutex<M, [u8]>,
     shared: &'d Shared<M>,
 }
 
@@ -211,7 +195,7 @@ pub fn new<'d, M, RX, TX, const MTU: usize>(
     rx: RX,
     tx: TX,
     config: Config,
-) -> (Display<'d, M, TX, MTU>, Runner<'d, M, RX, MTU>)
+) -> (Display<'d, M, TX>, Runner<'d, M, RX>)
 where
     M: RawMutex,
     RX: IoRead,
@@ -219,39 +203,37 @@ where
 {
     let crc = if config.crc { Crc::on() } else { Crc::off() };
 
-    let inner_uninit: *mut MaybeUninit<StateInner<'d, M, MTU>> =
-        (&mut resources.inner as *mut MaybeUninit<StateInner<'static, M, MTU>>).cast();
-    let inner = unsafe { &mut *inner_uninit }.write(StateInner {
-        resp: Channel::new(&mut resources.resp_bufs[..]),
-        shared: Shared::new(),
-    });
-
-    let (resp_sender, resp_receiver) = inner.resp.split();
-    let shared = &inner.shared;
+    let Resources {
+        req_buf,
+        acc_buf,
+        reply_buf,
+        shared,
+    } = resources;
+    // Nothing from a previous driver over these resources carries over.
+    *shared = Shared::new();
+    let (reply_buf, shared) = (&*reply_buf, &*shared);
 
     let display = Display {
         tx,
-        buf: &mut resources.req_buf[..],
-        resp_receiver,
+        buf: &mut req_buf[..],
+        reply_buf,
         shared,
         seq: 0,
         crc,
     };
     let runner = Runner {
         rx,
-        acc: SliceAccumulator::new(&mut resources.acc_buf[..], crc),
-        resp_sender,
+        acc: SliceAccumulator::new(&mut acc_buf[..], crc),
+        reply_buf,
         shared,
     };
     (display, runner)
 }
 
-impl<'d, M: RawMutex, TX: IoWrite, const MTU: usize> Display<'d, M, TX, MTU> {
+impl<'d, M: RawMutex, TX: IoWrite> Display<'d, M, TX> {
     fn begin_request(&mut self) -> u8 {
-        while let Some(slot) = self.resp_receiver.try_receive() {
-            // Hey! You dropped here: unmatched response
-            slot.receive_done();
-        }
+        // Hey! You dropped here: the reply to a cancelled request
+        self.shared.replied.reset();
         self.seq = self.seq.wrapping_add(1);
         self.seq
     }
@@ -275,13 +257,12 @@ impl<'d, M: RawMutex, TX: IoWrite, const MTU: usize> Display<'d, M, TX, MTU> {
         }
 
         loop {
-            let resp = self.resp_receiver.receive().await;
-            if resp.seq == seq {
-                let out = complete(&resp.buf[..resp.len]);
-                resp.receive_done();
-                return out;
+            let (replied, len) = self.shared.replied.wait().await;
+            // Or the reply to a request cancelled once the runner had taken it? Ours is still to come.
+            if replied == seq {
+                let reply = self.reply_buf.lock().await;
+                return complete(&reply[..len]);
             }
-            resp.receive_done();
         }
     }
 
@@ -312,7 +293,7 @@ impl<'d, M: RawMutex, TX: IoWrite, const MTU: usize> Display<'d, M, TX, MTU> {
     }
 }
 
-impl<'d, M: RawMutex, RX: IoRead, const MTU: usize> Runner<'d, M, RX, MTU> {
+impl<'d, M: RawMutex, RX: IoRead> Runner<'d, M, RX> {
     pub async fn run<R: Router>(&mut self, buf: &mut [u8], router: &mut R) -> Result<Infallible, RunError> {
         let _guard = RunGuard::new(self.shared);
         loop {
@@ -337,10 +318,7 @@ impl<'d, M: RawMutex, RX: IoRead, const MTU: usize> Runner<'d, M, RX, MTU> {
                                 if let Some((_, seq)) =
                                     self.shared.with(|s| s.pending.take_if(|(e, _)| *e == Expect::Ack))
                                 {
-                                    let mut slot = self.resp_sender.send().await;
-                                    slot.seq = seq;
-                                    slot.len = 0;
-                                    slot.send_done();
+                                    self.shared.replied.signal((seq, 0));
                                 } else {
                                     failed.get_or_insert(RunError::UnmatchedAck);
                                 }
@@ -353,11 +331,8 @@ impl<'d, M: RawMutex, RX: IoRead, const MTU: usize> Runner<'d, M, RX, MTU> {
                                     .with(|s| s.pending.take_if(|(e, _)| *e == Expect::Read { addr, wlen }))
                                 {
                                     let bytes = content.as_bytes();
-                                    let mut slot = self.resp_sender.send().await;
-                                    slot.buf[..bytes.len()].copy_from_slice(bytes);
-                                    slot.len = bytes.len();
-                                    slot.seq = seq;
-                                    slot.send_done();
+                                    self.reply_buf.lock().await[..bytes.len()].copy_from_slice(bytes);
+                                    self.shared.replied.signal((seq, bytes.len()));
                                 }
                                 // Or the late reply to a read nobody waits for any more? Drop it.
                                 else if self

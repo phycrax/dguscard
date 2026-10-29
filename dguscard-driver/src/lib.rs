@@ -246,19 +246,17 @@ impl<'d, M: RawMutex, TX: IoWrite> Display<'d, M, TX> {
         self.seq
     }
 
-    async fn transfer<R>(
-        &mut self,
-        expect: Expect,
-        build: impl FnOnce(&mut [u8], Option<Crc>) -> Result<usize, request::Error>,
-        complete: impl FnOnce(&[u8]) -> Result<R, Error>,
-    ) -> Result<R, Error> {
+    /// Sends the first `len` bytes of the request buffer and waits for the reply to them. Returns the
+    /// length of the reply's data in the reply buffer, 0 for an ack.
+    ///
+    /// Not generic, so every request shares one copy of it. Only serializing the request and
+    /// deserializing the reply depend on the value's type.
+    async fn transfer(&mut self, expect: Expect, len: usize) -> Result<usize, Error> {
         if !self.shared.with(|s| s.running) {
             return Err(Error::NotRunning);
         }
 
         let seq = self.begin_request();
-        let len = build(&mut self.buf[..], self.crc).map_err(Error::Serialize)?;
-
         let _pending = PendingGuard::new(self.shared, expect, seq);
         if let Err(e) = self.tx.write_all(&self.buf[..len]).await {
             return Err(Error::Io(e.kind()));
@@ -268,36 +266,57 @@ impl<'d, M: RawMutex, TX: IoWrite> Display<'d, M, TX> {
             let (replied, len) = self.shared.replied.wait().await;
             // Or the reply to a request cancelled once the runner had taken it? Ours is still to come.
             if replied == seq {
-                let reply = self.reply_buf.lock().await;
-                return complete(&reply[..len]);
+                return Ok(len);
             }
         }
     }
 
+    /// Serializes a write of `val` to `addr` into the request buffer. Nothing is sent until
+    /// [`Staged::send`].
+    pub fn stage_write<T: Serialize + ?Sized>(
+        &mut self,
+        addr: Address,
+        val: &T,
+    ) -> Result<Staged<'_, 'd, M, TX>, Error> {
+        let mut req = Request::with_slice(&mut self.buf[..], addr, Write, self.crc).map_err(Error::Serialize)?;
+        req.push(val).map_err(Error::Serialize)?;
+        let len = req.finalize().map_err(Error::Serialize)?.len();
+
+        Ok(Staged { display: self, len })
+    }
+
     pub async fn write<T: Serialize + ?Sized>(&mut self, addr: Address, val: &T) -> Result<(), Error> {
-        self.transfer(
-            Expect::Ack,
-            |buf, crc| {
-                let mut req = Request::with_slice(buf, addr, Write, crc)?;
-                req.push(val)?;
-                Ok(req.finalize()?.len())
-            },
-            |_| Ok(()),
-        )
-        .await
+        self.stage_write(addr, val)?.send().await
     }
 
     pub async fn read<T: for<'a> Deserialize<'a>>(&mut self, addr: Address, wlen: u8) -> Result<T, Error> {
-        self.transfer(
-            Expect::Read { addr, wlen },
-            |buf, crc| Ok(Request::with_slice(buf, addr, Read(wlen), crc)?.finalize()?.len()),
-            |bytes| {
-                Content::new(addr, wlen, bytes)
-                    .take::<T>()
-                    .map_err(|e| Error::Deserialize(addr, e))
-            },
-        )
-        .await
+        let req = Request::with_slice(&mut self.buf[..], addr, Read(wlen), self.crc).map_err(Error::Serialize)?;
+        let len = req.finalize().map_err(Error::Serialize)?.len();
+
+        let len = self.transfer(Expect::Read { addr, wlen }, len).await?;
+        // The runner only fills the reply buffer for a pending request, and only this display makes them.
+        let reply = self.reply_buf.lock().await;
+        Content::new(addr, wlen, &reply[..len])
+            .take::<T>()
+            .map_err(|e| Error::Deserialize(addr, e))
+    }
+}
+
+/// A write serialized by [`Display::stage_write`], ready to send.
+///
+/// It holds the display, so nothing can be staged over it while it lives.
+pub struct Staged<'a, 'd, M: RawMutex, TX: IoWrite> {
+    display: &'a mut Display<'d, M, TX>,
+    len: usize,
+}
+
+impl<M: RawMutex, TX: IoWrite> Staged<'_, '_, M, TX> {
+    /// Sends the write and waits for its ack.
+    ///
+    /// Each call sends it again, so a send that was cancelled, for example by a timeout, can be retried
+    /// without serializing anything.
+    pub async fn send(&mut self) -> Result<(), Error> {
+        self.display.transfer(Expect::Ack, self.len).await.map(|_| ())
     }
 }
 

@@ -55,6 +55,21 @@ impl<'a> Slice<'a> {
 impl<'a> Storage for Slice<'a> {
     type Output = &'a mut [u8];
 
+    /// Checks the room once and copies, writing nothing if `data` does not fit.
+    ///
+    /// Never inlined: every serialized field calls this one copy, rather than carrying its own
+    /// bounds-checked copy loop, which keeps code size down on small targets.
+    #[inline(never)]
+    fn try_extend(&mut self, data: &[u8]) -> Result<(), Error> {
+        let end = self.index + data.len();
+        self.buf
+            .get_mut(self.index..end)
+            .ok_or(Error::BufferFull)?
+            .copy_from_slice(data);
+        self.index = end;
+        Ok(())
+    }
+
     #[inline]
     fn try_push(&mut self, b: u8) -> Result<(), Error> {
         *self.buf.get_mut(self.index).ok_or(Error::BufferFull)? = b;
